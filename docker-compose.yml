@@ -4,9 +4,9 @@ services:
     container_name: bonza_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: bonza
-      POSTGRES_PASSWORD: bonza_dev
-      POSTGRES_DB: bonza
+      POSTGRES_USER: username
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: db
     ports:
       - "5432:5432"
     volumes:

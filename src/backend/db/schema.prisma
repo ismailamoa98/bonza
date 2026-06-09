@@ -1,0 +1,141 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String
+  name              String?
+  location          String?
+  travelStatus      String?
+  createdAt         DateTime  @default(now())
+
+  trips             Trip[]
+  bookingLinks      BookingLink[]
+  chatSessions      ChatSession[]
+}
+
+model Trip {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+
+  origin            String
+  destination       String
+  checkIn           DateTime
+  checkOut          DateTime
+  budget            Int
+  numberOfTravelers Int       @default(1)
+  flexibility       Boolean   @default(false)
+
+  loyaltyPoints     Json
+  preferences       Json
+
+  scenarios         Scenario[]
+  bookingLinks      BookingLink[]
+  chatSessions      ChatSession[]
+
+  createdAt         DateTime  @default(now())
+}
+
+model Scenario {
+  id                String    @id @default(cuid())
+  tripId            String
+  trip              Trip      @relation(fields: [tripId], references: [id])
+
+  strategy          String    // "transfer", "status", "cash", "hybrid", "direct"
+  totalCashCost     Int
+  pointsUsed        Int
+  pointsProgram     String
+
+  flightDetails     Json
+  hotelDetails      Json
+  carDetails        Json
+
+  benefits          Json
+  reasoning         String
+  valueMultiplier   Float     // 1.41 for "+41% Value"
+  savingsAmount     Int
+
+  isRecommended     Boolean   @default(false)
+
+  createdAt         DateTime  @default(now())
+}
+
+model ChatSession {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+
+  tripId            String
+  trip              Trip      @relation(fields: [tripId], references: [id])
+
+  selectedScenarioId String?  // Updates as user changes selection
+
+  messages          ChatMessage[]
+
+  createdAt         DateTime  @default(now())
+}
+
+model ChatMessage {
+  id                String    @id @default(cuid())
+  sessionId         String
+  session           ChatSession @relation(fields: [sessionId], references: [id])
+
+  role              String    // "user" or "bonza"
+  content           String
+
+  createdAt         DateTime  @default(now())
+}
+
+model BookingLink {
+  id                String    @id @default(cuid())
+  token             String    @unique @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+
+  tripId            String
+  trip              Trip      @relation(fields: [tripId], references: [id])
+
+  selectedScenarioId String?
+
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+  viewedAt          DateTime?
+
+  affiliateLinks    AffiliateLink[]
+  conversions       Conversion[]
+}
+
+model AffiliateLink {
+  id                String    @id @default(cuid())
+  bookingLinkId     String
+  bookingLink       BookingLink @relation(fields: [bookingLinkId], references: [id])
+
+  type              String    // "flight", "hotel", "car"
+  vendor            String    // "United", "Marriott", "Hertz"
+  affiliateUrl      String
+  trackingId        String
+  commissionRate    Float
+
+  createdAt         DateTime  @default(now())
+}
+
+model Conversion {
+  id                String    @id @default(cuid())
+  bookingLinkId     String
+  bookingLink       BookingLink @relation(fields: [bookingLinkId], references: [id])
+
+  type              String    // "flight", "hotel", "car"
+  vendor            String
+  bookingId         String?
+  commissionAmount  Float?
+
+  createdAt         DateTime  @default(now())
+}

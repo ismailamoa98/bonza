@@ -1,0 +1,32 @@
+{
+  "name": "bonza-travel-app",
+  "version": "0.1.0",
+  "description": "Bonza - AI Travel Optimizer. Optimizing travel with loyalty points.",
+  "main": "src/backend/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/backend/server.js",
+    "dev": "nodemon src/backend/server.js",
+    "db:setup": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:seed": "node src/backend/db/seed.js"
+  },
+  "prisma": {
+    "schema": "src/backend/db/schema.prisma"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "@prisma/client": "^5.22.0",
+    "axios": "^1.7.9",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "prisma": "^5.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "nodemon": "^3.1.9"
+  }
+}

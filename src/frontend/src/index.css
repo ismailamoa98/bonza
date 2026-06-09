@@ -1,0 +1,4 @@
+/* index.css — Tailwind setup. Tailwind layers are pulled in here. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

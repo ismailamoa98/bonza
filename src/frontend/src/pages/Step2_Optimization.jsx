@@ -103,7 +103,7 @@ export default function Step2_Optimization() {
   const canBook = Boolean(selectedFlight || selectedHotel || selectedCar);
 
   return (
-    <div className="mx-auto max-w-6xl px-4">
+    <div className="mx-auto max-w-6xl px-4 py-6">
       <StepIndicator currentStep={2} />
 
       <div className="mb-4">

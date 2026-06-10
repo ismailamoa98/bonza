@@ -58,7 +58,7 @@ export default function Step3_BookingLink() {
   const dates = `${shortDate(trip?.checkIn)} – ${shortDate(trip?.checkOut)}`;
 
   return (
-    <div className="mx-auto max-w-3xl px-4">
+    <div className="mx-auto max-w-3xl px-4 py-6">
       <StepIndicator currentStep={3} />
 
       {/* Section A: the booking link */}

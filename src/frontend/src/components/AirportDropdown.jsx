@@ -63,7 +63,9 @@ export default function AirportDropdown({ label, placeholder, displayLabel, onSe
 
   return (
     <label className="relative block" ref={boxRef}>
-      <span className="mb-1 block text-sm font-medium text-slate-600">{label}</span>
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+        {label}
+      </span>
       <input
         type="text"
         value={query}
@@ -75,7 +77,7 @@ export default function AirportDropdown({ label, placeholder, displayLabel, onSe
           setOpen(true);
         }}
         onFocus={() => results.length && setOpen(true)}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-bonza focus:outline-none"
+        className="w-full rounded-lg border border-[#e3ded6] bg-white px-3 py-2.5 text-[13px] text-ink focus:border-bonza focus:outline-none"
       />
 
       {open && (loading || results.length > 0 || error) && (

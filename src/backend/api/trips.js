@@ -20,8 +20,8 @@ router.post("/", async (req, res, next) => {
       preferences,
     } = req.body || {};
 
-    if (!origin || !destination || !checkIn || !checkOut || budget == null) {
-      const err = new Error("origin, destination, checkIn, checkOut, and budget are required");
+    if (!origin || !destination || !checkIn || !checkOut) {
+      const err = new Error("origin, destination, checkIn, and checkOut are required");
       err.status = 400;
       throw err;
     }
@@ -33,7 +33,8 @@ router.post("/", async (req, res, next) => {
         destination,
         checkIn: new Date(checkIn),
         checkOut: new Date(checkOut),
-        budget: Number(budget),
+        // Optional — 0 means "no cash ceiling; optimize within my points".
+        budget: budget === "" || budget == null ? 0 : Number(budget),
         numberOfTravelers: Number(numberOfTravelers) || 1,
         flexibility: Boolean(flexibility),
         loyaltyPoints: getMockPlaidData(req.userId),

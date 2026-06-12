@@ -1,12 +1,10 @@
 // components/PackageCard.jsx — Reusable travel-package card (Plus Jakarta Sans).
 // Hierarchy by weight + size + colour: bold dark title -> medium grey subtitle ->
 // bold price. Fully prop-driven so it renders mock deck data today and real,
-// logged-in results later. Props: { package, fill, seed, onOpen, pointsOverride }.
+// logged-in results later. Props: { package, fill, seed, onOpen }.
 //   onOpen(pkg) fires when the card is clicked.
 //   fill — on lg, stretch to the column height (image grows) so the card's bottom
 //   aligns with the adjacent form; grid cards (fill=false) stay square.
-//   pointsOverride — pre-Plaid seam: when set, the offer is sized to the user's
-//   loyalty balance (the points figure follows the LoyaltyCard) instead of pkg.pts.
 import { useEffect, useState } from "react";
 import { imageUrl, fetchImage } from "../data/packages";
 import { formatPoints } from "../utils/format";
@@ -14,11 +12,11 @@ import { formatPoints } from "../utils/format";
 // First number group in a string -> integer ("50,000 Avios + £140" -> 50000).
 const num = (s) => Number((String(s).match(/[\d,]+/)?.[0] || "0").replace(/,/g, "")) || 0;
 
-export default function PackageCard({ package: pkg, fill = false, seed = 1, onOpen, pointsOverride }) {
+export default function PackageCard({ package: pkg, fill = false, seed = 1, onOpen }) {
   // Split "215,000 Bonvoy · 1.4¢/pt" -> amount; ¢/pt is recomputed dynamically below.
   const [ptsAmount] = (pkg.pts || "").split(" · ");
-  // Offer points follow the user's loyalty balance when an override is provided.
-  const pointsNum = pointsOverride ?? num(ptsAmount);
+  // Each offer shows its own redemption cost.
+  const pointsNum = num(ptsAmount);
   const wasNum = num(pkg.was);
   // Dynamic value: pence of estimated trip value unlocked per point.
   const cpp = pointsNum ? ((wasNum * 100) / pointsNum).toFixed(1) : null;
@@ -104,7 +102,7 @@ export default function PackageCard({ package: pkg, fill = false, seed = 1, onOp
           <div className="flex-1">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Points</p>
             <p className="mt-0.5 text-[22px] font-bold tracking-[-0.01em] text-ink">
-              {pointsOverride != null ? formatPoints(pointsOverride) : pointsNum ? formatPoints(pointsNum) : ptsAmount}
+              {pointsNum ? formatPoints(pointsNum) : ptsAmount}
             </p>
             <div className="mt-0.5 flex items-center gap-1.5">
               <span className="text-[11px] text-ink-muted">pts</span>

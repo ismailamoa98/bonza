@@ -34,9 +34,9 @@ export default function LoyaltyCard({ loyaltyPoints }) {
   const pctOf = (v) => (total > 0 ? Math.round((v / total) * 100) : 0);
 
   return (
-    <div className="rounded-2xl border border-[rgba(40,30,20,0.05)] bg-white p-6 font-jakarta tabular-nums shadow-[0_1px_2px_rgba(40,30,20,0.04),0_16px_40px_rgba(120,80,50,0.07)]">
+    <div className="rounded-2xl border border-[rgba(40,30,20,0.05)] bg-white p-5 font-jakarta tabular-nums shadow-[0_1px_2px_rgba(40,30,20,0.04),0_16px_40px_rgba(120,80,50,0.07)]">
       {/* Meta */}
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[1.2px] text-ink-muted">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9a9088" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="11" width="18" height="11" rx="2" />
@@ -54,7 +54,7 @@ export default function LoyaltyCard({ loyaltyPoints }) {
       <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.6px] text-ink-muted">
         Total travel value
       </p>
-      <div className="relative mb-5">
+      <div className="relative mb-4">
         <svg className="pointer-events-none absolute right-0 -top-1.5 h-[54px] w-[46%] opacity-90" viewBox="0 0 240 56" preserveAspectRatio="none">
           <defs>
             <linearGradient id="lc-spark" x1="0" y1="0" x2="0" y2="1">
@@ -84,7 +84,7 @@ export default function LoyaltyCard({ loyaltyPoints }) {
       </div>
 
       {/* Allocation bar */}
-      <div className="mb-5 flex gap-[3px]">
+      <div className="mb-4 flex gap-[3px]">
         {rows.map((r) => (
           <div key={r.key} className="h-2 rounded-[3px]" style={{ width: `${pctOf(r.value)}%`, background: r.shade }} />
         ))}
@@ -92,7 +92,7 @@ export default function LoyaltyCard({ loyaltyPoints }) {
 
       {/* Program rows */}
       {rows.map((r) => (
-        <div key={r.key} className="flex items-center gap-2.5 border-t border-[#f4f1ec] py-2.5 first:border-t-0">
+        <div key={r.key} className="flex items-center gap-2.5 border-t border-[#f4f1ec] py-2 first:border-t-0">
           <span className="h-2.5 w-2.5 flex-shrink-0 rounded-[3px]" style={{ background: r.shade }} />
           <span className="text-[13px] font-semibold text-ink">{r.label}</span>
           {r.key === bestKey && (

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TripForm from "../components/TripForm";
 import PackageCard from "../components/PackageCard";
+import SnapSection from "../components/SnapSection";
 import { PACKAGES, shuffle } from "../data/packages";
 import { useTrip } from "../hooks/useTrip";
 import { useAppStore } from "../store/appStore";
@@ -104,12 +105,11 @@ export default function HomePage() {
     return () => clearInterval(id);
   }, [deck.length]);
 
-  // Pre-Plaid seam: the offer's points follow the user's loyalty balance.
-  const loyaltyTotal =
-    (loyaltyPoints?.amex || 0) +
-    (loyaltyPoints?.chaseUr || 0) +
-    (loyaltyPoints?.unitedMiles || 0) +
-    (loyaltyPoints?.marriottPoints || 0);
+  // Scope full-screen "slide" snapping to the homepage only.
+  useEffect(() => {
+    document.documentElement.classList.add("snap-page");
+    return () => document.documentElement.classList.remove("snap-page");
+  }, []);
 
   // Auto-fill loyalty points on first load (no manual entry).
   useEffect(() => {
@@ -200,24 +200,33 @@ export default function HomePage() {
 
   return (
     <div className="text-ink">
-      {/* 1. HERO */}
-      <section id="plan" className="mx-auto max-w-7xl px-6 pt-10 pb-16">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
-          Your AI Vacation Agent
-        </p>
-        <h1 className="mt-3 text-[2.6rem] font-medium leading-[1.08] tracking-[-0.02em] text-ink sm:text-[3.2rem]">
+      {/* 1. HERO — one-screen: fills the viewport so "See how it works" lands in view. */}
+      <section
+        id="plan"
+        className="mx-auto flex max-w-7xl snap-start scroll-mt-16 flex-col px-6 pt-6 pb-6 lg:min-h-[calc(100dvh-64px)]"
+      >
+        <h1 className="text-[2.4rem] font-medium leading-[1.05] tracking-[-0.02em] text-ink sm:text-[2.7rem]">
           Where do you want to go?
         </h1>
 
-        <div className="mt-8 grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-stretch">
+        <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-stretch lg:flex-1 lg:min-h-0">
           {/* Left: copy + form */}
           <div>
-            <p className="max-w-[520px] text-[15px] leading-relaxed text-ink-soft">
+            <p className="max-w-[520px] text-[14px] leading-relaxed text-ink-soft">
               Tell Bonza your trip. Our AI checks 50+ airlines &amp; hotels, reads your loyalty
               points via Plaid, and builds your best-value package — flights, hotel, and car
               together.
             </p>
-            <div className="mt-5">
+            <button
+              type="button"
+              onClick={() =>
+                document.getElementById("walkthrough")?.scrollIntoView({ behavior: "smooth" })
+              }
+              className="mt-2 text-[13px] font-medium text-bonza hover:text-bonza-dark"
+            >
+              See how it works ↓
+            </button>
+            <div className="mt-4">
               <TripForm
                 loyaltyPoints={loyaltyPoints}
                 onSubmit={handleSubmit}
@@ -237,7 +246,7 @@ export default function HomePage() {
           <div className="flex flex-col">
             <div className="flex items-center justify-between">
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
-                🎯 Personalized for you
+                Personalized for you
               </p>
               {/* Slideshow position — click a dot to jump. */}
               <div className="flex items-center gap-1.5">
@@ -257,36 +266,17 @@ export default function HomePage() {
             <div className="mt-4 lg:flex-1 lg:min-h-0">
               {heroCard && (
                 <div key={heroCard.city} className="animate-fadein lg:h-full">
-                  <PackageCard
-                    package={heroCard}
-                    seed={seed}
-                    fill
-                    onOpen={openPackage}
-                    pointsOverride={loyaltyTotal || undefined}
-                  />
+                  <PackageCard package={heroCard} seed={seed} fill onOpen={openPackage} />
                 </div>
               )}
             </div>
             {openError && <p className="mt-2 text-[12px] text-red-600">{openError}</p>}
           </div>
         </div>
-
-        {/* Centred between the two columns */}
-        <div className="mt-8 text-center">
-          <button
-            type="button"
-            onClick={() =>
-              document.getElementById("walkthrough")?.scrollIntoView({ behavior: "smooth" })
-            }
-            className="text-[13px] font-medium text-ink-muted hover:text-bonza"
-          >
-            See how it works ↓
-          </button>
-        </div>
       </section>
 
       {/* 2. STATS */}
-      <section className="mx-auto max-w-7xl px-6 py-6">
+      <SnapSection>
         <div className="grid grid-cols-2 gap-6 text-center sm:grid-cols-4">
           {[
             ["2 min", "to build a package"],
@@ -300,10 +290,10 @@ export default function HomePage() {
             </div>
           ))}
         </div>
-      </section>
+      </SnapSection>
 
       {/* 3. HOW IT WORKS */}
-      <section id="walkthrough" className="mx-auto max-w-7xl px-6 py-16">
+      <SnapSection id="walkthrough">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
           How it works
         </p>
@@ -334,10 +324,10 @@ export default function HomePage() {
             </div>
           ))}
         </div>
-      </section>
+      </SnapSection>
 
       {/* 4. MORE PACKAGES */}
-      <section className="mx-auto max-w-7xl px-6 py-6">
+      <SnapSection>
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
           More packages for you
         </p>
@@ -349,10 +339,10 @@ export default function HomePage() {
             <PackageCard key={pkg.city} package={pkg} seed={seed} onOpen={openPackage} />
           ))}
         </div>
-      </section>
+      </SnapSection>
 
       {/* 5. COMMUNITY */}
-      <section className="mx-auto max-w-7xl px-6 py-16">
+      <SnapSection>
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
           Our community
         </p>
@@ -390,10 +380,10 @@ export default function HomePage() {
             </div>
           ))}
         </div>
-      </section>
+      </SnapSection>
 
       {/* 6. FINAL CTA */}
-      <section className="mx-auto max-w-7xl px-6 py-6">
+      <SnapSection>
         <div className="rounded-3xl bg-bonza px-6 py-12 text-center">
           <h2 className="text-[1.8rem] font-medium tracking-[-0.02em] text-white sm:text-[2.1rem]">
             Ready to plan your best trip yet?
@@ -408,7 +398,7 @@ export default function HomePage() {
             START PLANNING FREE
           </a>
         </div>
-      </section>
+      </SnapSection>
 
       {/* 7. FOOTER */}
       <footer className="mt-10 border-t border-[#e6e1d8]">

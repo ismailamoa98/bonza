@@ -54,7 +54,7 @@ export default function TripForm({ loyaltyPoints, onSubmit, loading = false, ini
   return (
     <form onSubmit={submit}>
       {/* Blends into the cream background; the white inputs carry the structure. */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         <AirportDropdown
           label="From"
           placeholder="London (LHR)"
@@ -114,7 +114,7 @@ export default function TripForm({ loyaltyPoints, onSubmit, loading = false, ini
         </Field>
       </div>
 
-      <label className="mt-4 flex items-center gap-2 text-[13px] text-ink-soft">
+      <label className="mt-3 flex items-center gap-2 text-[13px] text-ink-soft">
         <input
           type="checkbox"
           checked={form.flexibility}
@@ -128,7 +128,7 @@ export default function TripForm({ loyaltyPoints, onSubmit, loading = false, ini
       </label>
 
       {/* Travel-style pills */}
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         {TRAVEL_STYLES.map((style) => {
           const active = form.style === style;
           return (
@@ -137,7 +137,7 @@ export default function TripForm({ loyaltyPoints, onSubmit, loading = false, ini
               type="button"
               onClick={() => setForm((f) => ({ ...f, style }))}
               className={[
-                "rounded-full border-[1.5px] px-3.5 py-1.5 text-[12px] font-medium transition-colors",
+                "rounded-full border-[1.5px] px-3 py-1 text-[12px] font-medium transition-colors",
                 active
                   ? "border-bonza bg-bonza text-white"
                   : "border-[#e3ded6] bg-white text-ink-soft hover:border-bonza hover:text-bonza",
@@ -152,13 +152,13 @@ export default function TripForm({ loyaltyPoints, onSubmit, loading = false, ini
       <button
         type="submit"
         disabled={loading || !valid}
-        className="mt-5 w-full rounded-xl bg-bonza py-3 text-[14px] font-semibold text-white shadow-[0_6px_18px_rgba(218,119,86,0.25)] hover:bg-bonza-dark disabled:opacity-50"
+        className="mt-4 w-full rounded-xl bg-bonza py-2.5 text-[14px] font-semibold text-white shadow-[0_6px_18px_rgba(218,119,86,0.25)] hover:bg-bonza-dark disabled:opacity-50"
       >
         {buttonLabel}
       </button>
 
-      {/* Loyalty balance — source of truth (offers follow it). */}
-      <div className="mt-6">
+      {/* Loyalty balance — the user's real points summary (Plaid mock). */}
+      <div className="mt-4">
         <LoyaltyCard loyaltyPoints={loyaltyPoints} />
       </div>
     </form>
@@ -166,15 +166,15 @@ export default function TripForm({ loyaltyPoints, onSubmit, loading = false, ini
 }
 
 const inputClass =
-  "w-full rounded-lg border border-[#e3ded6] bg-white px-3 py-2.5 text-[13px] text-ink focus:border-bonza focus:outline-none";
+  "w-full rounded-lg border border-[#e3ded6] bg-white px-3 py-1.5 text-[13px] text-ink focus:border-bonza focus:outline-none";
 
 const disabledInputClass =
-  "w-full cursor-not-allowed rounded-lg border border-[#ece7df] bg-[#f3f1ec] px-3 py-2.5 text-[13px] text-ink-muted";
+  "w-full cursor-not-allowed rounded-lg border border-[#ece7df] bg-[#f3f1ec] px-3 py-1.5 text-[13px] text-ink-muted";
 
 function Field({ label, children }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+      <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
         {label}
       </span>
       {children}

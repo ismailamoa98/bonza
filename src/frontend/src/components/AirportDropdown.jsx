@@ -1,11 +1,12 @@
 // components/AirportDropdown.jsx — Searchable airport input (live API).
 // Debounces keystrokes, queries GET /airports?q=, and shows matching airports
 // to pick from. Calls onSelect with the chosen airport; the parent stores the
-// 3-letter code. Props: { label, placeholder, value, displayLabel, onSelect }.
+// 3-letter code. Props: { label, placeholder, value, displayLabel, onSelect, bare }.
+//   bare — borderless/transparent input for the horizontal hero search "bar".
 import { useEffect, useRef, useState } from "react";
 import { getAirports, apiErrorMessage } from "../utils/api";
 
-export default function AirportDropdown({ label, placeholder, displayLabel, onSelect }) {
+export default function AirportDropdown({ label, placeholder, displayLabel, onSelect, bare = false }) {
   const [query, setQuery] = useState(displayLabel || "");
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
@@ -77,7 +78,11 @@ export default function AirportDropdown({ label, placeholder, displayLabel, onSe
           setOpen(true);
         }}
         onFocus={() => results.length && setOpen(true)}
-        className="w-full rounded-lg border border-[#e3ded6] bg-white px-3 py-2.5 text-[13px] text-ink focus:border-bonza focus:outline-none"
+        className={
+          bare
+            ? "w-full bg-transparent text-[14px] font-semibold text-ink placeholder:font-normal placeholder:text-ink-muted focus:outline-none"
+            : "w-full rounded-lg border border-[#e3ded6] bg-white px-3 py-2.5 text-[13px] text-ink focus:border-bonza focus:outline-none"
+        }
       />
 
       {open && (loading || results.length > 0 || error) && (

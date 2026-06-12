@@ -5,6 +5,9 @@ export default {
     extend: {
       fontFamily: {
         jakarta: ['"Plus Jakarta Sans"', "ui-sans-serif", "system-ui", "sans-serif"],
+        // Serif display — used ONLY on the hero <h1>, the nav/footer wordmark, and
+        // the final-CTA <h2> (visitsaudi-style serif-display + sans-body pairing).
+        display: ['"Playfair Display"', "ui-serif", "Georgia", "serif"],
       },
       keyframes: {
         fadein: { from: { opacity: "0" }, to: { opacity: "1" } },

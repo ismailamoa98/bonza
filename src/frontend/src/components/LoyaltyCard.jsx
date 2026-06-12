@@ -1,23 +1,26 @@
-// components/LoyaltyCard.jsx — The user's loyalty balance, as a rich summary card.
-// Source of truth for the homepage: the "Personalized for you" offer's points
-// follow this balance (see HomePage). Driven by `loyaltyPoints` — the Plaid mock
-// now, real Plaid later. Trend/sparkline/"best use" are illustrative (no history).
-// Props: { loyaltyPoints }.
+// components/LoyaltyCard.jsx — The user's loyalty balance (Plaid-mock).
+// Two variants, both reading the SAME `loyaltyPoints` data:
+//   "full"  — the polished dashboard card (lock header + live-sync dot, total value
+//             with sparkline, allocation bar, per-program rows, ★ best-value tag, CTA).
+//   "strip" — a glassy translucent white-text pill for the cinematic hero.
+// Keep the loyalty-drives-offers decoupling: this shows the balance; PackageCards show
+// their own redemption cost. Best value now = the program with the highest cents-per-
+// point rate (NOT the largest balance). Props: { loyaltyPoints, variant }.
+import { formatPoints } from "../utils/format";
 
 // Per-program value rate (£ per point) — chosen so the mock balance reproduces the
 // reference card (50k→£700, 30k→£450, 15k→£155). Replace with live valuations later.
 const PROGRAMS = [
-  { key: "amex", label: "Amex Membership Rewards", rate: 0.014 },
-  { key: "chaseUr", label: "Chase Ultimate Rewards", rate: 0.015 },
-  { key: "unitedMiles", label: "United MileagePlus", rate: 0.0103 },
-  { key: "marriottPoints", label: "Marriott Bonvoy", rate: 0.007 },
+  { key: "amex", label: "Amex Membership Rewards", short: "Amex", rate: 0.014 },
+  { key: "chaseUr", label: "Chase Ultimate Rewards", short: "Chase", rate: 0.015 },
+  { key: "unitedMiles", label: "United MileagePlus", short: "United", rate: 0.0103 },
+  { key: "marriottPoints", label: "Marriott Bonvoy", short: "Marriott", rate: 0.007 },
 ];
 const SHADES = ["#B0552F", "#da7756", "#E6B79A", "#EBC9B5"]; // dark -> light by rank
 
-export default function LoyaltyCard({ loyaltyPoints }) {
+// Build per-program rows from the live balance (value-desc), plus totals + best key.
+function buildModel(loyaltyPoints) {
   if (!loyaltyPoints) return null;
-
-  // Build per-program rows from the live balance, biggest value first.
   const rows = PROGRAMS.map((p) => {
     const points = loyaltyPoints[p.key] || 0;
     return { ...p, points, value: Math.round(points * p.rate) };
@@ -25,14 +28,53 @@ export default function LoyaltyCard({ loyaltyPoints }) {
     .filter((r) => r.points > 0)
     .sort((a, b) => b.value - a.value)
     .map((r, i) => ({ ...r, shade: SHADES[i] || SHADES[SHADES.length - 1] }));
-
   if (rows.length === 0) return null;
-
   const total = rows.reduce((s, r) => s + r.value, 0);
-  // "Best value now" = highest £/pt redemption rate.
-  const bestKey = rows.reduce((best, r) => (r.rate > best.rate ? r : best), rows[0]).key;
-  const pctOf = (v) => (total > 0 ? Math.round((v / total) * 100) : 0);
+  // Best value now = highest cents-per-point rate among held programs.
+  const best = rows.reduce((b, r) => (r.rate > b.rate ? r : b), rows[0]);
+  return { rows, total, best, pctOf: (v) => (total > 0 ? Math.round((v / total) * 100) : 0) };
+}
 
+export default function LoyaltyCard({ loyaltyPoints, variant = "full" }) {
+  const model = buildModel(loyaltyPoints);
+  if (!model) return null;
+  const { rows, total, best, pctOf } = model;
+
+  // ── STRIP variant — glassy hero pill ────────────────────────────────────
+  if (variant === "strip") {
+    return (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 font-jakarta text-white tabular-nums backdrop-blur sm:rounded-full">
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-white/85">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          Loyalty via Plaid
+        </span>
+
+        <span className="flex items-baseline gap-1.5">
+          <b className="text-[15px] font-extrabold">£{total.toLocaleString()}</b>
+          <span className="inline-flex items-center gap-0.5 rounded-md bg-[#34B368]/25 px-1.5 py-0.5 text-[10px] font-bold text-[#bdf3d2]">
+            ↑ 12%
+          </span>
+        </span>
+
+        <span className="hidden items-center gap-2 text-[12px] text-white/80 sm:flex">
+          {rows.map((r) => (
+            <span key={r.key}>
+              {r.short} <b className="font-semibold text-white">{formatPoints(r.points)}</b>
+            </span>
+          ))}
+        </span>
+
+        <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.4px] text-white">
+          ★ Best value now: {best.short}
+        </span>
+      </div>
+    );
+  }
+
+  // ── FULL variant (default) — dashboard card ─────────────────────────────
   return (
     <div className="rounded-2xl border border-[rgba(40,30,20,0.05)] bg-white p-5 font-jakarta tabular-nums shadow-[0_1px_2px_rgba(40,30,20,0.04),0_16px_40px_rgba(120,80,50,0.07)]">
       {/* Meta */}
@@ -95,7 +137,7 @@ export default function LoyaltyCard({ loyaltyPoints }) {
         <div key={r.key} className="flex items-center gap-2.5 border-t border-[#f4f1ec] py-2 first:border-t-0">
           <span className="h-2.5 w-2.5 flex-shrink-0 rounded-[3px]" style={{ background: r.shade }} />
           <span className="text-[13px] font-semibold text-ink">{r.label}</span>
-          {r.key === bestKey && (
+          {r.key === best.key && (
             <span className="inline-flex items-center gap-0.5 rounded-[10px] bg-[#FBE8E0] px-1.5 py-0.5 text-[9px] font-extrabold tracking-[0.4px] text-[#c0603c]">
               ★ BEST VALUE NOW
             </span>

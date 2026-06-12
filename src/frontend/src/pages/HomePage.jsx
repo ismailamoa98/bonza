@@ -1,11 +1,14 @@
 // pages/HomePage.jsx — Public marketing homepage.
-// Premium-SaaS landing on Pampas cream: hero with the functional trip form + a
-// shuffling "Personalized for you" deck, stats, how-it-works, more packages,
-// community, and a final CTA. The trip form is wired to the real optimize flow.
-import { useEffect, useState } from "react";
+// A full-bleed cinematic hero (visitsaudi-style): placeholder background + dark
+// gradient, overlay pill nav, centred copy, a floating horizontal search bar +
+// glassy loyalty strip, and a story strip pinned to the bottom. Below the hero the
+// continuous cream sections (packages carousel, stats, how-it-works, community, CTA)
+// reveal/snap as before. The trip form is wired to the real optimize flow.
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TripForm from "../components/TripForm";
 import PackageCard from "../components/PackageCard";
+import LoyaltyCard from "../components/LoyaltyCard";
 import SnapSection from "../components/SnapSection";
 import { PACKAGES, shuffle } from "../data/packages";
 import { useTrip } from "../hooks/useTrip";
@@ -19,6 +22,12 @@ import {
   createBookingLink,
   apiErrorMessage,
 } from "../utils/api";
+
+// PLACEHOLDER — swap for a licensed hero photo, or a muted autoplay
+// <video autoplay muted loop playsinline> (like the reference site). The bg-[#1f5f6b]
+// base colour below always shows while this loads or if it fails, so the hero never
+// looks broken.
+const HERO_IMAGE = "https://loremflickr.com/1920/1080/maldives,resort,aerial?lock=5";
 
 const PROGRESS_STEPS = [
   "Comparing 200+ flight options…",
@@ -53,7 +62,6 @@ function parsePackageDates(dates) {
     checkIn = new Date(Date.UTC(year, ci.m, ci.d));
   }
   const co = parsePart(b || a);
-  // If the return month is earlier than departure, it lands in the next year.
   const outYear = co.m < ci.m ? year + 1 : year;
   const checkOut = new Date(Date.UTC(outYear, co.m, co.d));
   return { checkIn: checkIn.toISOString().slice(0, 10), checkOut: checkOut.toISOString().slice(0, 10) };
@@ -91,19 +99,30 @@ export default function HomePage() {
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState(null);
 
-  // Shuffled once on mount for variety. The hero is a slideshow that auto-advances
-  // through the deck; the grid shows a static slice.
-  const [deck] = useState(() => shuffle(PACKAGES));
-  const [seed] = useState(() => Math.floor(Math.random() * 100000));
-  const [heroIndex, setHeroIndex] = useState(0);
-  const heroCard = deck[heroIndex];
-  const gridDeck = deck.slice(1, 7);
+  // Shuffled deck for the carousel; reshuffles (with a fresh image seed) on demand.
+  const [deck, setDeck] = useState(() => shuffle(PACKAGES));
+  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 100000));
+  const reshuffle = () => {
+    setDeck(shuffle(PACKAGES));
+    setSeed(Math.floor(Math.random() * 100000));
+  };
 
-  // Auto-advance the personalized offer every 10s.
+  // Horizontal carousel scrolling.
+  const trackRef = useRef(null);
+  const scrollByCard = (dir = 1) => {
+    const el = trackRef.current;
+    if (!el) return;
+    const step = (el.firstElementChild?.offsetWidth || 288) + 20;
+    const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 8;
+    el.scrollTo({ left: dir > 0 && atEnd ? 0 : el.scrollLeft + dir * step, behavior: "smooth" });
+  };
+
+  // Optional 10s auto-advance of the carousel — disabled under reduced motion.
   useEffect(() => {
-    const id = setInterval(() => setHeroIndex((i) => (i + 1) % deck.length), 10000);
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
+    const id = setInterval(() => scrollByCard(1), 10000);
     return () => clearInterval(id);
-  }, [deck.length]);
+  }, [deck]);
 
   // Scope full-screen "slide" snapping to the homepage only.
   useEffect(() => {
@@ -200,82 +219,116 @@ export default function HomePage() {
 
   return (
     <div className="text-ink">
-      {/* 1. HERO — one-screen: fills the viewport so "See how it works" lands in view. */}
+      {/* 1. CINEMATIC HERO — full-bleed image under the overlay nav. */}
       <section
         id="plan"
-        className="mx-auto flex max-w-7xl snap-start scroll-mt-16 flex-col px-6 pt-6 pb-6 lg:min-h-[calc(100dvh-64px)]"
+        className="relative flex min-h-[90dvh] snap-start items-center overflow-hidden"
       >
-        <h1 className="text-[2.4rem] font-medium leading-[1.05] tracking-[-0.02em] text-ink sm:text-[2.7rem]">
-          Where do you want to go?
-        </h1>
+        {/* Base colour (always visible) -> photo -> dark gradient for legibility. */}
+        <div className="absolute inset-0 bg-[#1f5f6b]" />
+        <img src={HERO_IMAGE} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/10 to-black/70" />
 
-        <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-stretch lg:flex-1 lg:min-h-0">
-          {/* Left: copy + form */}
-          <div>
-            <p className="max-w-[520px] text-[14px] leading-relaxed text-ink-soft">
-              Tell Bonza your trip. Our AI checks 50+ airlines &amp; hotels, reads your loyalty
-              points via Plaid, and builds your best-value package — flights, hotel, and car
-              together.
-            </p>
-            <button
-              type="button"
-              onClick={() =>
-                document.getElementById("walkthrough")?.scrollIntoView({ behavior: "smooth" })
-              }
-              className="mt-2 text-[13px] font-medium text-bonza hover:text-bonza-dark"
-            >
-              See how it works ↓
-            </button>
-            <div className="mt-4">
-              <TripForm
-                loyaltyPoints={loyaltyPoints}
-                onSubmit={handleSubmit}
-                loading={loading}
-                initial={trip}
-              />
-              {pointsError && (
-                <p className="mt-2 text-[12px] text-amber-600">
-                  Couldn’t load your points: {pointsError}
-                </p>
-              )}
-              {error && <p className="mt-2 text-[12px] text-red-600">{error}</p>}
+        {/* Centred content */}
+        <div className="relative z-10 mx-auto w-full max-w-5xl px-6 pb-28 pt-28 text-center">
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-white/85 drop-shadow">
+            Your AI Vacation Agent
+          </p>
+          <h1 className="mt-4 font-display text-5xl font-bold leading-[1.05] tracking-[-0.01em] text-white drop-shadow-[0_2px_18px_rgba(0,0,0,0.45)] sm:text-6xl">
+            Where do you want to go?
+          </h1>
+          <p className="mx-auto mt-4 max-w-2xl text-[15px] leading-relaxed text-white/85 drop-shadow">
+            Tell Bonza your trip. Our AI checks 50+ airlines &amp; hotels, reads your loyalty points
+            via Plaid, and builds your best-value package — flights, hotel and car together.
+          </p>
+
+          {/* Floating search bar + glassy loyalty strip */}
+          <div className="mx-auto mt-9 max-w-3xl text-left">
+            <TripForm variant="bar" onSubmit={handleSubmit} loading={loading} initial={trip} />
+            <div className="mx-auto mt-4 max-w-lg">
+              <LoyaltyCard loyaltyPoints={loyaltyPoints} variant="full" />
             </div>
-          </div>
-
-          {/* Right: one personalized pick (shuffle for more) */}
-          <div className="flex flex-col">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
-                Personalized for you
+            {pointsError && (
+              <p className="mt-2 text-center text-[12px] text-amber-200">
+                Couldn’t load your points: {pointsError}
               </p>
-              {/* Slideshow position — click a dot to jump. */}
-              <div className="flex items-center gap-1.5">
-                {deck.map((p, i) => (
-                  <button
-                    key={p.city}
-                    type="button"
-                    onClick={() => setHeroIndex(i)}
-                    aria-label={`Show offer ${i + 1}`}
-                    className={`h-1.5 rounded-full transition-all ${
-                      i === heroIndex ? "w-4 bg-bonza" : "w-1.5 bg-bonza/25 hover:bg-bonza/50"
-                    }`}
-                  />
-                ))}
+            )}
+            {(error || openError) && (
+              <p className="mt-2 text-center text-[12px] text-red-200">{error || openError}</p>
+            )}
+          </div>
+        </div>
+
+        {/* Cinematic story strip pinned to the bottom */}
+        <div className="absolute inset-x-0 bottom-0 z-10 px-6 pb-6">
+          <div className="mx-auto max-w-7xl">
+            <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/25">
+              <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-bonza to-bonza-light" />
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <div className="flex flex-wrap gap-x-8 gap-y-1 text-[13px]">
+                <span className="font-bold text-white">Best-value packages</span>
+                <span className="hidden text-white/60 sm:inline">Points + cash, optimised</span>
+                <span className="hidden text-white/60 sm:inline">Book in one click</span>
               </div>
+              <span className="h-9 w-9 overflow-hidden rounded-full bg-white/20 ring-2 ring-white/70">
+                <img
+                  src="https://loremflickr.com/80/80/portrait,traveler?lock=7"
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              </span>
             </div>
-            <div className="mt-4 lg:flex-1 lg:min-h-0">
-              {heroCard && (
-                <div key={heroCard.city} className="animate-fadein lg:h-full">
-                  <PackageCard package={heroCard} seed={seed} fill onOpen={openPackage} />
-                </div>
-              )}
-            </div>
-            {openError && <p className="mt-2 text-[12px] text-red-600">{openError}</p>}
           </div>
         </div>
       </section>
 
-      {/* 2. STATS */}
+      {/* 2. PACKAGES CAROUSEL */}
+      <SnapSection id="packages">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
+              🎯 Personalized for you
+            </p>
+            <h2 className="mt-2 text-[2rem] font-medium tracking-[-0.02em] text-ink">
+              Explore your packages
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={reshuffle}
+              className="rounded-full border border-[#e3ded6] bg-white px-3.5 py-2 text-[12px] font-semibold text-ink-soft hover:border-bonza hover:text-bonza"
+            >
+              🔀 Shuffle
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollByCard(1)}
+              aria-label="Next packages"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-bonza text-white hover:bg-bonza-dark"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div
+          ref={trackRef}
+          className="mt-8 flex snap-x snap-mandatory gap-5 overflow-x-auto pb-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {deck.map((pkg) => (
+            <div key={pkg.city} className="w-72 shrink-0 snap-start">
+              <PackageCard package={pkg} seed={seed} onOpen={openPackage} />
+            </div>
+          ))}
+        </div>
+      </SnapSection>
+
+      {/* 3. STATS */}
       <SnapSection>
         <div className="grid grid-cols-2 gap-6 text-center sm:grid-cols-4">
           {[
@@ -285,14 +338,14 @@ export default function HomePage() {
             ["50K+", "active users"],
           ].map(([num, label]) => (
             <div key={label}>
-              <p className="text-[2rem] font-medium tracking-[-0.01em] text-bonza">{num}</p>
+              <p className="text-[2rem] font-medium tabular-nums tracking-[-0.01em] text-bonza">{num}</p>
               <p className="mt-1 text-[12px] text-ink-muted">{label}</p>
             </div>
           ))}
         </div>
       </SnapSection>
 
-      {/* 3. HOW IT WORKS */}
+      {/* 4. HOW IT WORKS */}
       <SnapSection id="walkthrough">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
           How it works
@@ -326,23 +379,8 @@ export default function HomePage() {
         </div>
       </SnapSection>
 
-      {/* 4. MORE PACKAGES */}
-      <SnapSection>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
-          More packages for you
-        </p>
-        <h2 className="mt-2 text-[2rem] font-medium tracking-[-0.02em] text-ink">
-          Bundles tuned to your points.
-        </h2>
-        <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {gridDeck.map((pkg) => (
-            <PackageCard key={pkg.city} package={pkg} seed={seed} onOpen={openPackage} />
-          ))}
-        </div>
-      </SnapSection>
-
       {/* 5. COMMUNITY */}
-      <SnapSection>
+      <SnapSection id="community">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
           Our community
         </p>
@@ -385,7 +423,7 @@ export default function HomePage() {
       {/* 6. FINAL CTA */}
       <SnapSection>
         <div className="rounded-3xl bg-bonza px-6 py-12 text-center">
-          <h2 className="text-[1.8rem] font-medium tracking-[-0.02em] text-white sm:text-[2.1rem]">
+          <h2 className="font-display text-[1.9rem] font-bold tracking-[-0.01em] text-white sm:text-[2.3rem]">
             Ready to plan your best trip yet?
           </h2>
           <p className="mx-auto mt-3 max-w-[520px] text-[14px] leading-relaxed text-white/85">
@@ -407,7 +445,7 @@ export default function HomePage() {
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-bonza text-[13px] font-semibold text-white">
               B
             </span>
-            <span className="text-[15px] font-medium text-ink">Bonza</span>
+            <span className="font-display text-[17px] font-semibold text-ink">Bonza</span>
           </div>
           <p className="text-[12px] text-ink-muted">
             Powered by Claude, Plaid &amp; 50+ partner APIs · Privacy · Terms · Cookies

@@ -23,6 +23,9 @@ const HOTEL_NAMES = [
 // the amenities filter actually hits.
 const AMENITIES = ["WiFi", "Pool", "Breakfast", "Parking", "Lounge", "Spa", "Gym"];
 
+// Property types a traveller would expect to filter on.
+const PROPERTY_TYPES = ["Hotel", "Resort", "Apartment", "Boutique"];
+
 // Loyalty programs a hotel may participate in (keys are lowercased program ids).
 const LOYALTY = [
   { key: "marriott", program: "Marriott Bonvoy", base: 22000 },
@@ -81,6 +84,10 @@ exports.getHotels = (destination = "Paris", date) => {
       loyaltyPrograms,
       acceptedPayments: ["cash", "amex", "chase"],
       benefits,
+      // Typical filterable attributes.
+      propertyType: PROPERTY_TYPES[i % PROPERTY_TYPES.length],
+      freeCancellation: i % 3 !== 0,
+      breakfastIncluded: benefits.includes("Breakfast") || i % 3 === 0,
       imageUrl: null,
     });
   }

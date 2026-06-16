@@ -19,26 +19,59 @@ const PROGRAMS = [
 const SHADES = ["#B0552F", "#da7756", "#E6B79A", "#EBC9B5"]; // dark -> light by rank
 
 // Build per-program rows from the live balance (value-desc), plus totals + best key.
-function buildModel(loyaltyPoints) {
+// `pointsUsed` (a pending redemption) is drawn from the transferable pool — Amex
+// first, then Chase — mirroring the optimizer's availablePoints, so each row can
+// show its projected (post-spend) balance.
+function buildModel(loyaltyPoints, pointsUsed = 0) {
   if (!loyaltyPoints) return null;
+
+  let remaining = Math.max(0, Math.round(pointsUsed));
+  const spentBy = {};
+  for (const key of ["amex", "chaseUr"]) {
+    const avail = loyaltyPoints[key] || 0;
+    const d = Math.min(avail, remaining);
+    if (d > 0) spentBy[key] = d;
+    remaining -= d;
+  }
+
   const rows = PROGRAMS.map((p) => {
     const points = loyaltyPoints[p.key] || 0;
-    return { ...p, points, value: Math.round(points * p.rate) };
+    const spent = spentBy[p.key] || 0;
+    const projPoints = points - spent;
+    return {
+      ...p,
+      points,
+      spent,
+      projPoints,
+      value: Math.round(points * p.rate),
+      projValue: Math.round(projPoints * p.rate),
+    };
   })
     .filter((r) => r.points > 0)
     .sort((a, b) => b.value - a.value)
     .map((r, i) => ({ ...r, shade: SHADES[i] || SHADES[SHADES.length - 1] }));
   if (rows.length === 0) return null;
+
   const total = rows.reduce((s, r) => s + r.value, 0);
+  const projTotal = rows.reduce((s, r) => s + r.projValue, 0);
   // Best value now = highest cents-per-point rate among held programs.
   const best = rows.reduce((b, r) => (r.rate > b.rate ? r : b), rows[0]);
-  return { rows, total, best, pctOf: (v) => (total > 0 ? Math.round((v / total) * 100) : 0) };
+  const spending = pointsUsed > 0 && projTotal !== total;
+  return {
+    rows,
+    total,
+    projTotal,
+    best,
+    spending,
+    // Allocation is shown post-spend so the bar visibly shrinks as points are used.
+    pctOf: (v) => (projTotal > 0 ? Math.round((v / projTotal) * 100) : 0),
+  };
 }
 
-export default function LoyaltyCard({ loyaltyPoints, variant = "full" }) {
-  const model = buildModel(loyaltyPoints);
+export default function LoyaltyCard({ loyaltyPoints, variant = "full", pointsUsed = 0 }) {
+  const model = buildModel(loyaltyPoints, pointsUsed);
   if (!model) return null;
-  const { rows, total, best, pctOf } = model;
+  const { rows, total, projTotal, best, spending, pctOf } = model;
 
   // ── STRIP variant — glassy hero pill ────────────────────────────────────
   if (variant === "strip") {
@@ -68,7 +101,8 @@ export default function LoyaltyCard({ loyaltyPoints, variant = "full" }) {
         </span>
 
         <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.4px] text-white">
-          ★ Best value now: {best.short}
+          <Star className="h-2.5 w-2.5" />
+          Best value now: {best.short}
         </span>
       </div>
     );
@@ -92,73 +126,84 @@ export default function LoyaltyCard({ loyaltyPoints, variant = "full" }) {
         </span>
       </div>
 
-      {/* Total travel value */}
+      {/* Total travel value — flips to the projected balance while points are spent */}
       <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.6px] text-ink-muted">
-        Total travel value
+        {spending ? "Balance after this trip" : "Total travel value"}
       </p>
-      <div className="relative mb-4">
-        <svg className="pointer-events-none absolute right-0 -top-1.5 h-[54px] w-[46%] opacity-90" viewBox="0 0 240 56" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="lc-spark" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor="#da7756" stopOpacity="0.22" />
-              <stop offset="1" stopColor="#da7756" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path d="M0,50 L48,41.9 L96,35.1 L144,27 L192,25 L240,6 L240,56 L0,56 Z" fill="url(#lc-spark)" />
-          <path d="M0,50 L48,41.9 L96,35.1 L144,27 L192,25 L240,6" fill="none" stroke="#da7756" strokeOpacity="0.4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          <circle cx="240" cy="6" r="3" fill="#da7756" />
-        </svg>
-        <div className="relative z-[2] flex items-center gap-3">
-          <p className="text-[32px] font-extrabold leading-none tracking-[-1.2px] text-ink">
-            £{total.toLocaleString()}
-          </p>
-          <span className="inline-flex items-center gap-1 rounded-lg bg-[#EAF6EE] px-2.5 py-1 text-[11px] font-bold text-[#1E7E40]">
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <p className="text-[30px] font-extrabold leading-none tracking-[-1px] text-ink transition-all">
+          £{(spending ? projTotal : total).toLocaleString()}
+        </p>
+        {spending ? (
+          <span className="inline-flex items-center gap-1 rounded-lg bg-bonza-100 px-2 py-1 text-[11px] font-bold tabular-nums text-bonza-dark">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <polyline points="19 12 12 19 5 12" />
+            </svg>
+            {pointsUsed.toLocaleString()} pts · was £{total.toLocaleString()}
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-lg bg-[#EAF6EE] px-2 py-1 text-[11px] font-bold text-[#1E7E40]">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1E7E40" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="3 17 9 11 13 15 21 7" />
               <polyline points="15 7 21 7 21 13" />
             </svg>
             £140 · 12% this month
           </span>
-        </div>
-        <span className="absolute right-0.5 -bottom-0.5 z-[2] text-[9px] font-semibold tracking-[0.5px] text-[#c9a18c]">
-          6-MONTH GROWTH
-        </span>
+        )}
       </div>
 
       {/* Allocation bar */}
       <div className="mb-4 flex gap-[3px]">
         {rows.map((r) => (
-          <div key={r.key} className="h-2 rounded-[3px]" style={{ width: `${pctOf(r.value)}%`, background: r.shade }} />
+          <div
+            key={r.key}
+            className="h-2 rounded-[3px] transition-all duration-300"
+            style={{ width: `${pctOf(r.projValue)}%`, background: r.shade }}
+          />
         ))}
       </div>
 
-      {/* Program rows */}
+      {/* Program rows — two lines each so nothing overflows the narrow rail */}
       {rows.map((r) => (
-        <div key={r.key} className="flex items-center gap-2.5 border-t border-[#f4f1ec] py-2 first:border-t-0">
-          <span className="h-2.5 w-2.5 flex-shrink-0 rounded-[3px]" style={{ background: r.shade }} />
-          <span className="text-[13px] font-semibold text-ink">{r.label}</span>
-          {r.key === best.key && (
-            <span className="inline-flex items-center gap-0.5 rounded-[10px] bg-[#FBE8E0] px-1.5 py-0.5 text-[9px] font-extrabold tracking-[0.4px] text-[#c0603c]">
-              ★ BEST VALUE NOW
-            </span>
-          )}
-          <span className="ml-auto text-[11px] font-medium text-[#ada69d]">{r.points.toLocaleString()} pts</span>
-          <span className="min-w-[46px] text-right text-[13px] font-bold text-ink">£{r.value.toLocaleString()}</span>
-          <span className="min-w-[30px] text-right text-[11px] font-semibold text-[#ada69d]">{pctOf(r.value)}%</span>
+        <div key={r.key} className="border-t border-[#f4f1ec] py-2.5 first:border-t-0">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: r.shade }} />
+            <span className="truncate text-[13px] font-semibold text-ink">{r.label}</span>
+            {r.key === best.key && (
+              <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md bg-[#FBE8E0] px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-[0.4px] text-[#c0603c]">
+                <Star className="h-2.5 w-2.5" />
+                Best value
+              </span>
+            )}
+          </div>
+          <div className="mt-1 flex items-center gap-2 pl-[18px] text-[11px] tabular-nums text-ink-muted">
+            {r.spent > 0 ? (
+              <span>
+                <span className="text-ink-muted line-through">{r.points.toLocaleString()}</span>
+                {" → "}
+                <span className="font-bold text-bonza">{r.projPoints.toLocaleString()}</span> pts
+              </span>
+            ) : (
+              <span>{r.points.toLocaleString()} pts</span>
+            )}
+            <span className="ml-auto text-[13px] font-bold text-ink">£{r.projValue.toLocaleString()}</span>
+            <span className="w-9 shrink-0 text-right">{pctOf(r.projValue)}%</span>
+          </div>
         </div>
       ))}
 
       {/* CTA */}
-      <div className="mt-3 flex items-center justify-between border-t border-[#f0ece5] pt-3">
-        <span className="flex items-center gap-2.5">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c0603c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#f0ece5] pt-3">
+        <span className="flex items-center gap-2">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c0603c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
             <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 4.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
           </svg>
           <p className="text-[12px] font-medium text-ink-soft">
-            Best use: <b className="font-bold text-ink">return to Lisbon + 2 nights</b>
+            Best use: <b className="font-bold text-ink">a points-rich getaway</b>
           </p>
         </span>
-        <span className="flex items-center gap-1.5 text-[12px] font-bold text-[#c0603c]">
+        <span className="flex shrink-0 items-center gap-1 text-[12px] font-bold text-[#c0603c]">
           Explore
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c0603c" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
             <line x1="5" y1="12" x2="19" y2="12" />
@@ -167,5 +212,14 @@ export default function LoyaltyCard({ loyaltyPoints, variant = "full" }) {
         </span>
       </div>
     </div>
+  );
+}
+
+// Filled star glyph (replaces the ★ character).
+function Star({ className = "" }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M12 2.5l2.9 5.88 6.49.94-4.69 4.57 1.1 6.46L12 17.3l-5.8 3.05 1.1-6.46-4.69-4.57 6.49-.94L12 2.5z" />
+    </svg>
   );
 }

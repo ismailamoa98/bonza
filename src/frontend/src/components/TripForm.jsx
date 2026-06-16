@@ -11,6 +11,7 @@
 import { useMemo, useState } from "react";
 import AirportDropdown from "./AirportDropdown";
 import LoyaltyCard from "./LoyaltyCard";
+import { getAirports } from "../utils/api";
 
 const TRAVEL_STYLES = ["Business", "Luxury", "Points Max", "Budget", "Family"];
 
@@ -36,29 +37,56 @@ export default function TripForm({
     style: initial?.preferences?.style || "Points Max",
   });
 
+  // Raw typed text in the From/To fields (before a dropdown row is committed) so
+  // we can resolve a typed-but-unselected airport to its top match on submit.
+  const [originText, setOriginText] = useState("");
+  const [destText, setDestText] = useState("");
+
   const update = (key) => (e) => {
     const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
     setForm((f) => ({ ...f, [key]: value }));
   };
 
-  // Budget is optional (blank = optimize within points, no cash ceiling).
-  // Flexible trips don't need fixed dates — Bonza shops them across months.
+  // The button enables once each endpoint is either selected OR typed (≥2 chars);
+  // submit() resolves any typed-only field to a real airport before continuing.
+  // Dates are intentionally NOT gated here: the date inputs are `required` for
+  // non-flexible trips, so native HTML5 validation shows a visible prompt on an
+  // empty submit instead of leaving the button silently disabled.
   const valid = useMemo(() => {
-    const core = form.origin && form.destination;
-    return form.flexibility ? core : core && form.checkIn && form.checkOut;
-  }, [form]);
+    const hasOrigin = form.origin || originText.trim().length >= 2;
+    const hasDest = form.destination || destText.trim().length >= 2;
+    return hasOrigin && hasDest;
+  }, [form, originText, destText]);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!valid || loading) return;
-    onSubmit(form);
+
+    // Resolve typed-but-unselected airports to the top match.
+    let next = { ...form };
+    try {
+      if (!next.origin && originText.trim().length >= 2) {
+        const [a] = await getAirports(originText.trim());
+        if (a) next = { ...next, origin: a.code, originLabel: `${a.code} — ${a.city}` };
+      }
+      if (!next.destination && destText.trim().length >= 2) {
+        const [a] = await getAirports(destText.trim());
+        if (a) next = { ...next, destination: a.code, destinationLabel: `${a.code} — ${a.city}` };
+      }
+    } catch {
+      // Network hiccup resolving airports — fall through to the guard below.
+    }
+
+    if (!next.origin || !next.destination) return; // couldn't resolve — no-op
+    setForm(next);
+    onSubmit(next);
   };
 
   const buttonLabel = loading
     ? "Optimizing…"
     : form.flexibility
-      ? "🔍 Find my best month"
-      : "🔍 Find my best trip";
+      ? "Find my best month"
+      : "Find my best trip";
 
   // Shared travel-style pills + flexible toggle (reused by both variants).
   const stylePills = (
@@ -110,6 +138,7 @@ export default function TripForm({
               placeholder="London (LHR)"
               displayLabel={form.originLabel}
               bare
+              onQueryChange={setOriginText}
               onSelect={(a) =>
                 setForm((f) => ({ ...f, origin: a.code, originLabel: `${a.code} — ${a.city}` }))
               }
@@ -122,6 +151,7 @@ export default function TripForm({
               placeholder="Anywhere"
               displayLabel={form.destinationLabel}
               bare
+              onQueryChange={setDestText}
               onSelect={(a) =>
                 setForm((f) => ({ ...f, destination: a.code, destinationLabel: `${a.code} — ${a.city}` }))
               }
@@ -195,6 +225,7 @@ export default function TripForm({
           label="From"
           placeholder="London (LHR)"
           displayLabel={form.originLabel}
+          onQueryChange={setOriginText}
           onSelect={(a) =>
             setForm((f) => ({ ...f, origin: a.code, originLabel: `${a.code} — ${a.city}` }))
           }
@@ -203,6 +234,7 @@ export default function TripForm({
           label="To"
           placeholder="Anywhere"
           displayLabel={form.destinationLabel}
+          onQueryChange={setDestText}
           onSelect={(a) =>
             setForm((f) => ({ ...f, destination: a.code, destinationLabel: `${a.code} — ${a.city}` }))
           }
@@ -258,8 +290,14 @@ export default function TripForm({
       <button
         type="submit"
         disabled={loading || !valid}
-        className="mt-4 w-full rounded-xl bg-bonza py-2.5 text-[14px] font-semibold text-white shadow-[0_6px_18px_rgba(218,119,86,0.25)] hover:bg-bonza-dark disabled:opacity-50"
+        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-bonza py-2.5 text-[14px] font-semibold text-white shadow-[0_6px_18px_rgba(218,119,86,0.25)] hover:bg-bonza-dark disabled:opacity-50"
       >
+        {!loading && (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        )}
         {buttonLabel}
       </button>
 

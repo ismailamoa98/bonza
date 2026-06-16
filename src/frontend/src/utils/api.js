@@ -39,6 +39,9 @@ export const getHotels = (filters = {}) => {
   if (filters.amenities?.length) params.amenities = filters.amenities.join(",");
   if (filters.loyalty?.length) params.loyalty = filters.loyalty.join(",");
   if (filters.minRating) params.minRating = filters.minRating;
+  if (filters.propertyType?.length) params.propertyType = filters.propertyType.join(",");
+  if (filters.freeCancellation) params.freeCancellation = "true";
+  if (filters.breakfast) params.breakfast = "true";
   if (filters.sort) params.sort = filters.sort;
   return client.get("/hotels", { params }).then((r) => r.data.hotels || []);
 };
@@ -54,7 +57,10 @@ export const getFlights = (filters = {}) => {
   if (filters.airlines?.length) params.airlines = filters.airlines.join(",");
   if (filters.cabin) params.cabin = filters.cabin;
   if (filters.departureTime?.length) params.departureTime = filters.departureTime.join(",");
-  if (filters.stops != null) params.stops = filters.stops;
+  if (filters.arrivalTime?.length) params.arrivalTime = filters.arrivalTime.join(",");
+  if (filters.maxStops != null) params.maxStops = filters.maxStops;
+  if (filters.refundable) params.refundable = "true";
+  if (filters.baggage) params.baggage = "true";
   if (filters.minDuration) params.minDuration = filters.minDuration;
   if (filters.maxDuration) params.maxDuration = filters.maxDuration;
   if (filters.sort) params.sort = filters.sort;

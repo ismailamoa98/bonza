@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TripForm from "../components/TripForm";
 import PackageCard from "../components/PackageCard";
-import LoyaltyCard from "../components/LoyaltyCard";
+import HeroLoyalty from "../components/HeroLoyalty";
 import SnapSection from "../components/SnapSection";
 import { PACKAGES, shuffle } from "../data/packages";
 import { useTrip } from "../hooks/useTrip";
@@ -91,6 +91,7 @@ export default function HomePage() {
   const setLoyaltyPoints = useAppStore((s) => s.setLoyaltyPoints);
   const setTrip = useAppStore((s) => s.setTrip);
   const setTripId = useAppStore((s) => s.setTripId);
+  const setCurrentPackage = useAppStore((s) => s.setCurrentPackage);
   const setSelections = useAppStore((s) => s.setSelections);
   const setBooking = useAppStore((s) => s.setBooking);
 
@@ -99,13 +100,10 @@ export default function HomePage() {
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState(null);
 
-  // Shuffled deck for the carousel; reshuffles (with a fresh image seed) on demand.
-  const [deck, setDeck] = useState(() => shuffle(PACKAGES));
-  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 100000));
-  const reshuffle = () => {
-    setDeck(shuffle(PACKAGES));
-    setSeed(Math.floor(Math.random() * 100000));
-  };
+  // Shuffled deck for the carousel; "View all" expands it into a full grid.
+  const [deck] = useState(() => shuffle(PACKAGES));
+  const [seed] = useState(() => Math.floor(Math.random() * 100000));
+  const [showAll, setShowAll] = useState(false);
 
   // Horizontal carousel scrolling.
   const trackRef = useRef(null);
@@ -117,12 +115,14 @@ export default function HomePage() {
     el.scrollTo({ left: dir > 0 && atEnd ? 0 : el.scrollLeft + dir * step, behavior: "smooth" });
   };
 
-  // Optional 10s auto-advance of the carousel — disabled under reduced motion.
+  // Optional 10s auto-advance of the carousel — disabled under reduced motion,
+  // and paused while the deck is expanded into the full grid.
   useEffect(() => {
+    if (showAll) return undefined;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
     const id = setInterval(() => scrollByCard(1), 10000);
     return () => clearInterval(id);
-  }, [deck]);
+  }, [deck, showAll]);
 
   // Scope full-screen "slide" snapping to the homepage only.
   useEffect(() => {
@@ -137,6 +137,15 @@ export default function HomePage() {
       .then(setLoyaltyPoints)
       .catch((err) => setPointsError(apiErrorMessage(err)));
   }, [loyaltyPoints, setLoyaltyPoints]);
+
+  // Stand-in Plaid "connect" for the logged-out hero button — re-runs the same fetch
+  // (real Plaid Link is post-launch).
+  const connectPlaid = () => {
+    setPointsError(null);
+    getLoyaltyPoints()
+      .then(setLoyaltyPoints)
+      .catch((err) => setPointsError(apiErrorMessage(err)));
+  };
 
   // Rotate progress copy while optimizing.
   useEffect(() => {
@@ -196,6 +205,7 @@ export default function HomePage() {
       const { id } = await createTrip(tripData);
       setTrip(tripData);
       setTripId(id);
+      setCurrentPackage(pkg);
 
       const [flights, hotels, cars] = await Promise.all([
         getFlights({ from: "LHR", to: destLabel, checkIn }),
@@ -245,9 +255,6 @@ export default function HomePage() {
           {/* Floating search bar + glassy loyalty strip */}
           <div className="mx-auto mt-9 max-w-3xl text-left">
             <TripForm variant="bar" onSubmit={handleSubmit} loading={loading} initial={trip} />
-            <div className="mx-auto mt-4 max-w-lg">
-              <LoyaltyCard loyaltyPoints={loyaltyPoints} variant="full" />
-            </div>
             {pointsError && (
               <p className="mt-2 text-center text-[12px] text-amber-200">
                 Couldn’t load your points: {pointsError}
@@ -271,61 +278,84 @@ export default function HomePage() {
                 <span className="hidden text-white/60 sm:inline">Points + cash, optimised</span>
                 <span className="hidden text-white/60 sm:inline">Book in one click</span>
               </div>
-              <span className="h-9 w-9 overflow-hidden rounded-full bg-white/20 ring-2 ring-white/70">
-                <img
-                  src="https://loremflickr.com/80/80/portrait,traveler?lock=7"
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              </span>
+              <HeroLoyalty loyaltyPoints={loyaltyPoints} onConnect={connectPlaid} />
             </div>
           </div>
         </div>
       </section>
 
       {/* 2. PACKAGES CAROUSEL */}
-      <SnapSection id="packages">
+      <SnapSection id="packages" wide>
         <div className="flex items-end justify-between gap-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
-              🎯 Personalized for you
+              Personalized for you
             </p>
             <h2 className="mt-2 text-[2rem] font-medium tracking-[-0.02em] text-ink">
               Explore your packages
             </h2>
           </div>
-          <div className="flex items-center gap-2">
+          {/* No dedicated all-packages route yet — expands the deck into a grid. */}
+          <button
+            type="button"
+            onClick={() => setShowAll((v) => !v)}
+            className="flex items-center gap-1.5 pb-1 text-[13px] font-bold text-[#b5603f] hover:text-bonza-dark"
+          >
+            {showAll ? "Show less" : "View all"}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </button>
+        </div>
+
+        {showAll ? (
+          <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {deck.map((pkg) => (
+              <PackageCard key={pkg.city} package={pkg} seed={seed} onOpen={openPackage} />
+            ))}
+          </div>
+        ) : (
+          <div className="relative mt-8">
             <button
               type="button"
-              onClick={reshuffle}
-              className="rounded-full border border-[#e3ded6] bg-white px-3.5 py-2 text-[12px] font-semibold text-ink-soft hover:border-bonza hover:text-bonza"
+              onClick={() => scrollByCard(-1)}
+              aria-label="Previous packages"
+              className="absolute -left-0.5 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white text-ink-soft shadow-[0_6px_20px_rgba(40,30,20,0.16)] ring-1 ring-black/5 hover:text-bonza"
             >
-              🔀 Shuffle
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
+              </svg>
             </button>
+            <div
+              ref={trackRef}
+              className="flex snap-x snap-mandatory gap-5 overflow-x-auto pb-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {deck.map((pkg) => (
+                // Sized so three full cards fit plus a 5rem sliver of the fourth
+                // peeking at the right edge (3 cards + 3 gap-5 gutters + 5rem = 100%).
+                <div
+                  key={pkg.city}
+                  className="w-80 shrink-0 snap-start sm:w-96 lg:w-[calc((100%-8.75rem)/3)]"
+                >
+                  <PackageCard package={pkg} seed={seed} onOpen={openPackage} />
+                </div>
+              ))}
+            </div>
             <button
               type="button"
               onClick={() => scrollByCard(1)}
               aria-label="Next packages"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-bonza text-white hover:bg-bonza-dark"
+              className="absolute -right-0.5 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white text-ink-soft shadow-[0_6px_20px_rgba(40,30,20,0.16)] ring-1 ring-black/5 hover:text-bonza"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="5" y1="12" x2="19" y2="12" />
                 <polyline points="12 5 19 12 12 19" />
               </svg>
             </button>
           </div>
-        </div>
-
-        <div
-          ref={trackRef}
-          className="mt-8 flex snap-x snap-mandatory gap-5 overflow-x-auto pb-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          {deck.map((pkg) => (
-            <div key={pkg.city} className="w-72 shrink-0 snap-start">
-              <PackageCard package={pkg} seed={seed} onOpen={openPackage} />
-            </div>
-          ))}
-        </div>
+        )}
       </SnapSection>
 
       {/* 3. STATS */}

@@ -5,7 +5,7 @@ import Navigation from "./components/Navigation";
 import HomePage from "./pages/HomePage";
 import FlexibleDates from "./pages/FlexibleDates";
 import Step2_Optimization from "./pages/Step2_Optimization";
-import Step3_BookingLink from "./pages/Step3_BookingLink";
+import BookingPage from "./pages/BookingPage";
 
 export default function App() {
   return (
@@ -18,7 +18,7 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/flexible" element={<FlexibleDates />} />
             <Route path="/optimize" element={<Step2_Optimization />} />
-            <Route path="/booking" element={<Step3_BookingLink />} />
+            <Route path="/booking" element={<BookingPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

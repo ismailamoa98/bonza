@@ -3,10 +3,12 @@
 // to pick from. Calls onSelect with the chosen airport; the parent stores the
 // 3-letter code. Props: { label, placeholder, value, displayLabel, onSelect, bare }.
 //   bare — borderless/transparent input for the horizontal hero search "bar".
+//   onQueryChange — reports the raw typed text so the parent can resolve a
+//   typed-but-unselected airport (top match) at submit time.
 import { useEffect, useRef, useState } from "react";
 import { getAirports, apiErrorMessage } from "../utils/api";
 
-export default function AirportDropdown({ label, placeholder, displayLabel, onSelect, bare = false }) {
+export default function AirportDropdown({ label, placeholder, displayLabel, onSelect, onQueryChange, bare = false }) {
   const [query, setQuery] = useState(displayLabel || "");
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
@@ -57,9 +59,18 @@ export default function AirportDropdown({ label, placeholder, displayLabel, onSe
   const choose = (airport) => {
     onSelect(airport);
     setQuery(`${airport.code} — ${airport.city}`);
+    onQueryChange?.(""); // committed — clear any pending typed text
     setResults([]);
     setOpen(false);
     setDirty(false);
+  };
+
+  // Enter commits the top match instead of submitting the form with an empty code.
+  const onKeyDown = (e) => {
+    if (e.key === "Enter" && open && results.length > 0) {
+      e.preventDefault();
+      choose(results[0]);
+    }
   };
 
   return (
@@ -74,9 +85,11 @@ export default function AirportDropdown({ label, placeholder, displayLabel, onSe
         autoComplete="off"
         onChange={(e) => {
           setQuery(e.target.value);
+          onQueryChange?.(e.target.value);
           setDirty(true);
           setOpen(true);
         }}
+        onKeyDown={onKeyDown}
         onFocus={() => results.length && setOpen(true)}
         className={
           bare
@@ -86,8 +99,8 @@ export default function AirportDropdown({ label, placeholder, displayLabel, onSe
       />
 
       {open && (loading || results.length > 0 || error) && (
-        <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-          {loading && <li className="px-3 py-2 text-sm text-slate-400">Searching…</li>}
+        <ul className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-[#e0d9cf] bg-white font-jakarta shadow-[0_12px_30px_rgba(40,30,20,0.14)]">
+          {loading && <li className="px-3 py-2 text-sm text-ink-muted">Searching…</li>}
           {error && !loading && (
             <li className="px-3 py-2 text-sm text-amber-600">{error}</li>
           )}
@@ -100,10 +113,10 @@ export default function AirportDropdown({ label, placeholder, displayLabel, onSe
                   className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-bonza-50"
                 >
                   <span>
-                    <span className="font-semibold text-slate-800">{a.code}</span>
-                    <span className="text-slate-600"> — {a.city}</span>
+                    <span className="font-semibold text-ink">{a.code}</span>
+                    <span className="text-ink-soft"> — {a.city}</span>
                   </span>
-                  <span className="truncate text-xs text-slate-400">{a.country}</span>
+                  <span className="truncate text-xs text-ink-muted">{a.country}</span>
                 </button>
               </li>
             ))}

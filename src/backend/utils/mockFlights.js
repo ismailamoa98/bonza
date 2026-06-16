@@ -49,6 +49,8 @@ exports.getFlights = (from = "JFK", to = "CDG", date) => {
     const basePrice = Math.round((cabin.base + (i % 5) * 120) * mult);
     const baseMiles = cabin.miles + (i % 5) * 2000;
 
+    const premiumCabin = cabin.name === "Business" || cabin.name === "First";
+
     flights.push({
       id: `flight_${i + 1}`,
       airline: airline.name,
@@ -61,6 +63,9 @@ exports.getFlights = (from = "JFK", to = "CDG", date) => {
       basePrice,
       availableSeats: 4 + (i % 9),
       stops,
+      // Typical filterable fare attributes (premium cabins always include both).
+      refundable: premiumCabin || i % 3 === 0,
+      baggageIncluded: premiumCabin || i % 2 === 0,
       // Award pricing — keyed by program plus a transferable "amex" equivalent.
       milesRequired: {
         [airline.program]: baseMiles,

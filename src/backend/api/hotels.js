@@ -17,6 +17,9 @@ router.get("/", (req, res, next) => {
       amenities: q.amenities ? q.amenities.split(",") : null,
       loyalty: q.loyalty ? q.loyalty.split(",") : null,
       minRating: q.minRating ? Number(q.minRating) : null,
+      propertyType: q.propertyType ? q.propertyType.split(",") : null,
+      freeCancellation: q.freeCancellation === "true",
+      breakfast: q.breakfast === "true",
       sort: q.sort || "recommended",
     };
 

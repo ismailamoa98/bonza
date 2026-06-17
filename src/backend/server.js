@@ -8,6 +8,7 @@ const corsMiddleware = require("./middleware/cors");
 const auth = require("./middleware/auth");
 const { notFound, errorHandler } = require("./middleware/errorHandler");
 
+const authRouter = require("./api/auth");
 const tripsRouter = require("./api/trips");
 const airportsRouter = require("./api/airports");
 const hotelsRouter = require("./api/hotels");
@@ -28,6 +29,9 @@ app.use(express.json());
 app.get("/health", (req, res) => {
   res.json({ status: "ok", service: "bonza-backend", env: env.NODE_ENV });
 });
+
+// Auth — register / login are public; /me applies the auth middleware itself.
+app.use("/api/v1/auth", authRouter); // POST /auth/register, /auth/login · GET /auth/me
 
 // Reference lookup / browse inventory — no auth needed.
 app.use("/api/v1/airports", airportsRouter); // GET /api/v1/airports?q=

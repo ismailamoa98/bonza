@@ -17,22 +17,38 @@ const initialState = {
   chatMessages: [], // [{ role: "bonza" | "user", content, ts? }]
   bookingLink: null, // { token, url, expiresAt }
   affiliateLinks: null, // { flight, hotel, car }
+  currentPackage: null, // the marketing package opened from the homepage (booking-page flavor)
 
   // --- Browse & optimize (Step 2) ---
   activeTab: "hotels", // "hotels" | "flights" | "cars"
   // Per-tab filters so a hotel price cap never filters out flights, etc.
   filters: {
-    hotels: { maxPrice: null, stars: [], amenities: [], loyalty: [], minRating: null, sort: "recommended" },
+    hotels: {
+      minPrice: null,
+      maxPrice: null,
+      stars: [],
+      amenities: [],
+      loyalty: [],
+      minRating: null,
+      propertyType: [],
+      freeCancellation: false,
+      breakfast: false,
+      sort: "recommended",
+    },
     flights: {
+      minPrice: null,
       maxPrice: null,
       airlines: [],
       cabin: null,
       departureTime: [],
-      stops: null,
+      arrivalTime: [],
+      maxStops: null,
+      refundable: false,
+      baggage: false,
       maxDuration: null,
       sort: "recommended",
     },
-    cars: { maxPrice: null, carClass: [], vendors: [], sort: "recommended" },
+    cars: { minPrice: null, maxPrice: null, carClass: [], vendors: [], sort: "recommended" },
   },
   hotels: [], // current hotel grid results
   flights: [], // current flight grid results
@@ -75,6 +91,7 @@ export const useAppStore = create((set) => ({
   setTrip: (trip) => set({ trip }),
   setTripId: (tripId) => set({ tripId }),
   setLoyaltyPoints: (loyaltyPoints) => set({ loyaltyPoints }),
+  setCurrentPackage: (currentPackage) => set({ currentPackage }),
 
   // Seed scenarios + selection + vendor picks + ratio + the opening message.
   setOptimization: ({

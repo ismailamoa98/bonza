@@ -2,3 +2,22 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Pampas cream flows through the entire app. */
+body {
+  background-color: #f4f3ee;
+}
+
+/* Homepage only (class toggled while HomePage is mounted): soft "slide" snapping.
+   `proximity` gently guides to section tops while letting neighbors peek into view.
+   scroll-padding-top offsets the 64px sticky navbar so snapped section tops sit
+   below it. Booking/optimize routes scroll normally. */
+html.snap-page {
+  scroll-snap-type: y proximity;
+  scroll-padding-top: 64px;
+}
+@media (prefers-reduced-motion: reduce) {
+  html.snap-page {
+    scroll-snap-type: none;
+  }
+}

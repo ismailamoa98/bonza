@@ -14,17 +14,17 @@ export default function TabSwitcher() {
   const setActiveTab = useAppStore((s) => s.setActiveTab);
 
   return (
-    <div className="inline-flex gap-1 rounded-lg bg-slate-100 p-1">
+    <div className="inline-flex gap-1 rounded-xl bg-white p-1 font-jakarta ring-1 ring-black/5">
       {TABS.map(([key, label]) => (
         <button
           key={key}
           type="button"
           onClick={() => setActiveTab(key)}
           className={[
-            "rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
+            "rounded-lg px-4 py-1.5 text-[13px] font-semibold transition-colors",
             activeTab === key
-              ? "bg-white text-bonza shadow-sm"
-              : "text-slate-500 hover:text-slate-700",
+              ? "bg-bonza text-white"
+              : "text-ink-soft hover:text-ink",
           ].join(" ")}
         >
           {label}

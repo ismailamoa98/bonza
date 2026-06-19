@@ -23,6 +23,7 @@ export default function TripForm({
   loading = false,
   initial = null,
   variant = "panel",
+  embedded = false,
 }) {
   const [form, setForm] = useState({
     origin: initial?.origin || "",
@@ -128,10 +129,15 @@ export default function TripForm({
   );
 
   // ── BAR variant ─────────────────────────────────────────────────────────
+  // `embedded` drops the rounded-pill chrome (white bg + shadow) so the bar can
+  // sit inside a card that already provides the container (dashboard).
   if (variant === "bar") {
+    const rowClass = embedded
+      ? "flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-0"
+      : "flex flex-col gap-1 rounded-3xl bg-white p-2 shadow-[0_18px_50px_rgba(40,30,20,0.18)] sm:flex-row sm:items-center sm:rounded-full sm:gap-0";
     return (
       <form onSubmit={submit}>
-        <div className="flex flex-col gap-1 rounded-3xl bg-white p-2 shadow-[0_18px_50px_rgba(40,30,20,0.18)] sm:flex-row sm:items-center sm:rounded-full sm:gap-0">
+        <div className={rowClass}>
           <div className="min-w-0 flex-1 px-4 py-1.5">
             <AirportDropdown
               label="From"

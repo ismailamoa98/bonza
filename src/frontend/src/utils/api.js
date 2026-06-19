@@ -1,5 +1,7 @@
 // utils/api.js — axios client (relative /api/v1) + Clerk bearer interceptor + endpoint helpers.
 import axios from "axios";
+import { track } from "../lib/analytics";
+import { EV, SERVICE } from "../lib/analytics/events";
 
 const client = axios.create({
   baseURL: "/api/v1",
@@ -20,6 +22,32 @@ client.interceptors.request.use(async (config) => {
   }
   return config;
 });
+
+// Phase 24 §24h — normalise the error contract onto err.appError, and fire EV.API_ERROR exactly once per
+// failed request (not once per component that observes it). Analytics is a no-op until consented + keyed.
+client.interceptors.response.use(
+  (r) => r,
+  (error) => {
+    const status = error?.response?.status ?? 0;
+    const body = error?.response?.data?.error;
+    const appError =
+      body && typeof body === "object"
+        ? { code: body.code || "INTERNAL", message: body.message || null, retryable: !!body.retryable, service: body.service || null }
+        : {
+            code: status === 0 ? "NETWORK" : "INTERNAL",
+            message: typeof body === "string" ? body : error?.message || null,
+            retryable: status === 0 || status === 429 || status >= 500,
+            service: null,
+          };
+    error.appError = appError;
+    try {
+      track(EV.API_ERROR, { service: appError.service || SERVICE.INTERNAL, code: appError.code, status, retryable: appError.retryable });
+    } catch {
+      /* analytics must never break the request flow */
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const getTrips = () => client.get("/trips").then((r) => r.data.trips || []);
 
@@ -256,6 +284,10 @@ export const getProfile = () => client.get("/user/profile").then((r) => r.data.p
 export const updateProfile = (patch) =>
   client.patch("/user/profile", patch).then((r) => r.data.profile);
 
+// §25b — mirror cookie-consent choice onto the account (server-side marketing-consent source of truth).
+export const updateConsent = ({ consentAnalytics, consentMarketing }) =>
+  client.patch("/user/profile", { consentAnalytics, consentMarketing }).then((r) => r.data.profile);
+
 export const getLoyaltyProviders = () =>
   client.get("/loyalty/providers").then((r) => r.data.providers || {});
 
@@ -289,6 +321,8 @@ export const getHelpArticle = (slug) => client.get(`/help/articles/${slug}`).the
 export const voteHelpful = (slug, helpful) => client.post(`/help/articles/${slug}/helpful`, { helpful }).then((r) => r.data);
 
 export const createTicket = (payload) => client.post("/support/tickets", payload).then((r) => r.data);
+// §27d — verify a Cloudflare Turnstile token (used by the signup pre-gate). Offline the server accepts.
+export const verifyTurnstile = (token) => client.post("/security/turnstile/verify", { token }).then((r) => r.data);
 export const getTickets = () => client.get("/support/tickets").then((r) => r.data.tickets || []);
 export const getTicket = (ref, email) => client.get(`/support/tickets/${ref}`, { params: email ? { email } : {} }).then((r) => r.data.ticket);
 export const postTicketMessage = (id, body) => client.post(`/support/tickets/${id}/messages`, { body }).then((r) => r.data);
@@ -297,8 +331,21 @@ export const getProgrammeContact = (prog) => client.get(`/support/programme-cont
 export const getStatus = () => client.get("/status").then((r) => r.data);
 export const getAdminUser = (userId) => client.get(`/admin/user/${userId}`).then((r) => r.data);
 
+// Phase 25 §25d — legal acceptance history + re-acceptance.
+export const getLegalAcceptance = () => client.get("/me/legal").then((r) => r.data);
+export const acceptLegal = (documents, context = "reaccept") =>
+  client.post("/me/legal/accept", { documents, context }).then((r) => r.data);
+
+// Phase 25 §25e — data-subject requests (export + delete).
+export const requestDataExport = () => client.post("/me/export").then((r) => r.data);
+export const requestAccountDelete = () => client.post("/me/delete").then((r) => r.data);
+export const cancelAccountDelete = () => client.post("/me/delete/cancel").then((r) => r.data);
+export const getDeleteStatus = () => client.get("/me/delete/status").then((r) => r.data);
+
 export const apiErrorMessage = (err) =>
-  err?.response?.data?.error ||
+  err?.appError?.message ||
+  err?.response?.data?.error?.message ||
+  (typeof err?.response?.data?.error === "string" ? err.response.data.error : null) ||
   err?.response?.data?.message ||
   err?.message ||
   "Something went wrong. Please try again.";

@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TripForm from "../components/TripForm";
 import DestinationBand from "../components/hero/DestinationBand";
+import ErrorBoundary from "../components/ErrorBoundary";
 import WhyBonza from "../components/home/WhyBonza";
 import DiscoverRails from "../components/home/DiscoverRails";
 import HowItWorks from "../components/home/HowItWorks";
@@ -18,6 +19,8 @@ import { getLoyaltyPoints, apiErrorMessage, getHeroDestinations } from "../utils
 import { buildSearchUrl, reserveTab, redirectTab, exploreOriginFor } from "../utils/searchUrl";
 import RotatingBackdrop from "../components/common/RotatingBackdrop";
 import { AUTH_DESTINATIONS } from "../data/authDestinations";
+import { useHead } from "../utils/useHead";
+import { canonicalUrl } from "../utils/siteUrl";
 
 // The hero crossfades through the same self-hosted destination photos as the auth pages (public/auth/*),
 // in a randomised order each visit. The bg-[#1f5f6b] base colour always shows while these load / if one fails.
@@ -32,6 +35,12 @@ const PROGRESS_STEPS = [
 
 export default function HomePage() {
   const navigate = useNavigate();
+  useHead({
+    title: "Bonza — book flights & hotels with the best mix of cash and points",
+    description:
+      "Bonza finds the best-value way to book your trip across cash and loyalty points (Amex, Chase, Marriott, Hyatt, United and more), and explains the strategy in plain English.",
+    canonical: canonicalUrl("/"),
+  });
   const { createAndOptimize, loading, error } = useTrip();
 
   const trip = useAppStore((s) => s.trip);
@@ -214,14 +223,16 @@ export default function HomePage() {
       {/* Phase 17 — award-price band. Full-width white section directly beneath the hero; shares the slide
           index so its arrows/bars also drive the hero photo. Does the proof the hero no longer carries. */}
       {bandDestination && (
-        <DestinationBand
-          destination={bandDestination}
-          index={heroIdx}
-          total={order.length}
-          isAuthenticated={heroData?.isAuthenticated}
-          onGoTo={goTo}
-          onStep={step}
-        />
+        <ErrorBoundary level="section" surface="hero_board" fallback={() => null}>
+          <DestinationBand
+            destination={bandDestination}
+            index={heroIdx}
+            total={order.length}
+            isAuthenticated={heroData?.isAuthenticated}
+            onGoTo={goTo}
+            onStep={step}
+          />
+        </ErrorBoundary>
       )}
       </div>
 

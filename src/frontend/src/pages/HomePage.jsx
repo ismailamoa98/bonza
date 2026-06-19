@@ -4,24 +4,17 @@
 // glassy loyalty strip, and a story strip pinned to the bottom. Below the hero the
 // continuous cream sections (packages carousel, stats, how-it-works, community, CTA)
 // reveal/snap as before. The trip form is wired to the real optimize flow.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TripForm from "../components/TripForm";
-import PackageCard from "../components/PackageCard";
+import PackageCarousel from "../components/PackageCarousel";
 import HeroLoyalty from "../components/HeroLoyalty";
 import SnapSection from "../components/SnapSection";
 import { PACKAGES, shuffle } from "../data/packages";
 import { useTrip } from "../hooks/useTrip";
+import { useOpenPackage } from "../hooks/useOpenPackage";
 import { useAppStore } from "../store/appStore";
-import {
-  getLoyaltyPoints,
-  getFlights,
-  getHotels,
-  getCars,
-  createTrip,
-  createBookingLink,
-  apiErrorMessage,
-} from "../utils/api";
+import { getLoyaltyPoints, apiErrorMessage } from "../utils/api";
 
 // PLACEHOLDER — swap for a licensed hero photo, or a muted autoplay
 // <video autoplay muted loop playsinline> (like the reference site). The bg-[#1f5f6b]
@@ -37,92 +30,22 @@ const PROGRESS_STEPS = [
   "Ranking your strategies…",
 ];
 
-// Loyalty program id -> affiliate vendor name (mirrors useOptimization.js).
-const HOTEL_VENDOR = { marriott: "Marriott", ihg: "IHG", hilton: "Hilton" };
-
-const MONTHS = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-};
-
-// Parse a package's "Jun 23 - Jul 1" into ISO check-in/out, rolled to the next
-// upcoming occurrence (so a past month jumps to next year).
-function parsePackageDates(dates) {
-  const [a, b] = String(dates || "").split(" - ");
-  const parsePart = (s) => {
-    const [mon, day] = s.trim().split(/\s+/);
-    return { m: MONTHS[mon?.toLowerCase()?.slice(0, 3)] ?? 0, d: parseInt(day, 10) || 1 };
-  };
-  const now = new Date();
-  const ci = parsePart(a);
-  let year = now.getUTCFullYear();
-  let checkIn = new Date(Date.UTC(year, ci.m, ci.d));
-  if (checkIn < now) {
-    year += 1;
-    checkIn = new Date(Date.UTC(year, ci.m, ci.d));
-  }
-  const co = parsePart(b || a);
-  const outYear = co.m < ci.m ? year + 1 : year;
-  const checkOut = new Date(Date.UTC(outYear, co.m, co.d));
-  return { checkIn: checkIn.toISOString().slice(0, 10), checkOut: checkOut.toISOString().slice(0, 10) };
-}
-
-// "£1,240" -> 1240
-const parseBudget = (cash) => Number(String(cash || "").replace(/[^0-9]/g, "")) || 0;
-
-// Build the { flight, hotel, car } vendor objects the booking endpoint expects.
-function selectionVendors(flight, hotel, car) {
-  const vendors = {};
-  if (flight) vendors.flight = { vendor: flight.airline, label: flight.cabin };
-  if (hotel) {
-    const programKey = Object.keys(hotel.loyaltyPrograms || {})[0];
-    vendors.hotel = { vendor: HOTEL_VENDOR[programKey] || "Marriott", label: hotel.name };
-  }
-  if (car) vendors.car = { vendor: car.vendor, label: car.carClass };
-  return vendors;
-}
-
 export default function HomePage() {
   const navigate = useNavigate();
   const { createAndOptimize, loading, error } = useTrip();
+  const { openPackage, opening, openError } = useOpenPackage();
 
   const trip = useAppStore((s) => s.trip);
   const loyaltyPoints = useAppStore((s) => s.loyaltyPoints);
   const setLoyaltyPoints = useAppStore((s) => s.setLoyaltyPoints);
   const setTrip = useAppStore((s) => s.setTrip);
-  const setTripId = useAppStore((s) => s.setTripId);
-  const setCurrentPackage = useAppStore((s) => s.setCurrentPackage);
-  const setSelections = useAppStore((s) => s.setSelections);
-  const setBooking = useAppStore((s) => s.setBooking);
 
   const [pointsError, setPointsError] = useState(null);
   const [progressIndex, setProgressIndex] = useState(0);
-  const [opening, setOpening] = useState(false);
-  const [openError, setOpenError] = useState(null);
 
-  // Shuffled deck for the carousel; "View all" expands it into a full grid.
+  // Shuffled deck for the carousel.
   const [deck] = useState(() => shuffle(PACKAGES));
   const [seed] = useState(() => Math.floor(Math.random() * 100000));
-  const [showAll, setShowAll] = useState(false);
-
-  // Horizontal carousel scrolling.
-  const trackRef = useRef(null);
-  const scrollByCard = (dir = 1) => {
-    const el = trackRef.current;
-    if (!el) return;
-    const step = (el.firstElementChild?.offsetWidth || 288) + 20;
-    const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 8;
-    el.scrollTo({ left: dir > 0 && atEnd ? 0 : el.scrollLeft + dir * step, behavior: "smooth" });
-  };
-
-  // Optional 10s auto-advance of the carousel — disabled under reduced motion,
-  // and paused while the deck is expanded into the full grid.
-  useEffect(() => {
-    if (showAll) return undefined;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
-    const id = setInterval(() => scrollByCard(1), 10000);
-    return () => clearInterval(id);
-  }, [deck, showAll]);
 
   // Scope full-screen "slide" snapping to the homepage only.
   useEffect(() => {
@@ -181,51 +104,6 @@ export default function HomePage() {
     if (ok) navigate("/optimize");
   };
 
-  // Open a marketing package -> build a trip, auto-pick a flight/hotel/car,
-  // create the booking link, and jump to the Step 3 booking page.
-  const openPackage = async (pkg) => {
-    if (opening) return;
-    setOpening(true);
-    setOpenError(null);
-    try {
-      const { checkIn, checkOut } = parsePackageDates(pkg.dates);
-      const destLabel = pkg.city;
-      const tripData = {
-        origin: "LHR",
-        originLabel: "LHR — London",
-        destination: destLabel,
-        destinationLabel: destLabel,
-        checkIn,
-        checkOut,
-        budget: parseBudget(pkg.cash),
-        numberOfTravelers: 2,
-        flexibility: false,
-        preferences: { style: "Points Max" },
-      };
-      const { id } = await createTrip(tripData);
-      setTrip(tripData);
-      setTripId(id);
-      setCurrentPackage(pkg);
-
-      const [flights, hotels, cars] = await Promise.all([
-        getFlights({ from: "LHR", to: destLabel, checkIn }),
-        getHotels({ destination: destLabel, checkIn }),
-        getCars({ location: destLabel, checkIn }),
-      ]);
-      const flight = flights[0] || null;
-      const hotel = hotels[0] || null;
-      const car = cars[0] || null;
-      setSelections({ flight, hotel, car });
-
-      const vendors = selectionVendors(flight, hotel, car);
-      const data = await createBookingLink(id, null, vendors);
-      setBooking(data);
-      navigate("/booking");
-    } catch (err) {
-      setOpenError(apiErrorMessage(err));
-      setOpening(false);
-    }
-  };
 
   return (
     <div className="text-ink">
@@ -286,76 +164,7 @@ export default function HomePage() {
 
       {/* 2. PACKAGES CAROUSEL */}
       <SnapSection id="packages" wide>
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
-              Personalized for you
-            </p>
-            <h2 className="mt-2 text-[2rem] font-medium tracking-[-0.02em] text-ink">
-              Explore your packages
-            </h2>
-          </div>
-          {/* No dedicated all-packages route yet — expands the deck into a grid. */}
-          <button
-            type="button"
-            onClick={() => setShowAll((v) => !v)}
-            className="flex items-center gap-1.5 pb-1 text-[13px] font-bold text-[#b5603f] hover:text-bonza-dark"
-          >
-            {showAll ? "Show less" : "View all"}
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="5" y1="12" x2="19" y2="12" />
-              <polyline points="12 5 19 12 12 19" />
-            </svg>
-          </button>
-        </div>
-
-        {showAll ? (
-          <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {deck.map((pkg) => (
-              <PackageCard key={pkg.city} package={pkg} seed={seed} onOpen={openPackage} />
-            ))}
-          </div>
-        ) : (
-          <div className="relative mt-8">
-            <button
-              type="button"
-              onClick={() => scrollByCard(-1)}
-              aria-label="Previous packages"
-              className="absolute -left-0.5 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white text-ink-soft shadow-[0_6px_20px_rgba(40,30,20,0.16)] ring-1 ring-black/5 hover:text-bonza"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="19" y1="12" x2="5" y2="12" />
-                <polyline points="12 19 5 12 12 5" />
-              </svg>
-            </button>
-            <div
-              ref={trackRef}
-              className="flex snap-x snap-mandatory gap-5 overflow-x-auto pb-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            >
-              {deck.map((pkg) => (
-                // Sized so three full cards fit plus a 5rem sliver of the fourth
-                // peeking at the right edge (3 cards + 3 gap-5 gutters + 5rem = 100%).
-                <div
-                  key={pkg.city}
-                  className="w-80 shrink-0 snap-start sm:w-96 lg:w-[calc((100%-8.75rem)/3)]"
-                >
-                  <PackageCard package={pkg} seed={seed} onOpen={openPackage} />
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => scrollByCard(1)}
-              aria-label="Next packages"
-              className="absolute -right-0.5 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white text-ink-soft shadow-[0_6px_20px_rgba(40,30,20,0.16)] ring-1 ring-black/5 hover:text-bonza"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </button>
-          </div>
-        )}
+        <PackageCarousel packages={deck} seed={seed} onOpen={openPackage} />
       </SnapSection>
 
       {/* 3. STATS */}

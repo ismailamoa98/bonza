@@ -8,6 +8,33 @@ const client = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// --- Auth token (Clerk) -----------------------------------------------------
+// Clerk owns sessions. A React component with access to Clerk's useAuth() hook
+// (see App's <AuthSync/>) registers its async getToken() here; the request
+// interceptor then attaches a fresh bearer token to every call. Keeping the
+// getter at module scope lets the plain (non-React) api helpers stay unchanged.
+let authTokenGetter = null;
+export function setAuthTokenGetter(getter) {
+  authTokenGetter = getter;
+}
+
+// Attach the Clerk session token (if signed in) to every request.
+client.interceptors.request.use(async (config) => {
+  try {
+    const token = await authTokenGetter?.();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+  } catch {
+    /* not signed in / token unavailable — backend dev fallback handles it */
+  }
+  return config;
+});
+
+// --- Auth -------------------------------------------------------------------
+// register/login/me are gone — Clerk's components own sign-in/up and the session.
+
+// GET /trips -> [trip, …] (current user's recent trips, newest first)
+export const getTrips = () => client.get("/trips").then((r) => r.data.trips || []);
+
 // --- Step 1: Trip Details ---------------------------------------------------
 
 // GET /airports?q= -> [{ code, name, city, country, countryCode }]

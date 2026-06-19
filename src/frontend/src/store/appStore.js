@@ -85,8 +85,24 @@ function initialVendorSelections(scenarios) {
   return out;
 }
 
+// Auth lives OUTSIDE initialState so `reset()` — which clears the trip-flow
+// fields — never logs the user out. Clerk owns the session; the store only caches
+// the user for UI display (avatar/greeting), kept in sync by App's <AuthSync/>.
 export const useAppStore = create((set) => ({
   ...initialState,
+
+  // --- Auth (display cache only — Clerk is the source of truth) ---
+  user: null, // { id, name, email } | null
+  isLoggedIn: false,
+  setUser: (user) => set({ user, isLoggedIn: Boolean(user) }),
+  logout: () =>
+    set({
+      user: null,
+      isLoggedIn: false,
+      // Clear anything sensitive/user-scoped on sign-out.
+      loyaltyPoints: null,
+      currentPackage: null,
+    }),
 
   setTrip: (trip) => set({ trip }),
   setTripId: (tripId) => set({ tripId }),

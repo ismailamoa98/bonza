@@ -5,6 +5,7 @@
 // The serif wordmark uses font-display (Playfair); links/pills stay Plus Jakarta Sans.
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { SignedIn, SignedOut, UserButton } from "@clerk/clerk-react";
 
 const LINKS = [
   { label: "Destinations", href: "/#packages", caret: true },
@@ -16,6 +17,7 @@ const LINKS = [
 export default function Navigation({ overlay: overlayProp }) {
   const { pathname } = useLocation();
   const onHome = pathname === "/";
+  const onLogin = pathname === "/login";
   const [scrolled, setScrolled] = useState(false);
 
   // Only the homepage hero gets the overlay treatment, and only until scrolled past.
@@ -26,6 +28,9 @@ export default function Navigation({ overlay: overlayProp }) {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, [onHome]);
+
+  // The login page is a full-bleed split screen with its own back link — no app chrome.
+  if (onLogin) return null;
 
   const overlay = (overlayProp ?? onHome) && !scrolled;
 
@@ -96,18 +101,38 @@ export default function Navigation({ overlay: overlayProp }) {
             </svg>
             EN
           </button>
-          <button
-            type="button"
-            className={`hidden rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-colors sm:block ${pillClass}`}
-          >
-            Sign in
-          </button>
-          <a
-            href="/#plan"
-            className="rounded-full bg-bonza px-4 py-2 text-[12px] font-semibold text-white hover:bg-bonza-dark"
-          >
-            Get started
-          </a>
+          <SignedIn>
+            <Link
+              to="/dashboard"
+              className={`hidden rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-colors sm:block ${
+                pathname === "/dashboard"
+                  ? overlay
+                    ? "border-white/60 bg-white/25 text-white"
+                    : "border-bonza bg-bonza-50 text-bonza"
+                  : pillClass
+              }`}
+            >
+              Dashboard
+            </Link>
+            <UserButton
+              afterSignOutUrl="/"
+              appearance={{ elements: { avatarBox: "w-9 h-9 ring-2 ring-white/70" } }}
+            />
+          </SignedIn>
+          <SignedOut>
+            <Link
+              to="/login"
+              className={`hidden rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-colors sm:block ${pillClass}`}
+            >
+              Sign in
+            </Link>
+            <Link
+              to="/login"
+              className="rounded-full bg-bonza px-4 py-2 text-[12px] font-semibold text-white hover:bg-bonza-dark"
+            >
+              Get started
+            </Link>
+          </SignedOut>
         </div>
       </div>
     </header>

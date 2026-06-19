@@ -68,6 +68,35 @@ function buildModel(loyaltyPoints, pointsUsed = 0) {
   };
 }
 
+// The user's best-value program right now (highest ¢/pt among held balances), or
+// null if no balance. Exposed so the dashboard can sort offers by it WITHOUT
+// changing what any PackageCard shows (keeps loyalty-drives-offers decoupling).
+export function bestProgram(loyaltyPoints) {
+  if (!loyaltyPoints) return null;
+  const held = PROGRAMS.filter((p) => (loyaltyPoints[p.key] || 0) > 0);
+  if (held.length === 0) return null;
+  return held.reduce((b, r) => (r.rate > b.rate ? r : b), held[0]);
+}
+
+// Held programs as display rows (value-desc), each with its £ value and an `isBest`
+// flag (highest ¢/pt). Reuses the single PROGRAMS rate table so the dashboard
+// loyalty strip stays in sync with this card. Returns [] when there's no balance.
+export function loyaltyRows(loyaltyPoints) {
+  if (!loyaltyPoints) return [];
+  const best = bestProgram(loyaltyPoints);
+  return PROGRAMS.map((p) => ({
+    key: p.key,
+    label: p.label,
+    short: p.short,
+    rate: p.rate,
+    points: loyaltyPoints[p.key] || 0,
+    value: Math.round((loyaltyPoints[p.key] || 0) * p.rate),
+  }))
+    .filter((r) => r.points > 0)
+    .sort((a, b) => b.value - a.value)
+    .map((r) => ({ ...r, isBest: best ? r.key === best.key : false }));
+}
+
 export default function LoyaltyCard({ loyaltyPoints, variant = "full", pointsUsed = 0 }) {
   const model = buildModel(loyaltyPoints, pointsUsed);
   if (!model) return null;

@@ -1,11 +1,35 @@
 // api/trips.js — Trip endpoints.
 // POST /api/v1/trips — create a trip. Loyalty points are auto-filled from the
-// mock Plaid source; preferences come from the request body.
+//   mock Plaid source; preferences come from the request body.
+// GET  /api/v1/trips — the current user's recent trips (dashboard "recent searches").
 const express = require("express");
 const prisma = require("../config/database");
 const { getMockPlaidData } = require("../utils/mockPlaidData");
 
 const router = express.Router();
+
+// GET / — recent trips for the authenticated user, newest first (max 10).
+router.get("/", async (req, res, next) => {
+  try {
+    const trips = await prisma.trip.findMany({
+      where: { userId: req.userId },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: {
+        id: true,
+        origin: true,
+        destination: true,
+        checkIn: true,
+        checkOut: true,
+        numberOfTravelers: true,
+        createdAt: true,
+      },
+    });
+    res.json({ trips });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.post("/", async (req, res, next) => {
   try {

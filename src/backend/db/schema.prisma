@@ -8,9 +8,10 @@ generator client {
 }
 
 model User {
-  id                String    @id @default(cuid())
+  // Clerk owns identity. `id` holds Clerk's userId (e.g. "user_2abc…"), NOT a cuid —
+  // it's set from the webhook / JIT sync, or the fixed dev-demo id when seeded.
+  id                String    @id
   email             String    @unique
-  passwordHash      String
   name              String?
   location          String?
   travelStatus      String?

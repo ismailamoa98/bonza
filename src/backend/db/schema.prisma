@@ -20,6 +20,11 @@ model User {
   trips             Trip[]
   bookingLinks      BookingLink[]
   chatSessions      ChatSession[]
+
+  subscription      Subscription?
+  bonzaCredits      BonzaCredit[]
+  loyaltyAccounts   LoyaltyAccount[]
+  affiliateClicks   AffiliateClick[]
 }
 
 model Trip {
@@ -139,4 +144,65 @@ model Conversion {
   commissionAmount  Float?
 
   createdAt         DateTime  @default(now())
+}
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  user                 User      @relation(fields: [userId], references: [id])
+
+  stripeCustomerId     String    @unique
+  stripeSubscriptionId String?   @unique
+  status               String    // "active" | "cancelled" | "past_due" | "trialing"
+  plan                 String    @default("pro_annual") // "pro_annual" | "free"
+  currentPeriodEnd     DateTime?
+
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model BonzaCredit {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+
+  amount            Float     // GBP, e.g. 24.00
+  source            String    // "cashback_hotel" | "cashback_flight" | "cashback_car" | "first_booking_bonus" | "redeemed"
+  bookingId         String?   // ref to the booking that generated this credit (no FK — bookings live as BookingLink/Conversion)
+
+  createdAt         DateTime  @default(now())
+  expiresAt         DateTime  // credits expire 24 months from earning
+}
+
+model LoyaltyAccount {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+
+  programme         String    // "marriott_bonvoy" | "hilton_honors" | "world_of_hyatt" | "ihg_one" | "amex_mr" | "chase_ur" | "united_mp" | "ba_avios"
+  accountNumber     String?   // masked — last 4 only
+  balance           Int       // points
+  valueGbp          Float     // estimated £ value at current programme rate
+  statusTier        String?   // "Silver" | "Gold" | "Platinum" | "Sapphire" | "Globalist" etc.
+  lastSynced        DateTime
+  syncMethod        String    // "email_parse" | "manual" | "awardwallet"
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([userId, programme])
+}
+
+model AffiliateClick {
+  id                String    @id @default(cuid())
+  userId            String?
+  user              User?     @relation(fields: [userId], references: [id])
+
+  programme         String    // "travelpayouts" | "awin_marriott" | "awin_hilton" | "impact_hyatt" | "cj_seatsaero"
+  destination       String    // URL clicked
+  bookingType       String    // "cash" | "points" | "hybrid"
+  leg               String    // "flight" | "hotel" | "car"
+
+  clickedAt         DateTime  @default(now())
+  convertedAt       DateTime?
+  commissionEst     Float?    // estimated £ commission if known
 }

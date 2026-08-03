@@ -207,6 +207,47 @@ model AffiliateClick {
   commissionEst     Float?    // estimated £ commission if known
 }
 
+model Booking {
+  id                 String       @id @default(cuid())
+  userId             String
+  user               User         @relation(fields: [userId], references: [id])
+
+  journeyId          String?
+  journey            UserJourney? @relation(fields: [journeyId], references: [id])
+
+  tripId             String?
+  origin             String?
+  destination        String?
+  checkIn            DateTime?
+  checkOut           DateTime?
+  travelers          Int          @default(1)
+
+  leg                String       // 'flight' | 'hotel' | 'car' | 'package'
+  bookingType        String       // 'cash' | 'points' | 'hybrid'
+  supplier           String
+  supplierReference  String?
+  description        String?
+
+  cashValueGbp       Float?
+  pointsUsed         Int?
+  pointsProgramme    String?
+  pointsValueGbp     Float?
+  serviceFeeGbp      Float?
+
+  confirmedAt        DateTime
+  confirmationMethod String       // 'duffel' | 'affiliate_postback' | 'self_reported' | 'transfer_proxy'
+
+  status             String       @default("confirmed") // 'confirmed' | 'cancelled' | 'completed' | 'pending'
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  creditsAwarded     Float?
+  credits            BonzaCredit[]
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+}
+
 model UserJourney {
   id                   String    @id @default(cuid())
   userId               String
@@ -244,4 +285,16 @@ model UserJourney {
 
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
+}
+
+model UserEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  type      String   // e.g. 'booking_confirmed' | 'booking_cancelled'
+  metadata  Json
+  sessionId String?
+
+  createdAt DateTime @default(now())
 }

@@ -1,3 +1,4 @@
+// Prisma schema — source of truth for the Bonza data model.
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -8,14 +9,24 @@ generator client {
 }
 
 model User {
-  // Clerk owns identity. `id` holds Clerk's userId (e.g. "user_2abc…"), NOT a cuid —
-  // it's set from the webhook / JIT sync, or the fixed dev-demo id when seeded.
   id                String    @id
   email             String    @unique
   name              String?
   location          String?
   travelStatus      String?
   createdAt         DateTime  @default(now())
+
+  deviceFingerprint String?
+
+  lastLoginAt       DateTime?
+  homeAirport       String?
+
+  onboardingComplete Boolean  @default(false)
+  travelStyle        String?
+  gmailConnected     Boolean  @default(false)
+  gmailRefreshToken  String?
+  outlookConnected   Boolean  @default(false)
+  outlookRefreshToken String?
 
   trips             Trip[]
   bookingLinks      BookingLink[]
@@ -25,6 +36,13 @@ model User {
   bonzaCredits      BonzaCredit[]
   loyaltyAccounts   LoyaltyAccount[]
   affiliateClicks   AffiliateClick[]
+  bookings          Booking[]
+  journeys          UserJourney[]
+  events            UserEvent[]
+  recommendations   PersonalisedRecommendation[]
+
+  notifications          Notification[]
+  notificationPreference NotificationPreference?
 }
 
 model Trip {
@@ -145,6 +163,7 @@ model Conversion {
 
   createdAt         DateTime  @default(now())
 }
+
 model Subscription {
   id                   String    @id @default(cuid())
   userId               String    @unique
@@ -152,8 +171,8 @@ model Subscription {
 
   stripeCustomerId     String    @unique
   stripeSubscriptionId String?   @unique
-  status               String    // "active" | "cancelled" | "past_due" | "trialing"
-  plan                 String    @default("pro_annual") // "pro_annual" | "free"
+  status               String    // 'active' | 'cancelled' | 'past_due' | 'trialing' | 'pending'
+  plan                 String    @default("pro_annual") // 'pro_annual' | 'free'
   currentPeriodEnd     DateTime?
 
   createdAt            DateTime  @default(now())
@@ -161,50 +180,60 @@ model Subscription {
 }
 
 model BonzaCredit {
-  id                String    @id @default(cuid())
-  userId            String
-  user              User      @relation(fields: [userId], references: [id])
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
 
-  amount            Float     // GBP, e.g. 24.00
-  source            String    // "cashback_hotel" | "cashback_flight" | "cashback_car" | "first_booking_bonus" | "redeemed"
-  bookingId         String?   // ref to the booking that generated this credit (no FK — bookings live as BookingLink/Conversion)
+  amount      Float    // in GBP, e.g. 24.00
+  source      String   // 'cashback_hotel' | 'cashback_flight' | 'cashback_car' | 'first_booking_bonus' | 'redeemed'
+  bookingId   String?  // reference to the booking that generated this credit
+  booking     Booking? @relation(fields: [bookingId], references: [id])
 
-  createdAt         DateTime  @default(now())
-  expiresAt         DateTime  // credits expire 24 months from earning
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime // credits expire 24 months from earning
 }
 
 model LoyaltyAccount {
-  id                String    @id @default(cuid())
-  userId            String
-  user              User      @relation(fields: [userId], references: [id])
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
 
-  programme         String    // "marriott_bonvoy" | "hilton_honors" | "world_of_hyatt" | "ihg_one" | "amex_mr" | "chase_ur" | "united_mp" | "ba_avios"
-  accountNumber     String?   // masked — last 4 only
-  balance           Int       // points
-  valueGbp          Float     // estimated £ value at current programme rate
-  statusTier        String?   // "Silver" | "Gold" | "Platinum" | "Sapphire" | "Globalist" etc.
-  lastSynced        DateTime
-  syncMethod        String    // "email_parse" | "manual" | "awardwallet"
+  programme     String   // 'marriott_bonvoy' | 'hilton_honors' | 'world_of_hyatt' | 'ihg_one' | 'amex_mr' | 'chase_ur' | 'united_mp' | 'ba_avios'
+  accountNumber String?  // masked — last 4 only (display)
 
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  programmeAccountId  String?
+  loyaltyEmailAddress String?
+
+  balance       Int      // points
+  valueGbp      Float    // estimated £ value at current programme rate
+  statusTier    String?  // 'Silver' | 'Gold' | 'Platinum' | 'Globalist' etc.
+
+  pointsExpireAt DateTime?
+
+  lastSynced    DateTime
+  syncMethod    String   // 'email_parse' | 'manual' | 'awardwallet'
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@unique([userId, programme])
+  @@unique([programme, programmeAccountId])  // same loyalty account can't link to two Bonza users
+  @@unique([programme, loyaltyEmailAddress]) // same statement email per programme can't link twice
 }
 
 model AffiliateClick {
-  id                String    @id @default(cuid())
-  userId            String?
-  user              User?     @relation(fields: [userId], references: [id])
+  id            String   @id @default(cuid())
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
 
-  programme         String    // "travelpayouts" | "awin_marriott" | "awin_hilton" | "impact_hyatt" | "cj_seatsaero"
-  destination       String    // URL clicked
-  bookingType       String    // "cash" | "points" | "hybrid"
-  leg               String    // "flight" | "hotel" | "car"
+  programme     String   // 'travelpayouts' | 'awin_marriott' | 'awin_hilton' | 'impact_hyatt' | 'cj_seatsaero'
+  destination   String   // URL clicked
+  bookingType   String   // 'cash' | 'points' | 'hybrid'
+  leg           String   // 'flight' | 'hotel' | 'car'
 
-  clickedAt         DateTime  @default(now())
-  convertedAt       DateTime?
-  commissionEst     Float?    // estimated £ commission if known
+  clickedAt     DateTime @default(now())
+  convertedAt   DateTime?
+  commissionEst Float?   // estimated £ commission if known
 }
 
 model Booking {
@@ -224,15 +253,15 @@ model Booking {
 
   leg                String       // 'flight' | 'hotel' | 'car' | 'package'
   bookingType        String       // 'cash' | 'points' | 'hybrid'
-  supplier           String
-  supplierReference  String?
-  description        String?
+  supplier           String       // 'duffel' | 'marriott_bonvoy' | … | 'cartrawler' | 'self_reported'
+  supplierReference  String?      // Duffel booking reference / loyalty confirmation number
+  description        String?      // e.g. "LHR → NCE · British Airways · Economy"
 
   cashValueGbp       Float?
   pointsUsed         Int?
   pointsProgramme    String?
   pointsValueGbp     Float?
-  serviceFeeGbp      Float?
+  serviceFeeGbp      Float?       // Bonza service fee (cash bookings only)
 
   confirmedAt        DateTime
   confirmationMethod String       // 'duffel' | 'affiliate_postback' | 'self_reported' | 'transfer_proxy'
@@ -241,7 +270,7 @@ model Booking {
   cancelledAt        DateTime?
   cancellationReason String?
 
-  creditsAwarded     Float?
+  creditsAwarded     Float?       // Bonza Credits issued for this booking
   credits            BonzaCredit[]
 
   createdAt          DateTime     @default(now())
@@ -263,8 +292,8 @@ model UserJourney {
   pointsRecommended    Int?
 
   transferConfirmed    Boolean   @default(false)
-  transferProgramme    String?
-  transferToProgramme  String?
+  transferProgramme    String?   // e.g. 'chase_ur'
+  transferToProgramme  String?   // e.g. 'aeroplan'
   transferAmount       Int?
   transferConfirmedAt  DateTime?
 
@@ -310,7 +339,7 @@ model AwardAvailability {
   pointsCost  Int
   seatsAvail  Int?
   taxesGbp    Float?
-  bookingUrl  String?
+  bookingUrl  String?  // deep-link to the loyalty portal
   fetchedAt   DateTime @default(now())
   expiresAt   DateTime // 24h TTL
 
@@ -323,26 +352,26 @@ model PersonalisedRecommendation {
   userId            String
   user              User     @relation(fields: [userId], references: [id])
 
-  destination       String
-  destinationCity   String
+  destination       String   // city name — maps to PackageCard title
+  destinationCity   String   // display name
   origin            String
   imageUrl          String?
-  specLine          String
+  specLine          String   // "5 NTS · 5-STAR · LHR → LIS"
   rating            Float?
 
-  pointsOption      Json?
-  cashOption        Json?
-  hotelOption       Json?
+  pointsOption      Json?    // { programme, pointsCost, cabin, availableDates[], valueGbp, centsPerPoint, aboveBenchmark, bookingUrl, seatsAvailable, source }
+  cashOption        Json?    // { priceGbp, supplier, creditsEarned, offerId }
+  hotelOption       Json?    // { name, programme, pointsCost, cashPrice, creditsEarned, nights, source }
 
-  aiInsight         String
-  whyPersonalised   String
-  urgencySignal     String?
+  aiInsight         String   // one line, surfaced as the card's rec
+  whyPersonalised   String   // eyebrow — "You searched Lisbon 3 times"
+  urgencySignal     String?  // "3 seats left" | "Avios expire in 87 days" | null
 
   bestOptionType    String   // 'points' | 'cash' | 'hybrid'
   pointsValueRating String   // 'excellent' | 'good' | 'typical' | 'below_average'
   centsPerPoint     Float?
   cashSavingGbp     Float?
-  creditsIfCash     Float?
+  creditsIfCash     Float?   // 3% of the cash package — always populated
 
   isActive          Boolean  @default(true)
   viewedAt          DateTime?
@@ -358,9 +387,9 @@ model Notification {
   userId    String
   user      User   @relation(fields: [userId], references: [id])
 
-  type      String
-  title     String
-  body      String
+  type      String  // award_availability | expiry_warning | price_drop | monthly_summary |
+  title     String  // short headline — shown in the bell panel
+  body      String  // full message — shown expanded
   ctaLabel  String?
   ctaUrl    String?
 
@@ -387,8 +416,8 @@ model NotificationPreference {
   expiryWarnings  Boolean @default(true)
   priceDropAlerts Boolean @default(true)
   monthlySummary  Boolean @default(true)
-  bookingUpdates  Boolean @default(true) // transactional — always on
-  proUpdates      Boolean @default(true) // transactional — always on
+  bookingUpdates  Boolean @default(true) // transactional — kept true
+  proUpdates      Boolean @default(true) // transactional — kept true
 
   updatedAt DateTime @updatedAt
 }

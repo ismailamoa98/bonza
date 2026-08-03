@@ -14,6 +14,7 @@ const hotelsRouter = require("./api/hotels");
 const flightsRouter = require("./api/flights");
 const carsRouter = require("./api/cars");
 const plaidRouter = require("./api/plaid");
+const profileRouter = require("./api/profile");
 const optimizeRouter = require("./api/optimize");
 const chatRouter = require("./api/chat");
 const bookingRouter = require("./api/booking");
@@ -29,6 +30,7 @@ const journeysRouter = require("./api/journeys");
 const recommendationsRouter = require("./api/recommendations");
 const { router: notificationsRouter, unsubscribe } = require("./api/notifications");
 const { affiliateWebhook } = require("./api/webhooks");
+const { oauthCallback } = require("./api/oauthCallback");
 
 const app = express();
 
@@ -52,6 +54,9 @@ app.post("/api/v1/webhooks/affiliate", affiliateWebhook);
 
 // Public one-click unsubscribe (recipient may not be signed in).
 app.get("/api/v1/notifications/unsubscribe", unsubscribe);
+
+// Public loyalty OAuth callback (provider redirect; identity from signed state).
+app.get("/auth/:provider/callback", oauthCallback);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok", service: "bonza-backend", env: env.NODE_ENV });
@@ -77,6 +82,7 @@ app.use("/api/v1/cars", carsRouter); // GET /api/v1/cars?location=&…
 
 app.use("/api/v1/trips", auth, tripsRouter); // POST /api/v1/trips
 app.use("/api/v1/user", auth, plaidRouter); // GET  /api/v1/user/loyalty-points
+app.use("/api/v1/user", auth, profileRouter); // GET/PATCH /api/v1/user/profile
 app.use("/api/v1/optimize", optimizeLimiter, auth, optimizeRouter); // POST /api/v1/optimize
 app.use("/api/v1/chat", chatLimiter, auth, chatRouter); // POST /api/v1/chat
 app.use("/api/v1/loyalty", auth, loyaltyRouter);

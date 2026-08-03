@@ -33,6 +33,14 @@ const env = {
   // Remote MCP server (no key). Attached to Claude's connector when set.
   GONDOLA_MCP_URL,
   hasGondola: Boolean(GONDOLA_MCP_URL),
+
+  // Off in dev so Pro-gated endpoints work; set PRO_ENFORCED=true in prod.
+  proEnforced: process.env.PRO_ENFORCED === "true",
+
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY || "",
+  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || "",
+  STRIPE_PRO_ANNUAL_PRICE_ID: process.env.STRIPE_PRO_ANNUAL_PRICE_ID || "",
+  hasStripe: /^sk_(test|live)_/.test(process.env.STRIPE_SECRET_KEY || ""),
 };
 
 if (!env.DATABASE_URL) {

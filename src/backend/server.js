@@ -1,9 +1,10 @@
-// Sentry must initialise before express/Prisma are required (11f). No-op offline.
+
 require("./instrument");
 
 const express = require("express");
 const { clerkMiddleware } = require("@clerk/express");
 const rateLimit = require("express-rate-limit");
+const { ipKeyGenerator } = require("express-rate-limit"); // IPv6-safe IP key helper (v8)
 
 const env = require("./config/env");
 const corsMiddleware = require("./middleware/cors");
@@ -52,13 +53,10 @@ app.post(
 
 app.use(express.json());
 
-// Affiliate postback — public server-to-server JSON (no Clerk session).
 app.post("/api/v1/webhooks/affiliate", affiliateWebhook);
 
-// Public one-click unsubscribe (recipient may not be signed in).
 app.get("/api/v1/notifications/unsubscribe", unsubscribe);
 
-// Public loyalty OAuth callback (provider redirect; identity from signed state).
 app.get("/auth/:provider/callback", oauthCallback);
 
 app.get("/health", (req, res) => {
@@ -78,30 +76,67 @@ const chatLimiter = rateLimit({
   message: { error: { message: "Too many messages — slow down" } },
 });
 
+const userKey = (req) => req.userId || ipKeyGenerator(req.ip);
+
+const loyaltySyncLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3,
+  keyGenerator: userKey,
+  message: { error: { message: "Sync rate limit reached — balances update automatically each night" } },
+});
+const recsLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 10,
+  keyGenerator: userKey,
+  message: { error: { message: "Too many recommendation refreshes — please wait a moment" } },
+});
+const onboardingLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3,
+  keyGenerator: userKey,
+  skip: (req) => req.body?.onboardingComplete !== true,
+  message: { error: { message: "Too many onboarding attempts — please wait before retrying" } },
+});
+const manualLoyaltyLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20,
+  keyGenerator: userKey,
+  message: { error: { message: "Too many manual updates — please wait before adding more" } },
+});
+const bookingsLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 30,
+  keyGenerator: userKey,
+  message: { error: { message: "Too many booking requests — please wait a moment" } },
+});
+
 app.use("/api/v1/airports", airportsRouter); // GET /api/v1/airports?q=
 app.use("/api/v1/hotels", hotelsRouter); // GET /api/v1/hotels?destination=&…
 app.use("/api/v1/flights", flightsRouter); // GET /api/v1/flights?from=&to=&…
 app.use("/api/v1/cars", carsRouter); // GET /api/v1/cars?location=&…
+
+app.patch("/api/v1/user/profile", auth, onboardingLimiter); // only counts onboardingComplete flips
+app.post(["/api/v1/loyalty/sync-now", "/api/v1/loyalty/sync-email"], auth, loyaltySyncLimiter);
+app.post("/api/v1/loyalty/accounts", auth, manualLoyaltyLimiter); // manual entry (DB write)
 
 app.use("/api/v1/trips", auth, tripsRouter); // POST /api/v1/trips
 app.use("/api/v1/user", auth, plaidRouter); // GET  /api/v1/user/loyalty-points
 app.use("/api/v1/user", auth, profileRouter); // GET/PATCH /api/v1/user/profile
 app.use("/api/v1/optimize", optimizeLimiter, auth, optimizeRouter); // POST /api/v1/optimize
 app.use("/api/v1/chat", chatLimiter, auth, chatRouter); // POST /api/v1/chat
-app.use("/api/v1/loyalty", auth, loyaltyRouter);
-app.use("/api/v1/subscriptions", auth, subscriptionsRouter);
-app.use("/api/v1/credits", auth, creditsRouter);
-app.use("/api/v1/bookings", auth, bookingsRouter);
-app.use("/api/v1/affiliate", auth, affiliateRouter);
-app.use("/api/v1/journeys", auth, journeysRouter);
-app.use("/api/v1/recommendations", auth, recommendationsRouter);
-app.use("/api/v1/notifications", auth, notificationsRouter);
-app.use("/api/v1", auth, inventoryRouter);
+app.use("/api/v1/loyalty", auth, loyaltyRouter); // POST /sync-email · GET /accounts
+app.use("/api/v1/subscriptions", auth, subscriptionsRouter); // POST /create · /cancel · GET /status
+app.use("/api/v1/credits", auth, creditsRouter); // GET / · POST /redeem
+app.use("/api/v1/bookings", auth, bookingsLimiter, bookingsRouter); // POST / · GET / (history)
+app.use("/api/v1/affiliate", auth, affiliateRouter); // POST /click (outbound tracking)
+app.use("/api/v1/journeys", auth, journeysRouter); // POST /confirm-booking · /confirm-transfer
+app.use("/api/v1/recommendations", auth, recsLimiter, recommendationsRouter); // GET / (personalised packages)
+app.use("/api/v1/notifications", auth, notificationsRouter); // GET / · read-all · dismiss · preferences
+app.use("/api/v1", auth, inventoryRouter); // POST /flights/search · /flights/confirm-price · /hotels/search
 app.use("/api/v1", auth, bookingRouter); // POST /api/v1/create-booking-link
 app.use("/api/v1", auth, conversionRouter); // POST /api/v1/conversion
 
 app.use(notFound);
 app.use(errorHandler);
 
-// index.js owns app.listen() after awaiting secret loading; this module only exports the app.
 module.exports = app;

@@ -3,6 +3,7 @@
 require("dotenv").config();
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const GONDOLA_MCP_URL = (process.env.GONDOLA_MCP_URL || "https://mcp.gondola.ai/mcp").trim();
 
 const env = {
   NODE_ENV: process.env.NODE_ENV || "development",
@@ -26,6 +27,12 @@ const env = {
 
   // Real Duffel token (duffel_test_/live_) routes inventory search to Duffel; else mock.
   hasDuffel: /^duffel_(test|live)_/.test(process.env.DUFFEL_API_KEY || ""),
+
+  hasSeatsAero: Boolean((process.env.SEATS_AERO_API_KEY || "").trim()),
+
+  // Remote MCP server (no key). Attached to Claude's connector when set.
+  GONDOLA_MCP_URL,
+  hasGondola: Boolean(GONDOLA_MCP_URL),
 };
 
 if (!env.DATABASE_URL) {

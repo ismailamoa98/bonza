@@ -352,3 +352,43 @@ model PersonalisedRecommendation {
 
   @@index([userId, isActive, expiresAt])
 }
+
+model Notification {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id])
+
+  type      String
+  title     String
+  body      String
+  ctaLabel  String?
+  ctaUrl    String?
+
+  bookingId String?
+  journeyId String?
+  programme String?
+
+  readAt      DateTime?
+  emailSentAt DateTime?
+  dismissedAt DateTime?
+
+  createdAt DateTime  @default(now())
+  expiresAt DateTime? // null = never expires
+
+  @@index([userId, dismissedAt, createdAt])
+}
+
+model NotificationPreference {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  awardAlerts     Boolean @default(true)
+  expiryWarnings  Boolean @default(true)
+  priceDropAlerts Boolean @default(true)
+  monthlySummary  Boolean @default(true)
+  bookingUpdates  Boolean @default(true) // transactional — always on
+  proUpdates      Boolean @default(true) // transactional — always on
+
+  updatedAt DateTime @updatedAt
+}

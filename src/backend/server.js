@@ -27,6 +27,7 @@ const bookingsRouter = require("./api/bookings");
 const affiliateRouter = require("./api/affiliate");
 const journeysRouter = require("./api/journeys");
 const recommendationsRouter = require("./api/recommendations");
+const { router: notificationsRouter, unsubscribe } = require("./api/notifications");
 const { affiliateWebhook } = require("./api/webhooks");
 
 const app = express();
@@ -48,6 +49,9 @@ app.use(express.json());
 
 // Affiliate postback — public server-to-server JSON (no Clerk session).
 app.post("/api/v1/webhooks/affiliate", affiliateWebhook);
+
+// Public one-click unsubscribe (recipient may not be signed in).
+app.get("/api/v1/notifications/unsubscribe", unsubscribe);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok", service: "bonza-backend", env: env.NODE_ENV });
@@ -82,6 +86,7 @@ app.use("/api/v1/bookings", auth, bookingsRouter);
 app.use("/api/v1/affiliate", auth, affiliateRouter);
 app.use("/api/v1/journeys", auth, journeysRouter);
 app.use("/api/v1/recommendations", auth, recommendationsRouter);
+app.use("/api/v1/notifications", auth, notificationsRouter);
 app.use("/api/v1", auth, inventoryRouter);
 app.use("/api/v1", auth, bookingRouter); // POST /api/v1/create-booking-link
 app.use("/api/v1", auth, conversionRouter); // POST /api/v1/conversion

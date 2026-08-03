@@ -103,10 +103,5 @@ app.use("/api/v1", auth, conversionRouter); // POST /api/v1/conversion
 app.use(notFound);
 app.use(errorHandler);
 
-if (require.main === module) {
-  app.listen(env.PORT, () => {
-    console.log(`Bonza backend listening on http://localhost:${env.PORT} (${env.NODE_ENV})`);
-  });
-}
-
+// index.js owns app.listen() after awaiting secret loading; this module only exports the app.
 module.exports = app;

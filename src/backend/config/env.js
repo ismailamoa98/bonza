@@ -1,5 +1,4 @@
-// config/env.js — Environment variable loading and validation.
-// Loads .env via dotenv and exposes typed, validated config values.
+// config/env.js — loads .env and exposes typed config + has* integration gates (offline-safe).
 require("dotenv").config();
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
@@ -12,29 +11,19 @@ const env = {
   ANTHROPIC_API_KEY,
   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:3000",
 
-  // Clerk owns auth. The SDK (@clerk/express) reads CLERK_SECRET_KEY +
-  // CLERK_PUBLISHABLE_KEY from process.env directly; the webhook secret is read
-  // here. There is no offline fallback — the server needs real (test) keys.
   CLERK_WEBHOOK_SECRET: process.env.CLERK_WEBHOOK_SECRET || "",
 
-  // True only when a real Anthropic key is configured. The dev .env ships a
-  // placeholder ("random-api-key"), so this stays false and the optimizer/chat
-  // use mock data — keeping the optimizer fully functional offline.
   hasRealAnthropicKey: /^sk-/.test(ANTHROPIC_API_KEY),
 
-  // Off by default so dev uses the deterministic mock sync (no email OAuth locally).
   hasEmailSync: process.env.EMAIL_SYNC === "true",
 
-  // Real Duffel token (duffel_test_/live_) routes inventory search to Duffel; else mock.
   hasDuffel: /^duffel_(test|live)_/.test(process.env.DUFFEL_API_KEY || ""),
 
   hasSeatsAero: Boolean((process.env.SEATS_AERO_API_KEY || "").trim()),
 
-  // Remote MCP server (no key). Attached to Claude's connector when set.
   GONDOLA_MCP_URL,
   hasGondola: Boolean(GONDOLA_MCP_URL),
 
-  // Off in dev so Pro-gated endpoints work; set PRO_ENFORCED=true in prod.
   proEnforced: process.env.PRO_ENFORCED === "true",
 
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY || "",
@@ -42,7 +31,27 @@ const env = {
   STRIPE_PRO_ANNUAL_PRICE_ID: process.env.STRIPE_PRO_ANNUAL_PRICE_ID || "",
   hasStripe: /^sk_(test|live)_/.test(process.env.STRIPE_SECRET_KEY || ""),
 
-  // Per-network commission wrapping; blank token => raw URL (offline-safe).
+  CARTRAWLER_API_KEY: (process.env.CARTRAWLER_API_KEY || "").trim(),
+  hasCartrawler: Boolean((process.env.CARTRAWLER_API_KEY || "").trim()),
+
+  GMAIL_CLIENT_ID: (process.env.GMAIL_CLIENT_ID || "").trim(),
+  GMAIL_CLIENT_SECRET: (process.env.GMAIL_CLIENT_SECRET || "").trim(),
+  hasGmailOAuth: Boolean(
+    (process.env.GMAIL_CLIENT_ID || "").trim() && (process.env.GMAIL_CLIENT_SECRET || "").trim()
+  ),
+
+  MICROSOFT_CLIENT_ID: (process.env.MICROSOFT_CLIENT_ID || "").trim(),
+  MICROSOFT_CLIENT_SECRET: (process.env.MICROSOFT_CLIENT_SECRET || "").trim(),
+  hasOutlookOAuth: Boolean(
+    (process.env.MICROSOFT_CLIENT_ID || "").trim() && (process.env.MICROSOFT_CLIENT_SECRET || "").trim()
+  ),
+
+  OAUTH_REDIRECT_BASE: (process.env.OAUTH_REDIRECT_BASE || "http://localhost:5000").trim(),
+
+  RESEND_API_KEY: (process.env.RESEND_API_KEY || "").trim(),
+  hasEmailSend: /^re_/.test(process.env.RESEND_API_KEY || ""),
+  EMAIL_FROM: process.env.EMAIL_FROM || "Bonza <notifications@bonza.app>",
+
   TRAVELPAYOUTS_TOKEN: (process.env.TRAVELPAYOUTS_TOKEN || "").trim(),
   AWIN_AFFILIATE_ID: (process.env.AWIN_AFFILIATE_ID || "").trim(),
   IMPACT_HYATT_CAMPAIGN_ID: (process.env.IMPACT_HYATT_CAMPAIGN_ID || "").trim(),
@@ -51,6 +60,9 @@ const env = {
       (process.env.AWIN_AFFILIATE_ID || "").trim() ||
       (process.env.IMPACT_HYATT_CAMPAIGN_ID || "").trim()
   ),
+
+  SENTRY_DSN: (process.env.SENTRY_DSN || "").trim(),
+  hasSentry: Boolean((process.env.SENTRY_DSN || "").trim()),
 };
 
 if (!env.DATABASE_URL) {

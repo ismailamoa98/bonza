@@ -206,3 +206,42 @@ model AffiliateClick {
   convertedAt       DateTime?
   commissionEst     Float?    // estimated £ commission if known
 }
+
+model UserJourney {
+  id                   String    @id @default(cuid())
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id])
+
+  tripId               String?
+  origin               String?
+  destination          String?
+  travelDates          String?
+
+  recommendedScenario  String?   // 'points' | 'transfer' | 'hybrid' | 'cash'
+  recommendedProgramme String?
+  pointsRecommended    Int?
+
+  transferConfirmed    Boolean   @default(false)
+  transferProgramme    String?
+  transferToProgramme  String?
+  transferAmount       Int?
+  transferConfirmedAt  DateTime?
+
+  deepLinkClicked      Boolean   @default(false)
+  deepLinkClickedAt    DateTime?
+  deepLinkLeg          String?   // 'flight' | 'hotel' | 'car'
+
+  bookingConfirmed     Boolean   @default(false)
+  bookingMethod        String?   // 'duffel' | 'self_reported' | 'affiliate_postback' | 'transfer_proxy'
+  bookingConfirmedAt   DateTime?
+  bookingValueGbp      Float?
+
+  creditsAwarded       Float?
+  creditsAwardedAt     DateTime?
+  isFirstBooking       Boolean   @default(false)
+
+  bookings             Booking[]
+
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}

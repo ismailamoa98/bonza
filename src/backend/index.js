@@ -1,8 +1,10 @@
 // index.js — backend entry: load secrets (prod/staging) before any app module, then listen.
 const { loadProductionSecrets } = require("./config/loadSecrets");
+const { runMigrations } = require("./config/runMigrations");
 
 async function main() {
   await loadProductionSecrets();
+  await runMigrations();
 
   const app = require("./server");
   const env = require("./config/env");

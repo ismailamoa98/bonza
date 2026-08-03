@@ -298,3 +298,57 @@ model UserEvent {
 
   createdAt DateTime @default(now())
 }
+
+model AwardAvailability {
+  id          String   @id @default(cuid())
+  userId      String
+  origin      String
+  destination String
+  programme   String
+  date        DateTime
+  cabin       String
+  pointsCost  Int
+  seatsAvail  Int?
+  taxesGbp    Float?
+  bookingUrl  String?
+  fetchedAt   DateTime @default(now())
+  expiresAt   DateTime // 24h TTL
+
+  @@index([userId, origin, destination])
+  @@index([expiresAt])
+}
+
+model PersonalisedRecommendation {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+
+  destination       String
+  destinationCity   String
+  origin            String
+  imageUrl          String?
+  specLine          String
+  rating            Float?
+
+  pointsOption      Json?
+  cashOption        Json?
+  hotelOption       Json?
+
+  aiInsight         String
+  whyPersonalised   String
+  urgencySignal     String?
+
+  bestOptionType    String   // 'points' | 'cash' | 'hybrid'
+  pointsValueRating String   // 'excellent' | 'good' | 'typical' | 'below_average'
+  centsPerPoint     Float?
+  cashSavingGbp     Float?
+  creditsIfCash     Float?
+
+  isActive          Boolean  @default(true)
+  viewedAt          DateTime?
+  clickedAt         DateTime?
+  generatedAt       DateTime @default(now())
+  expiresAt         DateTime // 48h TTL
+
+  @@index([userId, isActive, expiresAt])
+}

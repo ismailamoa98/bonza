@@ -20,6 +20,12 @@ const env = {
   // placeholder ("random-api-key"), so this stays false and the optimizer/chat
   // use mock data — keeping the optimizer fully functional offline.
   hasRealAnthropicKey: /^sk-/.test(ANTHROPIC_API_KEY),
+
+  // Off by default so dev uses the deterministic mock sync (no email OAuth locally).
+  hasEmailSync: process.env.EMAIL_SYNC === "true",
+
+  // Real Duffel token (duffel_test_/live_) routes inventory search to Duffel; else mock.
+  hasDuffel: /^duffel_(test|live)_/.test(process.env.DUFFEL_API_KEY || ""),
 };
 
 if (!env.DATABASE_URL) {

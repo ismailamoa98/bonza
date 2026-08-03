@@ -41,6 +41,16 @@ const env = {
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || "",
   STRIPE_PRO_ANNUAL_PRICE_ID: process.env.STRIPE_PRO_ANNUAL_PRICE_ID || "",
   hasStripe: /^sk_(test|live)_/.test(process.env.STRIPE_SECRET_KEY || ""),
+
+  // Per-network commission wrapping; blank token => raw URL (offline-safe).
+  TRAVELPAYOUTS_TOKEN: (process.env.TRAVELPAYOUTS_TOKEN || "").trim(),
+  AWIN_AFFILIATE_ID: (process.env.AWIN_AFFILIATE_ID || "").trim(),
+  IMPACT_HYATT_CAMPAIGN_ID: (process.env.IMPACT_HYATT_CAMPAIGN_ID || "").trim(),
+  hasAffiliate: Boolean(
+    (process.env.TRAVELPAYOUTS_TOKEN || "").trim() ||
+      (process.env.AWIN_AFFILIATE_ID || "").trim() ||
+      (process.env.IMPACT_HYATT_CAMPAIGN_ID || "").trim()
+  ),
 };
 
 if (!env.DATABASE_URL) {

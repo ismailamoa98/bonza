@@ -1,3 +1,6 @@
+// Sentry must initialise before express/Prisma are required (11f). No-op offline.
+require("./instrument");
+
 const express = require("express");
 const { clerkMiddleware } = require("@clerk/express");
 const rateLimit = require("express-rate-limit");

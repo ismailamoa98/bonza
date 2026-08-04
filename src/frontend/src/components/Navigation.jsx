@@ -1,11 +1,8 @@
-// components/Navigation.jsx — App header / landing navbar.
-// Two looks: an OVERLAY pill nav (transparent, white text, glassy pills) that floats
-// over the cinematic hero on the homepage, and the default SOLID cream bar everywhere
-// else. On the homepage it auto-swaps to solid once the user scrolls past the hero.
-// The serif wordmark uses font-display (Playfair); links/pills stay Plus Jakarta Sans.
+// components/Navigation.jsx — top nav: wordmark, links, NotificationBell, auth controls.
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { SignedIn, SignedOut, UserButton } from "@clerk/clerk-react";
+import NotificationBell from "./NotificationBell";
 
 const LINKS = [
   { label: "Destinations", href: "/#packages", caret: true },
@@ -20,7 +17,6 @@ export default function Navigation({ overlay: overlayProp }) {
   const onLogin = pathname === "/login";
   const [scrolled, setScrolled] = useState(false);
 
-  // Only the homepage hero gets the overlay treatment, and only until scrolled past.
   useEffect(() => {
     if (!onHome) return undefined;
     const onScroll = () => setScrolled(window.scrollY > 80);
@@ -29,7 +25,6 @@ export default function Navigation({ overlay: overlayProp }) {
     return () => window.removeEventListener("scroll", onScroll);
   }, [onHome]);
 
-  // The login page is a full-bleed split screen with its own back link — no app chrome.
   if (onLogin) return null;
 
   const overlay = (overlayProp ?? onHome) && !scrolled;
@@ -102,6 +97,7 @@ export default function Navigation({ overlay: overlayProp }) {
             EN
           </button>
           <SignedIn>
+            <NotificationBell overlay={overlay} />
             <Link
               to="/dashboard"
               className={`hidden rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-colors sm:block ${
@@ -114,8 +110,21 @@ export default function Navigation({ overlay: overlayProp }) {
             >
               Dashboard
             </Link>
+            <Link
+              to="/bookings"
+              className={`hidden rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-colors sm:block ${
+                pathname === "/bookings"
+                  ? overlay
+                    ? "border-white/60 bg-white/25 text-white"
+                    : "border-bonza bg-bonza-50 text-bonza"
+                  : pillClass
+              }`}
+            >
+              Bookings
+            </Link>
             <UserButton
               afterSignOutUrl="/"
+              userProfileUrl="/settings"
               appearance={{ elements: { avatarBox: "w-9 h-9 ring-2 ring-white/70" } }}
             />
           </SignedIn>

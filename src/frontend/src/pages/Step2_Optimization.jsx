@@ -1,9 +1,4 @@
-// pages/Step2_Optimization.jsx — Step 2 (route /optimize): browse & optimize.
-// Chat-forward results page. Left sticky sidebar: trip summary, loyalty balances,
-// and filters. Main column (revealed section by section): chat with Bonza, the
-// "Your optimal package" recommendation panel for the running flight + hotel + car
-// combination, then the tabbed inventory grids. Picking cards recomputes the panel
-// live; Bonza narrates changes; "Proceed to booking" builds the link → step 3.
+// pages/Step2_Optimization.jsx — 3-column optimize page (rail, panel + grids, chat).
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import StepIndicator from "./StepIndicator";
@@ -16,6 +11,8 @@ import HotelGrid from "../components/HotelGrid";
 import FlightGrid from "../components/FlightGrid";
 import CarGrid from "../components/CarGrid";
 import OptimizationPanel from "../components/OptimizationPanel";
+import ProGate from "../components/ProGate";
+import RedemptionPanel, { RedemptionAccounts } from "../components/RedemptionPanel";
 import ChatAdvisor from "../components/ChatAdvisor";
 import { useOptimization } from "../hooks/useOptimization";
 import {
@@ -23,6 +20,7 @@ import {
   computeCombination,
   tripNights,
 } from "../store/appStore";
+import { getRedemptionOptions } from "../utils/api";
 import { formatMoney, formatPoints, percent } from "../utils/format";
 
 export default function Step2_Optimization() {
@@ -30,6 +28,8 @@ export default function Step2_Optimization() {
   const { sendMessage, createLink, sending, creating, error } = useOptimization();
 
   const trip = useAppStore((s) => s.trip);
+  const tripId = useAppStore((s) => s.tripId);
+  const isPro = useAppStore((s) => s.isPro);
   const activeTab = useAppStore((s) => s.activeTab);
   const selectedFlight = useAppStore((s) => s.selectedFlight);
   const selectedHotel = useAppStore((s) => s.selectedHotel);
@@ -39,16 +39,31 @@ export default function Step2_Optimization() {
   const chatMessages = useAppStore((s) => s.chatMessages);
   const addChatMessage = useAppStore((s) => s.addChatMessage);
 
-  // Collapsing the chat frees the right rail and reflows the results grid to 3-up.
   const [chatOpen, setChatOpen] = useState(true);
   const gridColumns = chatOpen ? 2 : 3;
 
-  // No trip in the store (e.g. a refresh) -> restart at Step 1.
+  const [redemption, setRedemption] = useState(null);
+  const [redemptionLoading, setRedemptionLoading] = useState(false);
+  useEffect(() => {
+    if (!tripId || !isPro) {
+      setRedemption(null);
+      return;
+    }
+    let cancelled = false;
+    setRedemptionLoading(true);
+    getRedemptionOptions(tripId)
+      .then((data) => !cancelled && setRedemption(data))
+      .catch(() => !cancelled && setRedemption(null))
+      .finally(() => !cancelled && setRedemptionLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [tripId, isPro]);
+
   useEffect(() => {
     if (!trip) navigate("/", { replace: true });
   }, [trip, navigate]);
 
-  // Narrate selection changes in the chat (instant, no network round-trip).
   const firstRun = useRef(true);
   const flightId = selectedFlight?.id;
   const hotelId = selectedHotel?.id;
@@ -81,7 +96,6 @@ export default function Step2_Optimization() {
           : `I'll value this against your points as you set the mix.`),
       meta: "Updated now",
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flightId, hotelId, carId]);
 
   const onRatioCommit = (r) => {
@@ -110,8 +124,6 @@ export default function Step2_Optimization() {
 
   const canBook = Boolean(selectedFlight || selectedHotel || selectedCar);
 
-  // Live points the current combination would spend — drives the loyalty card's
-  // "balance after this trip" projection.
   const livePointsUsed = computeCombination(
     selectedFlight,
     selectedHotel,
@@ -135,6 +147,9 @@ export default function Step2_Optimization() {
           <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
             <TripSummary />
             <LoyaltyCard loyaltyPoints={loyaltyPoints} variant="full" pointsUsed={livePointsUsed} />
+            {isPro && redemption?.accounts?.length > 0 && (
+              <RedemptionAccounts accounts={redemption.accounts} />
+            )}
             <FilterSidebar />
           </aside>
 
@@ -146,6 +161,12 @@ export default function Step2_Optimization() {
               proceeding={creating}
               canProceed={canBook}
             />
+
+            {/* Loyalty redemption engine — Pro feature (teaser for free users). */}
+            <ProGate feature="full points optimisation">
+              <RedemptionPanel redemption={redemption} loading={redemptionLoading} />
+            </ProGate>
+
             {error && <p className="text-[13px] text-red-600">{error}</p>}
 
             <SearchBar />
@@ -192,7 +213,6 @@ export default function Step2_Optimization() {
   );
 }
 
-// Sort dropdown — options depend on the active tab.
 const SORT_OPTIONS = {
   hotels: [
     ["recommended", "Recommended"],

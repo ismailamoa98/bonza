@@ -1,11 +1,10 @@
-// api/webhooks.js — Clerk webhook receiver.
-// Clerk doesn't write to our database, so we sync on its events: user.created
-// inserts the Prisma profile row, user.deleted removes it. Mounted in server.js
-// with a RAW body parser (svix verifies the signature over the raw bytes) BEFORE
-// express.json(). Requires CLERK_WEBHOOK_SECRET (Clerk dashboard -> Webhooks).
+// api/webhooks.js — Clerk (svix), Stripe, and affiliate-postback webhook handlers.
 const { Webhook } = require("svix");
 const prisma = require("../config/database");
 const env = require("../config/env");
+const { writeBooking } = require("../utils/bookingWriter");
+const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
+const { logger } = require("../utils/logger");
 
 async function clerkWebhook(req, res) {
   if (!env.CLERK_WEBHOOK_SECRET) {
@@ -41,11 +40,60 @@ async function clerkWebhook(req, res) {
       await prisma.user.delete({ where: { id: evt.data.id } }).catch(() => {});
     }
   } catch {
-    // Never make Clerk retry on our own DB hiccup for a sync we can self-heal via
-    // ensureUser on the next request.
   }
 
   res.json({ received: true });
 }
 
-module.exports = { clerkWebhook };
+async function affiliateWebhook(req, res) {
+  try {
+    const { network, clickRef, bookingValue, commission, status } = req.body || {};
+    if (status !== "confirmed") return res.json({ received: true }); // ignore pending/declined
+
+    const click = clickRef ? await prisma.affiliateClick.findUnique({ where: { id: clickRef } }) : null;
+    if (!click) return res.json({ received: true });
+
+    await prisma.affiliateClick.update({
+      where: { id: click.id },
+      data: {
+        convertedAt: new Date(),
+        commissionEst: commission != null ? parseFloat(commission) : click.commissionEst,
+      },
+    });
+
+    if (click.userId) {
+      const journey = await prisma.userJourney.findFirst({
+        where: { userId: click.userId, bookingConfirmed: false },
+        orderBy: { createdAt: "desc" },
+      });
+
+      await writeBooking(click.userId, {
+        journeyId: journey?.id || null,
+        tripId: journey?.tripId || null,
+        origin: journey?.origin || null,
+        destination: journey?.destination || null,
+        leg: click.leg,
+        bookingType: "cash",
+        supplier: network || click.programme,
+        description: journey?.destination ? `Booking — ${journey.destination}` : "Affiliate booking",
+        cashValueGbp: bookingValue != null ? parseFloat(bookingValue) : null,
+        confirmationMethod: "affiliate_postback",
+      });
+
+      recordEvent(click.userId, EVENT_TYPES.BOOKING_CONFIRMED, {
+        network,
+        bookingValue,
+        commission,
+        method: "affiliate_postback",
+        clickRef,
+      });
+    }
+
+    res.json({ received: true });
+  } catch (err) {
+    logger.error("[affiliateWebhook] processing failed", err);
+    res.json({ received: true });
+  }
+}
+
+module.exports = { clerkWebhook, affiliateWebhook };

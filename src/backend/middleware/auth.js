@@ -1,13 +1,21 @@
-// middleware/auth.js — Clerk authentication.
-// Reads the Clerk session (clerkMiddleware() must run first in server.js) and
-// attaches req.userId. The shape is preserved from the old JWT middleware
-// (req.userId, default export `auth`) so no endpoint needs changing.
-// In development, requests without a Clerk session fall back to the seeded demo
-// user so the 3-step flow works out of the box; production returns 401.
+// middleware/auth.js — Clerk auth -> req.userId (dev falls back to seeded user); JIT ensureUser + login stamp.
 const { getAuth } = require("@clerk/express");
 const env = require("../config/env");
+const prisma = require("../config/database");
 const { DEV_USER } = require("../config/constants");
 const { ensureUser } = require("../utils/ensureUser");
+
+const LOGIN_STAMP_THROTTLE_MS = 60 * 60 * 1000; // refresh lastLoginAt at most hourly
+
+function stampLastLogin(userId) {
+  const staleBefore = new Date(Date.now() - LOGIN_STAMP_THROTTLE_MS);
+  prisma.user
+    .updateMany({
+      where: { id: userId, OR: [{ lastLoginAt: null }, { lastLoginAt: { lt: staleBefore } }] },
+      data: { lastLoginAt: new Date() },
+    })
+    .catch(() => {});
+}
 
 module.exports = async function auth(req, res, next) {
   try {
@@ -15,10 +23,8 @@ module.exports = async function auth(req, res, next) {
 
     if (userId) {
       req.userId = userId;
-      // Clerk doesn't write to our DB — make sure a profile row exists so the
-      // foreign keys on Trip/BookingLink/etc. resolve (covers local dev without
-      // the webhook tunnel; the webhook keeps prod in sync).
       await ensureUser(userId);
+      stampLastLogin(userId);
       return next();
     }
 

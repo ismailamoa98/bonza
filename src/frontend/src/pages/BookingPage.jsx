@@ -15,6 +15,9 @@ import {
   getProfile,
 } from "../utils/api";
 import { formatMoney, formatPoints, shortDate } from "../utils/format";
+import { track } from "../lib/analytics";
+import { EV } from "../lib/analytics/events";
+import { bundledCheckoutEnabled } from "../config/flags";
 import { imageUrl } from "../data/packages";
 import {
   HAS_STRIPE_KEY,
@@ -198,6 +201,20 @@ export default function BookingPage() {
     .filter((it) => !isPointsLeg(it.type))
     .reduce((s, it) => s + it.cash, 0);
 
+  // §25i — who the consumer contracts with, per cash leg (flight books in-app via Duffel; hotel/car on the
+  // provider's own site). Named above the pay button so the supplier is never buried.
+  const cashFlight = selectedFlight && !isPointsLeg("flight");
+  const cashHotel = selectedHotel && !isPointsLeg("hotel");
+  const cashCar = selectedCar && !isPointsLeg("car");
+  const suppliers = [
+    cashFlight && (selectedFlight.airline ? `your flight with ${selectedFlight.airline}` : "your flight"),
+    cashHotel && (selectedHotel.name ? `your stay with ${selectedHotel.name}` : "your stay"),
+    cashCar && "your car hire with the rental provider",
+  ].filter(Boolean);
+  // §25i/§25h — the bundled flight+hotel single-total CASH checkout is gated until the ATOL position is settled.
+  const bundledCashCheckout = cashFlight && cashHotel;
+  const bundledBlocked = bundledCashCheckout && !bundledCheckoutEnabled;
+
   const hasUrlSelection = Boolean(searchParams.get("hotel") || searchParams.get("flight"));
   // The bootstrap now completes almost instantly, so hold the branded loading screen for a perceptible
   // beat on URL-driven entries (cash flow, OptimizePanel "Book this trip"). Store-driven entries
@@ -220,6 +237,10 @@ export default function BookingPage() {
       .catch(() => { if (!cancelled) setPay({ mock: true, paymentIntentId: "mock_pi_local" }); });
     return () => { cancelled = true; };
   }, [hasTrip, payableCash, trip?.id]);
+
+  useEffect(() => {
+    if (hasTrip) track(EV.BOOKING_STARTED, {});
+  }, [hasTrip]);
 
   if (!hasTrip || (hasUrlSelection && !minTimePassed)) {
     if (bootstrapping || hasUrlSelection) return <PreparingScreen />;
@@ -312,18 +333,26 @@ export default function BookingPage() {
       ...(it.type === "hotel" && selectedHotel?.name ? { propertyName: selectedHotel.name } : {}),
     }));
 
-    await confirmCashBooking({
-      paymentIntentId,
-      bookingToken: bookingLink.token,
-      tripId: trip.id,
-      origin: trip.origin,
-      destination: trip.destination,
-      checkIn: trip.checkIn,
-      checkOut: trip.checkOut,
-      travelers,
-      passengers,
-      legs,
-    });
+    const money = { amount_minor: Math.round((totals.totalCash || 0) * 100), currency: "GBP" };
+    track(EV.BOOKING_PAYMENT_SUBMITTED, money);
+    try {
+      await confirmCashBooking({
+        paymentIntentId,
+        bookingToken: bookingLink.token,
+        tripId: trip.id,
+        origin: trip.origin,
+        destination: trip.destination,
+        checkIn: trip.checkIn,
+        checkOut: trip.checkOut,
+        travelers,
+        passengers,
+        legs,
+      });
+    } catch (err) {
+      track(EV.BOOKING_FAILED, { ...money, code: err?.appError?.code || "INTERNAL", service: err?.appError?.service || null });
+      throw err;
+    }
+    track(EV.BOOKING_CONFIRMED, money);
 
     ["hotel", "car"].forEach((t) => {
       if (isPointsLeg(t)) return; // points legs are redeemed on the programme site, not via affiliate cash
@@ -408,7 +437,7 @@ export default function BookingPage() {
                         <Icon name="check" className="h-3.5 w-3.5" /> Connected
                       </span>
                     ) : (
-                      <button type="button" onClick={() => console.log("connect loyalty")} className="shrink-0 rounded-lg border border-bonza px-3.5 py-1.5 text-[12px] font-semibold text-bonza hover:bg-bonza-50">
+                      <button type="button" onClick={() => navigate("/settings?tab=loyalty")} className="shrink-0 rounded-lg border border-bonza px-3.5 py-1.5 text-[12px] font-semibold text-bonza hover:bg-bonza-50">
                         Connect
                       </button>
                     )}
@@ -546,7 +575,22 @@ export default function BookingPage() {
                   <TrustChip icon="headset" title="24/7 support" text="Bonza team on call." />
                 </div>
 
-                {!booked && (
+                {/* §25i — name the contracting supplier(s) above the pay button, not buried. */}
+                {suppliers.length > 0 && (
+                  <p className="mt-4 text-[11.5px] leading-snug text-ink-muted">
+                    You&rsquo;re paying Bonza, who will book {suppliers.join(" and ")}. The provider&rsquo;s own fare
+                    and cancellation terms apply — see our{" "}
+                    <a href="/legal/booking-terms#refunds" target="_blank" rel="noopener noreferrer" className="font-semibold text-bonza hover:text-bonza-dark">Booking Terms</a>.
+                  </p>
+                )}
+
+                {bundledBlocked ? (
+                  /* §25h — bundled flight+hotel single-total cash checkout isn't available; book the legs separately. */
+                  <div className="mt-4 rounded-xl border border-bonza/30 bg-bonza-50 px-4 py-3 text-[12.5px] leading-snug text-bonza-dark">
+                    Booking a flight and hotel together in one payment isn&rsquo;t available right now. You can book
+                    each separately — the flight on its own, and the hotel on its own.
+                  </div>
+                ) : !booked ? (
                   <>
                     {stripeReady ? (
                       <RealPayButton
@@ -570,7 +614,7 @@ export default function BookingPage() {
                     )}
                     {payErr && <p className="mt-2 text-center text-[12px] font-medium text-bonza-dark">{payErr}</p>}
                   </>
-                )}
+                ) : null}
               </div>
             </div>
           </aside>

@@ -1,7 +1,4 @@
-// store/appStore.js — Zustand global store for the 3-step flow.
-// Holds the trip, loyalty points, generated scenarios + selection, per-scenario
-// vendor picks, chat thread, and the booking link / affiliate links. Each step
-// reads/writes this store so state survives navigation between Step 1 -> 2 -> 3.
+// store/appStore.js — Zustand store: trip, scenarios, chat, loyalty, auth sync.
 import { create } from "zustand";
 
 const initialState = {
@@ -19,9 +16,7 @@ const initialState = {
   affiliateLinks: null, // { flight, hotel, car }
   currentPackage: null, // the marketing package opened from the homepage (booking-page flavor)
 
-  // --- Browse & optimize (Step 2) ---
   activeTab: "hotels", // "hotels" | "flights" | "cars"
-  // Per-tab filters so a hotel price cap never filters out flights, etc.
   filters: {
     hotels: {
       minPrice: null,
@@ -58,15 +53,12 @@ const initialState = {
   selectedCar: null, // clicked car object (or null)
 };
 
-// Category -> the scenario field that carries its vendor menu.
 export const VENDOR_CATEGORIES = [
   ["flight", "flightDetails"],
   ["hotel", "hotelDetails"],
   ["car", "carDetails"],
 ];
 
-// Initial vendor pick per scenario = each category's persisted selectedVendorId
-// (falling back to the recommended vendor).
 function initialVendorSelections(scenarios) {
   const out = {};
   for (const s of scenarios) {
@@ -85,13 +77,9 @@ function initialVendorSelections(scenarios) {
   return out;
 }
 
-// Auth lives OUTSIDE initialState so `reset()` — which clears the trip-flow
-// fields — never logs the user out. Clerk owns the session; the store only caches
-// the user for UI display (avatar/greeting), kept in sync by App's <AuthSync/>.
 export const useAppStore = create((set) => ({
   ...initialState,
 
-  // --- Auth (display cache only — Clerk is the source of truth) ---
   user: null, // { id, name, email } | null
   isLoggedIn: false,
   setUser: (user) => set({ user, isLoggedIn: Boolean(user) }),
@@ -99,17 +87,29 @@ export const useAppStore = create((set) => ({
     set({
       user: null,
       isLoggedIn: false,
-      // Clear anything sensitive/user-scoped on sign-out.
       loyaltyPoints: null,
       currentPackage: null,
+      isPro: false,
+      creditBalance: 0,
+      loyaltyAccounts: [],
+      profile: null,
     }),
+
+  isPro: false,
+  creditBalance: 0, // GBP, redeemable Bonza Credits
+  loyaltyAccounts: [], // [{ programme, balance, valueGbp, statusTier, … }]
+  setProStatus: (isPro) => set({ isPro: Boolean(isPro) }),
+  setCreditBalance: (creditBalance) => set({ creditBalance: Number(creditBalance) || 0 }),
+  setLoyaltyAccounts: (loyaltyAccounts) => set({ loyaltyAccounts: loyaltyAccounts || [] }),
+
+  profile: null, // { homeAirport, travelStyle, onboardingComplete, gmailConnected, outlookConnected } | null
+  setProfile: (profile) => set({ profile: profile || null }),
 
   setTrip: (trip) => set({ trip }),
   setTripId: (tripId) => set({ tripId }),
   setLoyaltyPoints: (loyaltyPoints) => set({ loyaltyPoints }),
   setCurrentPackage: (currentPackage) => set({ currentPackage }),
 
-  // Seed scenarios + selection + vendor picks + ratio + the opening message.
   setOptimization: ({
     allScenarios,
     recommendedScenarioId,
@@ -131,7 +131,6 @@ export const useAppStore = create((set) => ({
   setSelectedScenario: (selectedScenarioId) => set({ selectedScenarioId }),
   setRatio: (ratio) => set({ ratio }),
 
-  // Swap one category's vendor for a scenario (drives live recalculation).
   setVendor: (scenarioId, category, vendorId) =>
     set((state) => ({
       vendorSelections: {
@@ -145,9 +144,7 @@ export const useAppStore = create((set) => ({
 
   setBooking: ({ bookingLink, affiliateLinks }) => set({ bookingLink, affiliateLinks }),
 
-  // --- Browse & optimize (Step 2) ---
   setActiveTab: (activeTab) => set({ activeTab }),
-  // Merge a partial filter patch into the active tab's filter slice.
   setFilters: (patch) =>
     set((state) => ({
       filters: {
@@ -159,9 +156,6 @@ export const useAppStore = create((set) => ({
   setFlights: (flights) => set({ flights }),
   setCars: (cars) => set({ cars }),
 
-  // Click a flight/hotel/car card. Clicking the selected one again clears it.
-  // Every change re-snaps the slider to the affordable optimum (recommendedRatio
-  // = the most points the balance can fund for the new flight+hotel+car combo).
   selectFlight: (flight) =>
     set((state) => {
       const next = state.selectedFlight?.id === flight.id ? null : flight;
@@ -181,9 +175,6 @@ export const useAppStore = create((set) => ({
       return { selectedCar: next, recommendedRatio: max, ratio: max };
     }),
 
-  // Load a full flight+hotel+car combo at once (used by the flexible-dates month
-  // chooser) at the optimized points ratio. Unlike selectFlight/Hotel/Car this
-  // replaces all three outright rather than toggling.
   setSelections: ({ flight = null, hotel = null, car = null }) =>
     set((state) => {
       const max = maxComboRatio(flight, hotel, car, state.loyaltyPoints, tripNights(state.trip));
@@ -199,12 +190,9 @@ export const useAppStore = create((set) => ({
   reset: () => set({ ...initialState }),
 }));
 
-// --- Pure selectors / helpers ----------------------------------------------
-
 export const selectSelectedScenario = (state) =>
   state.scenarios.find((s) => s.id === state.selectedScenarioId) || null;
 
-// The chosen vendor object for one category of a scenario.
 export function getVendor(scenario, category, selection) {
   const key = VENDOR_CATEGORIES.find(([c]) => c === category)?.[1];
   const details = scenario?.[key] || {};
@@ -213,8 +201,6 @@ export function getVendor(scenario, category, selection) {
   return vendors.find((v) => v.id === id) || vendors.find((v) => v.recommended) || vendors[0] || null;
 }
 
-// The cash-tier price for a category = its "Pay Cash" vendor's cash cost (e.g.
-// economy flight $800) — the cash you'd pay for that leg if NOT using points.
 function cashOptionPrice(scenario, category, fallback) {
   const key = VENDOR_CATEGORIES.find(([c]) => c === category)?.[1];
   const vendors = scenario?.[key]?.vendors || [];
@@ -222,12 +208,6 @@ function cashOptionPrice(scenario, category, fallback) {
   return cashVendor ? cashVendor.cashCost : fallback;
 }
 
-// Recompute headline totals from the selected vendors at a points/cash ratio r.
-// Each award leg interpolates between its cash-tier option (r=0: pay the cash
-// price, 0 points) and a full award (r=1: pay 0 cash, P points). So at r=0 the
-// trip costs the full cash-trip total and at r=1 it's mostly points. Savings =
-// cash avoided vs that cash-trip total = cashOption·r. Cash-only legs (cars,
-// Pay Cash picks) are always cash and add no savings.
 export function computeTotals(scenario, selection, ratio = 1) {
   const r = Math.max(0, Math.min(1, ratio));
   let totalCash = 0;
@@ -247,8 +227,6 @@ export function computeTotals(scenario, selection, ratio = 1) {
     }
     benefits.push(...(v.benefits || []));
   }
-  // Cash saved per point (cents) — a vendor-mix property, constant across the
-  // slider. Lets users see when paying cash is the smarter call (low ¢/pt).
   const pointsValueCents = pointsUsed > 0 ? (savingsAmount / pointsUsed) * 100 : 0;
   return {
     totalCash: Math.round(totalCash),
@@ -259,7 +237,6 @@ export function computeTotals(scenario, selection, ratio = 1) {
   };
 }
 
-// Largest ratio the traveler's points balance can fund for this selection.
 export function maxFeasibleRatio(scenario, selection, loyaltyPoints) {
   let awardPoints = 0;
   for (const [cat] of VENDOR_CATEGORIES) {
@@ -271,27 +248,18 @@ export function maxFeasibleRatio(scenario, selection, loyaltyPoints) {
   return Math.min(1, budget / awardPoints);
 }
 
-// { flight: vendorObj, hotel: vendorObj, car: vendorObj } for the booking call.
 export function selectedVendorObjects(scenario, selection) {
   const out = {};
   for (const [cat] of VENDOR_CATEGORIES) out[cat] = getVendor(scenario, cat, selection);
   return out;
 }
 
-// --- Browse & optimize: flight + hotel + car combination model --------------
-// Same blend math as computeTotals, but the "items" come from the clicked grid
-// cards (flight / hotel / car) instead of a pre-built scenario's vendor menu.
-// Flights & hotels are award-capable (points reduce cash); cars are cash-only.
-
-// Nights between the trip's check-in/out (min 1) — drives hotel + car pricing.
 export function tripNights(trip) {
   if (!trip?.checkIn || !trip?.checkOut) return 1;
   const nights = Math.round((new Date(trip.checkOut) - new Date(trip.checkIn)) / 86400000);
   return nights > 0 ? nights : 1;
 }
 
-// Reduce a flight to its { cash, points, label }. Points = cheapest award across
-// the flight's programs (best value); 0 if no award option.
 function flightItem(flight) {
   if (!flight) return null;
   const miles = Object.values(flight.milesRequired || {}).filter((n) => n > 0);
@@ -303,7 +271,6 @@ function flightItem(flight) {
   };
 }
 
-// Reduce a hotel to its { cash, points, label } over the trip's nights.
 function hotelItem(hotel, nights) {
   if (!hotel) return null;
   const perNight = Object.values(hotel.loyaltyPrograms || {})
@@ -317,7 +284,6 @@ function hotelItem(hotel, nights) {
   };
 }
 
-// Reduce a car to its { cash, points, label } — cash-only (no points).
 function carItem(car, nights) {
   if (!car) return null;
   return {
@@ -332,13 +298,9 @@ function comboItems(flight, hotel, car, nights) {
   return [flightItem(flight), hotelItem(hotel, nights), carItem(car, nights)].filter(Boolean);
 }
 
-// Points the traveler can deploy toward awards (transferable balances).
 const availablePoints = (loyaltyPoints) =>
   (loyaltyPoints?.amex || 0) + (loyaltyPoints?.chaseUr || 0);
 
-// Award legs (points > 0), each tagged with its value v = cash saved per point,
-// sorted best value first. Points are spent on the highest-value redemption
-// first — so the marginal ¢/pt declines as more points are deployed.
 function awardLegsByValue(items) {
   return items
     .filter((it) => it.points > 0)
@@ -346,9 +308,6 @@ function awardLegsByValue(items) {
     .sort((a, b) => b.v - a.v);
 }
 
-// The most points worth deploying = the award total, capped by the balance.
-// The slider ratio r ∈ [0,1] is the fraction of THIS that's deployed, so points
-// used can never exceed the balance.
 export function maxComboPoints(flight, hotel, car, loyaltyPoints, nights) {
   const award = comboItems(flight, hotel, car, nights).reduce(
     (sum, it) => sum + (it.points > 0 ? it.points : 0),
@@ -357,18 +316,10 @@ export function maxComboPoints(flight, hotel, car, loyaltyPoints, nights) {
   return Math.min(award, availablePoints(loyaltyPoints));
 }
 
-// 1 when the combo has any award legs to deploy points against, else 0. The
-// slider spans [0,1] = "no points" -> "all deployable points"; the per-balance
-// cap is baked into maxComboPoints, so there's no separate upper clamp.
 export function maxComboRatio(flight, hotel, car, loyaltyPoints, nights) {
   return maxComboPoints(flight, hotel, car, loyaltyPoints, nights) > 0 ? 1 : 0;
 }
 
-// Live totals at deployment ratio r. r·maxComboPoints points are spent greedily
-// on the best-value award legs first; each leg's cash is covered pro-rata by the
-// points put into it (savings += cash · pointsIntoLeg / legPoints). Cars (no
-// points) are always cash. Because points fill best-value legs first, the
-// average ¢/pt (savings ÷ points) varies with r — high at low r, lower at high r.
 export function computeCombination(flight, hotel, car, loyaltyPoints, nights, ratio = 1) {
   const r = Math.max(0, Math.min(1, ratio));
   const items = comboItems(flight, hotel, car, nights);
@@ -398,17 +349,6 @@ export function computeCombination(flight, hotel, car, loyaltyPoints, nights, ra
   };
 }
 
-// --- Budget enforcement -----------------------------------------------------
-// budget = the trip's total cash budget. Points are the lever that pulls cash
-// down under it. Two derived quantities drive the UI:
-//   minBudgetRatio  — the LEAST points needed to keep cash ≤ budget (slider's
-//                     lower bound; below it the combo would blow the budget).
-//   comboFitsBudget — can this combo stay within budget at the MOST points the
-//                     balance can fund? If not, the option is infeasible (grey).
-
-// Smallest ratio whose cash ≤ budget. We need savings ≥ fullCash − budget; walk
-// the best-value legs accumulating savings until that target is met, then return
-// the points spent as a fraction of maxComboPoints.
 export function minBudgetRatio(flight, hotel, car, loyaltyPoints, nights, budget) {
   if (!budget) return 0;
   const items = comboItems(flight, hotel, car, nights);
@@ -439,7 +379,6 @@ export function minBudgetRatio(flight, hotel, car, loyaltyPoints, nights, budget
   return Math.min(1, pointsNeeded / maxPoints);
 }
 
-// True if the combo can be brought within budget using available points.
 export function comboFitsBudget(flight, hotel, car, loyaltyPoints, nights, budget) {
   if (!budget) return true;
   return computeCombination(flight, hotel, car, loyaltyPoints, nights, 1).totalCash <= budget;

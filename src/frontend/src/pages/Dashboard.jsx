@@ -1,11 +1,6 @@
-// pages/Dashboard.jsx — The logged-in home (route /dashboard, Clerk-guarded at App level).
-// "Skyscanner pattern" utility layout on the continuous cream background (no SnapSection):
-//   1. greeting   2. unified card (horizontal search bar + 3-column loyalty strip)
-//   3. meta row (recent-trip resume pills + New trip + Plaid sync note)   4. package carousel.
-// Keeps loyalty-drives-offers: the LoyaltyStrip shows real balances; each PackageCard shows
-// its OWN redemption cost. FROM is intentionally not prefilled (no homeAirport in the Clerk user).
+// pages/Dashboard.jsx — logged-in home: greeting, TripForm bar, LoyaltyStrip, personalised carousel.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import TripForm from "../components/TripForm";
 import PackageCarousel from "../components/PackageCarousel";
 import LoyaltyStrip from "../components/LoyaltyStrip";
@@ -13,15 +8,30 @@ import { bestProgram } from "../components/LoyaltyCard";
 import { PACKAGES, shuffle } from "../data/packages";
 import { useTrip } from "../hooks/useTrip";
 import { useOpenPackage } from "../hooks/useOpenPackage";
+import { useRecommendations } from "../hooks/useRecommendations";
+import { recToPackage } from "../utils/recToPackage";
 import { useAppStore } from "../store/appStore";
-import { getLoyaltyPoints, getTrips, optimizeTrip, apiErrorMessage } from "../utils/api";
-import { shortDate } from "../utils/format";
+import {
+  getLoyaltyPoints,
+  getTrips,
+  optimizeTrip,
+  syncLoyalty,
+  getLoyaltyAccounts,
+  apiErrorMessage,
+} from "../utils/api";
+import { shortDate, formatGbp } from "../utils/format";
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const user = useAppStore((s) => s.user);
+  const isPro = useAppStore((s) => s.isPro);
+  const creditBalance = useAppStore((s) => s.creditBalance);
   const { createAndOptimize, loading, error: optimizeError } = useTrip();
   const { openPackage, opening, openError } = useOpenPackage();
+
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const justUpgraded = searchParams.get("upgraded") === "true";
 
   const loyaltyPoints = useAppStore((s) => s.loyaltyPoints);
   const setLoyaltyPoints = useAppStore((s) => s.setLoyaltyPoints);
@@ -35,11 +45,16 @@ export default function Dashboard() {
 
   const cardRef = useRef(null);
 
-  // Shuffled deck + a stable image seed for the carousel.
-  const [deck] = useState(() => shuffle(PACKAGES));
+  const { data: recs, status: recStatus, reload: reloadRecs } = useRecommendations();
+  const loyaltyAccounts = useAppStore((s) => s.loyaltyAccounts);
+  const setLoyaltyAccounts = useAppStore((s) => s.setLoyaltyAccounts);
+  const [connecting, setConnecting] = useState(false);
+  const [mockDeck] = useState(() => shuffle(PACKAGES));
   const [seed] = useState(() => Math.floor(Math.random() * 100000));
+  const personalising = recStatus === "loading" || recStatus === "generating";
+  const recPackages = useMemo(() => recs.map(recToPackage), [recs]);
+  const deck = recStatus === "ready" && recPackages.length ? recPackages : mockDeck;
 
-  // Load loyalty balances (Plaid mock) once.
   useEffect(() => {
     if (loyaltyPoints) return;
     getLoyaltyPoints()
@@ -47,15 +62,12 @@ export default function Dashboard() {
       .catch((err) => setError(apiErrorMessage(err)));
   }, [loyaltyPoints, setLoyaltyPoints]);
 
-  // Load recent searches.
   useEffect(() => {
     getTrips()
       .then(setTrips)
       .catch((err) => setError(apiErrorMessage(err)));
   }, []);
 
-  // Offers sorted so the user's best-value program floats to the front — WITHOUT
-  // changing what any card shows (loyalty-drives-offers stays decoupled).
   const best = bestProgram(loyaltyPoints);
   const sortedDeck = useMemo(() => {
     if (!best) return deck;
@@ -66,11 +78,8 @@ export default function Dashboard() {
     return [...deck].sort((a, b) => matches(b) - matches(a));
   }, [deck, best]);
 
-  // The route is gated by <RequireAuth> (Clerk) at the App level; this only waits
-  // for AuthSync to mirror the Clerk user into the store before rendering.
   if (!user) return null;
 
-  // Same flow as the homepage form: flexible -> month chooser, else optimize.
   const handleSubmit = async (form) => {
     const base = {
       origin: form.origin,
@@ -91,7 +100,6 @@ export default function Dashboard() {
     if (ok) navigate("/optimize");
   };
 
-  // Re-run optimization for an existing trip and jump back into the flow.
   const resumeTrip = async (t) => {
     if (resumingId) return;
     setResumingId(t.id);
@@ -123,6 +131,21 @@ export default function Dashboard() {
     cardRef.current?.querySelector("input")?.focus();
   };
 
+  const connectLoyalty = async () => {
+    if (connecting) return;
+    setConnecting(true);
+    setError(null);
+    try {
+      await syncLoyalty();
+      setLoyaltyAccounts(await getLoyaltyAccounts());
+      reloadRecs();
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   const firstName = user.name?.trim().split(/\s+/)[0] || "Traveller";
   const recent = trips.slice(0, 3);
   const anyError = error || optimizeError || openError;
@@ -132,8 +155,23 @@ export default function Dashboard() {
       {/* 1. GREETING */}
       <p className="mb-1 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[2px] text-bonza">
         Welcome back, {firstName}
+        {isPro && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-bonza px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] text-white">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 2.5l2.9 5.88 6.49.94-4.69 4.57 1.1 6.46L12 17.3l-5.8 3.05 1.1-6.46-4.69-4.57 6.49-.94L12 2.5z" />
+            </svg>
+            PRO
+          </span>
+        )}
         <span className="inline-block h-px w-12 bg-bonza/35" />
       </p>
+
+      {/* Post-checkout confirmation */}
+      {justUpgraded && isPro && (
+        <div className="mb-4 rounded-xl border border-[#bfe3cb] bg-[#EAF6EE] px-4 py-3 text-[13px] font-medium text-[#1E7E40]">
+          Welcome to Bonza Pro — full points optimisation and cashback are unlocked.
+        </div>
+      )}
       <h1 className="mb-6 font-display text-[2.6rem] font-semibold leading-[1.0] tracking-[-1.2px] text-ink">
         Where are you flying <em className="not-italic text-bonza">next?</em>
       </h1>
@@ -151,6 +189,35 @@ export default function Dashboard() {
         </div>
         <LoyaltyStrip loyaltyPoints={loyaltyPoints} email={user.email} />
       </div>
+
+      {/* Upgrade banner — free users only, dismissible */}
+      {!isPro && !bannerDismissed && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-bonza/20 bg-cream px-4 py-3">
+          <p className="text-[13px] text-ink-soft">
+            <b className="text-ink">Unlock Bonza Pro</b> — full points optimisation, award availability
+            and 3% cashback for <span className="tabular-nums">£49.99/year</span>.
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              to="/upgrade"
+              className="rounded-full bg-bonza px-4 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-bonza-dark"
+            >
+              Upgrade
+            </Link>
+            <button
+              type="button"
+              onClick={() => setBannerDismissed(true)}
+              aria-label="Dismiss"
+              className="text-ink-muted transition-colors hover:text-ink"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 3. META ROW */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -183,17 +250,62 @@ export default function Dashboard() {
             New trip
           </button>
         </div>
-        <span className="flex items-center gap-[5px] text-[10px] text-ink-muted">
-          <span className="h-[5px] w-[5px] rounded-full bg-[#34B368]" />
-          Synced via Plaid · 2h ago
-        </span>
+        <div className="flex items-center gap-3">
+          {creditBalance > 0 && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-cream px-3 py-1 text-[11px] font-semibold text-ink tabular-nums">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-bonza" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v10M9.5 9.5h3.5a1.75 1.75 0 0 1 0 3.5H10a1.75 1.75 0 0 0 0 3.5h3.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {formatGbp(creditBalance)} credits
+            </span>
+          )}
+          <span className="flex items-center gap-[5px] text-[10px] text-ink-muted">
+            <span className="h-[5px] w-[5px] rounded-full bg-[#34B368]" />
+            Synced via Plaid · 2h ago
+          </span>
+        </div>
       </div>
 
       {anyError && <p className="mt-3 text-[12px] text-red-600">{anyError}</p>}
 
-      {/* 4. PACKAGE CAROUSEL */}
+      {/* Connect-loyalty CTA — personalisation needs synced balances (loyalty stays explicit) */}
+      {loyaltyAccounts.length === 0 && (
+        <div className="mt-10 flex items-center justify-between gap-3 rounded-xl border border-bonza/20 bg-white px-4 py-3">
+          <p className="text-[13px] text-ink-soft">
+            <b className="text-ink">Connect your loyalty accounts</b> — sync your points and Bonza will
+            personalise these packages to your balances.
+          </p>
+          <button
+            type="button"
+            onClick={connectLoyalty}
+            disabled={connecting}
+            className="shrink-0 rounded-full bg-bonza px-4 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-bonza-dark disabled:opacity-60"
+          >
+            {connecting ? "Connecting…" : "Connect loyalty"}
+          </button>
+        </div>
+      )}
+
+      {/* 4. PACKAGE CAROUSEL — real personalised recs (8n), mock deck as fallback */}
       <div className="mt-12">
-        <PackageCarousel packages={sortedDeck} seed={seed} onOpen={openPackage} />
+        {personalising ? (
+          <>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
+              Personalising your packages…
+            </p>
+            <h2 className="mt-2 text-[2rem] font-medium tracking-[-0.02em] text-ink">
+              Explore your packages
+            </h2>
+            <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-[360px] animate-pulse rounded-2xl bg-white/70 shadow-[0_10px_35px_rgba(120,80,50,0.08)]" />
+              ))}
+            </div>
+          </>
+        ) : (
+          <PackageCarousel packages={sortedDeck} seed={seed} onOpen={openPackage} />
+        )}
       </div>
 
       {/* Optimizing / booking overlay */}

@@ -1,5 +1,5 @@
-// infra/bin/bonza.ts — CDK entry: selects an environment via -c env=<name> and synthesizes one stack.
 #!/usr/bin/env node
+// infra/bin/bonza.ts — CDK entry: selects an environment via -c env=<name> and synthesizes one stack.
 import { App } from "aws-cdk-lib";
 import { BonzaStack } from "../lib/bonza-stack";
 import { resolveEnv } from "../lib/config";

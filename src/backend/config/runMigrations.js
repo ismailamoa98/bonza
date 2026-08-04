@@ -7,7 +7,7 @@ async function runMigrations() {
 
   try {
     console.log("[migrations] running prisma migrate deploy...");
-    execSync("npx prisma migrate deploy", { stdio: "inherit" });
+    execSync("npx prisma migrate deploy --schema=src/backend/db/schema.prisma", { stdio: "inherit" });
     console.log("[migrations] complete");
   } catch (err) {
     console.error("[migrations] failed:", err.message);

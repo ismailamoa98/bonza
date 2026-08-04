@@ -17,7 +17,6 @@
     "@aws-cdk/core:checkSecretUsage": true,
     "@aws-cdk/core:stackRelativeExports": true,
     "@aws-cdk/aws-rds:lowercaseDbIdentifier": true,
-    "@aws-cdk/aws-ecs-patterns:removeDefaultDesiredCount": true,
     "@aws-cdk/aws-s3:createDefaultLoggingPolicy": true,
     "@aws-cdk/core:target-partitions": ["aws", "aws-cn"]
   }

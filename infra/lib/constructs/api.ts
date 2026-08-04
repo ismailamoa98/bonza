@@ -3,6 +3,7 @@ import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ecs_patterns from "aws-cdk-lib/aws-ecs-patterns";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import { Platform } from "aws-cdk-lib/aws-ecr-assets";
 import { Duration, CfnOutput } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { EnvConfig } from "../config";
@@ -44,8 +45,17 @@ export class Api extends Construct {
       minHealthyPercent: 100,
       // Fail (and roll back) fast if tasks can't stay healthy, instead of hanging for hours.
       circuitBreaker: { rollback: true },
+      // Graviton: the image is built for ARM64 (see fromAsset platform) so the task must run ARM64.
+      runtimePlatform: {
+        cpuArchitecture: ecs.CpuArchitecture.ARM64,
+        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+      },
       taskImageOptions: {
-        image: ecs.ContainerImage.fromAsset("../", { file: "Dockerfile", target: "runner" }),
+        image: ecs.ContainerImage.fromAsset("../", {
+          file: "Dockerfile",
+          target: "runner",
+          platform: Platform.LINUX_ARM64,
+        }),
         containerPort: 8080,
         environment: {
           NODE_ENV: config.envName === "production" ? "production" : "staging",

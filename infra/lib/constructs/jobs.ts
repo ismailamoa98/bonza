@@ -4,6 +4,7 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import { Platform } from "aws-cdk-lib/aws-ecr-assets";
 import { Duration } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { EnvConfig } from "../config";
@@ -39,7 +40,11 @@ export class Jobs extends Construct {
       `@${database.instance.dbInstanceEndpointAddress}:5432/bonza`;
 
     const jobsFunction = new lambda.DockerImageFunction(this, "JobsFunction", {
-      code: lambda.DockerImageCode.fromImageAsset("../", { file: "Dockerfile.jobs" }),
+      code: lambda.DockerImageCode.fromImageAsset("../", {
+        file: "Dockerfile.jobs",
+        platform: Platform.LINUX_ARM64,
+      }),
+      architecture: lambda.Architecture.ARM_64,
       memorySize: config.jobs.memoryMb,
       timeout: Duration.seconds(config.jobs.timeoutSeconds),
       vpc: network.vpc,

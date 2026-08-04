@@ -1,6 +1,6 @@
 // pages/Settings.jsx — Profile / Loyalty / Notifications / Pro tabs.
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import AirportDropdown from "../components/AirportDropdown";
 import { PROGRAMMES, programmeLabel } from "../data/programmes";
 import { useAppStore } from "../store/appStore";
@@ -20,10 +20,15 @@ import {
   getSubscriptionStatus,
   startProCheckout,
   cancelSubscription,
+  getLegalAcceptance,
+  requestDataExport,
+  requestAccountDelete,
+  cancelAccountDelete,
+  getDeleteStatus,
   apiErrorMessage,
 } from "../utils/api";
 
-const TABS = ["Profile", "Loyalty", "Notifications", "Pro"];
+const TABS = ["Profile", "Loyalty", "Notifications", "Pro", "Privacy"];
 const TRAVEL_STYLES = [
   ["points_maximiser", "Points maximiser"],
   ["comfort_status", "Comfort & status"],
@@ -39,6 +44,7 @@ export default function Settings() {
       const match = TABS.find((x) => x.toLowerCase() === t.toLowerCase());
       if (match) return match;
     }
+    if (params.get("undo-delete")) return "Privacy"; // §25e — undo link lands on the Privacy tab
     return params.get("synced") || params.get("loyaltyError") ? "Loyalty" : "Profile";
   })();
   const [tab, setTab] = useState(initialTab);
@@ -76,6 +82,7 @@ export default function Settings() {
         {tab === "Loyalty" && <LoyaltyTab />}
         {tab === "Notifications" && <NotificationsTab />}
         {tab === "Pro" && <ProTab />}
+        {tab === "Privacy" && <PrivacyTab />}
       </div>
     </div>
   );
@@ -228,7 +235,7 @@ function LoyaltyTab() {
                 <div className="min-w-0">
                   <p className="text-[13px] font-semibold text-ink">{programmeLabel(a.programme)}</p>
                   <p className="text-[11px] text-ink-muted tabular-nums">
-                    {Number(a.balance).toLocaleString("en-GB")} pts · {formatGbp(a.valueGbp)}
+                    {Number(a.balance).toLocaleString("en-GB")} pts · {formatGbp((a.valuePence || 0) / 100)}
                     {a.statusTier ? ` · ${a.statusTier}` : ""} · {a.syncMethod}
                     {a.lastSynced ? ` · ${shortDate(a.lastSynced)}` : ""}
                   </p>
@@ -515,5 +522,180 @@ function ProTab() {
       )}
       {error && <p className="mt-2 text-[12px] font-medium text-bonza-dark">{error}</p>}
     </Card>
+  );
+}
+
+const DOC_LABEL = {
+  terms: "Terms of Service",
+  privacy: "Privacy Policy",
+  "booking-terms": "Booking Terms",
+  "pro-terms": "Bonza Pro Terms",
+  cookies: "Cookie Policy",
+  "acceptable-use": "Acceptable Use",
+  subprocessors: "Sub-processors",
+};
+
+// Phase 25 §25d/§25e — Privacy tab: legal-acceptance history, data export, and account deletion with undo.
+function PrivacyTab() {
+  const [acceptances, setAcceptances] = useState(null);
+  const [del, setDel] = useState(null); // delete status { scheduled, daysRemaining, hardDeleteAt }
+  const [exportMsg, setExportMsg] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const refresh = () => {
+    getLegalAcceptance().then((d) => setAcceptances(d.acceptances || [])).catch(() => setAcceptances([]));
+    getDeleteStatus().then(setDel).catch(() => setDel({ scheduled: false }));
+  };
+  useEffect(refresh, []);
+
+  const onExport = async () => {
+    setBusy("export");
+    setError(null);
+    setExportMsg(null);
+    try {
+      const res = await requestDataExport();
+      setExportMsg(
+        res.mode === "s3"
+          ? "We're preparing your export and will email you a secure download link (valid 72 hours)."
+          : "Your export has been generated. In this environment it's written to the server rather than emailed."
+      );
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const onDelete = async () => {
+    setBusy("delete");
+    setError(null);
+    try {
+      await requestAccountDelete();
+      setConfirmDelete(false);
+      refresh();
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const onUndo = async () => {
+    setBusy("undo");
+    setError(null);
+    try {
+      await cancelAccountDelete();
+      refresh();
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Scheduled-deletion banner */}
+      {del?.scheduled && (
+        <div className="rounded-2xl border border-bonza/30 bg-bonza-50 p-5">
+          <p className="text-[14px] font-semibold text-bonza-dark">Your account is scheduled for deletion</p>
+          <p className="mt-1 text-[13px] text-ink-soft">
+            It will be permanently deleted in {del.daysRemaining} day{del.daysRemaining === 1 ? "" : "s"}
+            {del.hardDeleteAt ? ` (${shortDate(del.hardDeleteAt)})` : ""}. You can undo this any time before then.
+          </p>
+          <button
+            type="button"
+            onClick={onUndo}
+            disabled={busy === "undo"}
+            className="mt-3 rounded-full bg-bonza px-5 py-2 text-[13px] font-semibold text-white hover:bg-bonza-dark disabled:opacity-50"
+          >
+            {busy === "undo" ? "…" : "Undo deletion"}
+          </button>
+        </div>
+      )}
+
+      {/* Legal acceptance history */}
+      <Card>
+        <h2 className="text-[15px] font-semibold text-ink">Your agreements</h2>
+        <p className="mt-1 text-[13px] text-ink-soft">The legal documents you&rsquo;ve accepted and when.</p>
+        <ul className="mt-4 divide-y divide-[#f0ebe3]">
+          {acceptances === null ? (
+            <li className="py-2 text-[13px] text-ink-muted">Loading…</li>
+          ) : acceptances.length === 0 ? (
+            <li className="py-2 text-[13px] text-ink-muted">No acceptance records yet.</li>
+          ) : (
+            acceptances.map((a, i) => (
+              <li key={`${a.document}-${a.version}-${i}`} className="flex items-center justify-between py-2.5">
+                <div>
+                  <Link to={`/legal/${a.document}`} className="text-[13.5px] font-semibold text-ink hover:text-bonza">
+                    {DOC_LABEL[a.document] || a.document}
+                  </Link>
+                  <span className="ml-2 text-[12px] text-ink-muted tabular-nums">v{a.version}</span>
+                  {!a.isCurrent && <span className="ml-2 text-[11px] font-semibold text-bonza-dark">superseded</span>}
+                </div>
+                <span className="text-[12px] text-ink-muted tabular-nums">{shortDate(a.acceptedAt)}</span>
+              </li>
+            ))
+          )}
+        </ul>
+      </Card>
+
+      {/* Export */}
+      <Card>
+        <h2 className="text-[15px] font-semibold text-ink">Download your data</h2>
+        <p className="mt-1 text-[13px] text-ink-soft">
+          Get a copy of everything we hold about you — profile, loyalty, bookings, credits, activity, support and
+          agreements. One request per 24 hours.
+        </p>
+        <button
+          type="button"
+          onClick={onExport}
+          disabled={busy === "export"}
+          className="mt-3 rounded-full border border-[#e0d9cf] px-5 py-2 text-[13px] font-semibold text-ink hover:border-bonza hover:text-bonza disabled:opacity-50"
+        >
+          {busy === "export" ? "Preparing…" : "Request export"}
+        </button>
+        {exportMsg && <p className="mt-2 text-[12.5px] font-medium text-[#1E7E40]">{exportMsg}</p>}
+      </Card>
+
+      {/* Delete */}
+      {!del?.scheduled && (
+        <Card>
+          <h2 className="text-[15px] font-semibold text-ink">Delete your account</h2>
+          <p className="mt-1 text-[13px] text-ink-soft">
+            Your account is locked immediately and permanently deleted after 14 days — you can undo it any time in
+            that window. Completed booking and credit records are kept for 7 years for UK tax law, with your
+            personal details removed (see our <Link to="/legal/privacy" className="font-semibold text-bonza">Privacy Policy</Link>).
+          </p>
+          {confirmDelete ? (
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={busy === "delete"}
+                className="rounded-full bg-bonza px-5 py-2 text-[13px] font-semibold text-white hover:bg-bonza-dark disabled:opacity-50"
+              >
+                {busy === "delete" ? "…" : "Yes, delete my account"}
+              </button>
+              <button type="button" onClick={() => setConfirmDelete(false)} className="text-[13px] font-semibold text-ink-soft hover:text-ink">
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              className="mt-3 rounded-full border border-bonza/40 px-5 py-2 text-[13px] font-semibold text-bonza-dark hover:bg-bonza-50"
+            >
+              Delete account
+            </button>
+          )}
+        </Card>
+      )}
+
+      {error && <p className="text-[12px] font-medium text-bonza-dark">{error}</p>}
+    </div>
   );
 }

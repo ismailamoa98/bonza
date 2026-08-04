@@ -5,6 +5,8 @@ import { useNavigate } from "react-router-dom";
 import AirportDropdown from "../components/AirportDropdown";
 import { PROGRAMMES } from "../data/programmes";
 import { useAppStore } from "../store/appStore";
+import { track } from "../lib/analytics";
+import { EV } from "../lib/analytics/events";
 import {
   updateProfile,
   getLoyaltyProviders,
@@ -81,6 +83,11 @@ export default function Onboarding() {
     if (step < 5) writeSaved({ step, home, travelStyle, details });
   }, [step, home, travelStyle, details]);
 
+  const STEP_NAME = { 1: "loyalty", 2: "home_airport", 3: "travel_style", 4: "details", 5: "personalising" };
+  useEffect(() => {
+    track(EV.ONBOARDING_STEP_VIEWED, { step: STEP_NAME[step] || String(step) });
+  }, [step]);
+
   const setDetail = (k) => (e) => setDetails((d) => ({ ...d, [k]: e.target.value }));
 
   const saveProfile = async () => {
@@ -107,6 +114,7 @@ export default function Onboarding() {
     setError(null);
     try {
       await saveProfile();
+      track(EV.ONBOARDING_SKIPPED, {});
       navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(apiErrorMessage(err));
@@ -126,6 +134,7 @@ export default function Onboarding() {
       }
       setBusy(true);
       await syncLoyalty(provider);
+      track(EV.EMAIL_SYNC_CONNECTED, { provider });
       setLoyaltyAccounts(await getLoyaltyAccounts());
     } catch (err) {
       setError(apiErrorMessage(err));
@@ -139,6 +148,7 @@ export default function Onboarding() {
     setError(null);
     try {
       await saveProfile();
+      track(EV.ONBOARDING_COMPLETED, {});
       setStep(5);
     } catch (err) {
       setError(apiErrorMessage(err));

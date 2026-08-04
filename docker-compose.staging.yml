@@ -1,0 +1,23 @@
+# docker-compose.staging.yml — staging overrides; run built images under NODE_ENV=staging.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.staging.yml up
+# Real secrets come from the environment / Secrets Manager, never this file.
+services:
+  api:
+    image: bonza-api:staging
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    command: node src/backend/server.js
+    environment:
+      NODE_ENV: staging
+      PORT: 8080
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    environment:
+      NODE_ENV: staging

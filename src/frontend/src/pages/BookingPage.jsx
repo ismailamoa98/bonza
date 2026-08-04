@@ -1,23 +1,21 @@
-// pages/BookingPage.jsx — Step 3 (route /booking): confirm details & book.
-// Left column: guest info, loyalty connect, payment, and Bonza's differentiator —
-// the loyalty-earnings-on-this-booking card. Right column: a sticky package +
-// price summary with the confirm CTA. Financials come from the live selected
-// flight/hotel/car combination; the marketing package (when opened from the
-// homepage) adds flavor (rating, hero image, program). Icons are inline SVG (no
-// icon-font dep); "record booking" uses the existing conversion endpoint.
-import { useState } from "react";
+// pages/BookingPage.jsx — confirm booking: guest/loyalty/payment + loyalty-earnings card; on-site cash flow.
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore, computeCombination, tripNights } from "../store/appStore";
-import { trackConversion } from "../utils/api";
+import { createBookingPaymentIntent, confirmCashBooking, apiErrorMessage } from "../utils/api";
 import { formatMoney, formatPoints, shortDate } from "../utils/format";
 import { imageUrl } from "../data/packages";
+import {
+  HAS_STRIPE_KEY,
+  BookingElements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from "../components/StripePaymentField";
 
-// "JFK — New York" -> "New York".
 const cityOf = (label, fallback) => (label ? String(label).split(" — ").pop() : fallback || "");
-// "9.1 Excellent" -> "9.1"
 const ratingNum = (rate) => (rate ? String(rate).split(/\s+/)[0] : null);
 
-// Per-program earn valuation (pence per point) for the estimate rows.
 const VPP = { marriott: 0.7, ihg: 0.5, hilton: 0.5, hyatt: 1.7, amex: 1.4, chaseUr: 1.5 };
 const SHADE = { marriott: "#B0552F", ihg: "#1f7a3f", hilton: "#2563a8", hyatt: "#8a6d3b", default: "#da7756" };
 
@@ -36,28 +34,45 @@ export default function BookingPage() {
   const reset = useAppStore((s) => s.reset);
 
   const [form, setForm] = useState({
-    firstName: "", lastName: "", email: "", countryCode: "+44", phone: "", passport: "",
+    title: "mr", firstName: "", lastName: "", dob: "", email: "", countryCode: "+44", phone: "", passport: "",
     cardName: "", cardNumber: "", expiry: "", cvc: "", billing: "",
   });
   const [errors, setErrors] = useState({});
   const [booked, setBooked] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [payErr, setPayErr] = useState(null);
+  const [pay, setPay] = useState(null); // { clientSecret, paymentIntentId, mock }
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  if (!trip || !bookingLink) {
-    navigate("/", { replace: true });
-    return null;
-  }
-
-  const nights = tripNights(trip);
-  const totals = computeCombination(selectedFlight, selectedHotel, selectedCar, loyaltyPoints, nights, ratio);
+  const hasTrip = Boolean(trip && bookingLink);
+  const nights = hasTrip ? tripNights(trip) : 0;
+  const totals = hasTrip
+    ? computeCombination(selectedFlight, selectedHotel, selectedCar, loyaltyPoints, nights, ratio)
+    : { items: [], totalCash: 0, totalPoints: 0, savingsAmount: 0 };
   const cashByType = Object.fromEntries(totals.items.map((it) => [it.type, it.cash]));
+
+  useEffect(() => {
+    if (!hasTrip) navigate("/", { replace: true });
+  }, [hasTrip, navigate]);
+
+  useEffect(() => {
+    if (!hasTrip || !(totals.totalCash > 0)) return;
+    let cancelled = false;
+    createBookingPaymentIntent(totals.totalCash, trip.id)
+      .then((p) => { if (!cancelled) setPay(p); })
+      .catch(() => { if (!cancelled) setPay({ mock: true, paymentIntentId: "mock_pi_local" }); });
+    return () => { cancelled = true; };
+  }, [hasTrip, totals.totalCash, trip?.id]);
+
+  if (!hasTrip) return null;
+
+  const stripeReady = HAS_STRIPE_KEY && Boolean(pay?.clientSecret) && pay?.mock === false;
 
   const destCity = pkg?.city || cityOf(trip.destinationLabel, trip.destination);
   const dateRange = `${shortDate(trip.checkIn)} – ${shortDate(trip.checkOut)}`;
   const rating = ratingNum(pkg?.rate) || (selectedHotel ? selectedHotel.rating : null);
   const travelers = Number(trip.numberOfTravelers) || 1;
 
-  // Loyalty-earnings rows (mock estimates — Bonza's differentiator).
   const earnRows = [];
   if (selectedHotel) {
     const key = Object.keys(selectedHotel.loyaltyPrograms || {})[0];
@@ -93,33 +108,62 @@ export default function BookingPage() {
   const totalEarnHigh = earnValue + cardHigh;
   const connected = Boolean(loyaltyPoints);
 
-  // ── Confirm & book ──────────────────────────────────────────────────────
   const validate = () => {
     const e = {};
     if (!form.firstName.trim()) e.firstName = "Required";
     if (!form.lastName.trim()) e.lastName = "Required";
     if (!/\S+@\S+\.\S+/.test(form.email)) e.email = "Enter a valid email";
-    if (!form.cardName.trim()) e.cardName = "Required";
-    if (form.cardNumber.replace(/\s/g, "").length < 12) e.cardNumber = "Enter your card number";
-    if (!/^\d\d\s*\/\s*\d\d$/.test(form.expiry.trim())) e.expiry = "MM / YY";
-    if (form.cvc.trim().length < 3) e.cvc = "CVC";
+    if (!form.dob) e.dob = "Required";
+    if (!stripeReady) {
+      if (!form.cardName.trim()) e.cardName = "Required";
+      if (form.cardNumber.replace(/\s/g, "").length < 12) e.cardNumber = "Enter your card number";
+      if (!/^\d\d\s*\/\s*\d\d$/.test(form.expiry.trim())) e.expiry = "MM / YY";
+      if (form.cvc.trim().length < 3) e.cvc = "CVC";
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
-  const confirm = () => {
-    if (!validate()) return;
-    // Record the booking + affiliate click for each selected segment.
-    totals.items.forEach((it) => {
-      const link = affiliateLinks?.[it.type];
-      if (!link) return;
-      trackConversion(bookingLink.token, it.type, {
-        vendor: link.vendor,
-        commissionAmount: Math.round(it.cash * (link.commissionRate || 0)),
-      }).catch(() => {});
+  const legLabel = (type) => {
+    if (type === "flight") return `${trip.origin} → ${trip.destination} · return`;
+    if (type === "hotel") return selectedHotel ? `${selectedHotel.stars}-star · ${selectedHotel.city}` : "Hotel";
+    if (type === "car") return selectedCar ? `${selectedCar.carClass} · ${nights} days` : "Car rental";
+    return type;
+  };
+
+  const finalizeBooking = async (paymentIntentId) => {
+    const passengers = [
+      {
+        title: form.title || "mr",
+        given_name: form.firstName.trim(),
+        family_name: form.lastName.trim(),
+        born_on: form.dob || undefined,
+        email: form.email.trim(),
+        phone_number: `${form.countryCode}${form.phone}`.replace(/\s/g, ""),
+      },
+    ];
+    const legs = totals.items.map((it) => ({
+      type: it.type,
+      cashValueGbp: it.cash,
+      vendor: affiliateLinks?.[it.type]?.vendor,
+      commissionAmount: Math.round(it.cash * (affiliateLinks?.[it.type]?.commissionRate || 0)),
+      description: legLabel(it.type),
+    }));
+
+    await confirmCashBooking({
+      paymentIntentId,
+      bookingToken: bookingLink.token,
+      tripId: trip.id,
+      origin: trip.origin,
+      destination: trip.destination,
+      checkIn: trip.checkIn,
+      checkOut: trip.checkOut,
+      travelers,
+      passengers,
+      legs,
     });
-    // Hand off to each provider (per-type affiliate links).
-    ["flight", "hotel", "car"].forEach((t) => {
+
+    ["hotel", "car"].forEach((t) => {
       const url = affiliateLinks?.[t]?.affiliateUrl;
       if (url && cashByType[t] != null) window.open(url, "_blank", "noopener");
     });
@@ -131,7 +175,7 @@ export default function BookingPage() {
     navigate("/");
   };
 
-  return (
+  const body = (
     <div className="min-h-screen bg-cream font-jakarta text-ink">
       <div className="mx-auto max-w-5xl px-4 py-6">
         {/* Page header: wordmark + step indicator */}
@@ -155,6 +199,18 @@ export default function BookingPage() {
                     </Field>
                     <Field label="Last name" error={errors.lastName}>
                       <input className={inputCls(errors.lastName)} value={form.lastName} onChange={set("lastName")} placeholder="Rivera" />
+                    </Field>
+                  </div>
+                  <div className="grid grid-cols-[110px_1fr] gap-3">
+                    <Field label="Title">
+                      <select className={inputCls()} value={form.title} onChange={set("title")}>
+                        {[["mr", "Mr"], ["ms", "Ms"], ["mrs", "Mrs"], ["miss", "Miss"], ["dr", "Dr"]].map(([v, l]) => (
+                          <option key={v} value={v}>{l}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Date of birth" error={errors.dob}>
+                      <input type="date" className={inputCls(errors.dob)} value={form.dob} onChange={set("dob")} />
                     </Field>
                   </div>
                   <Field label="Email address" error={errors.email}>
@@ -198,26 +254,36 @@ export default function BookingPage() {
 
                 {/* Card 3 — Payment */}
                 <Card icon="card" title="Payment">
-                  <Field label="Name on card" error={errors.cardName}>
-                    <input className={inputCls(errors.cardName)} value={form.cardName} onChange={set("cardName")} placeholder="Jordan Rivera" />
-                  </Field>
-                  <Field label="Card number" error={errors.cardNumber}>
-                    <div className="relative">
-                      <input className={`${inputCls(errors.cardNumber)} pr-10`} value={form.cardNumber} onChange={set("cardNumber")} placeholder="4242 4242 4242 4242" inputMode="numeric" />
-                      <Icon name="card" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
-                    </div>
-                  </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Expiry" error={errors.expiry}>
-                      <input className={inputCls(errors.expiry)} value={form.expiry} onChange={set("expiry")} placeholder="MM / YY" />
-                    </Field>
-                    <Field label="CVC" error={errors.cvc}>
-                      <input className={inputCls(errors.cvc)} value={form.cvc} onChange={set("cvc")} placeholder="123" inputMode="numeric" />
-                    </Field>
-                  </div>
-                  <Field label="Billing address">
-                    <input className={inputCls()} value={form.billing} onChange={set("billing")} placeholder="221B Baker Street, London" autoComplete="street-address" />
-                  </Field>
+                  {stripeReady ? (
+                    <PaymentElement options={{ layout: "tabs" }} />
+                  ) : HAS_STRIPE_KEY && !pay ? (
+                    <p className="rounded-lg bg-cream px-3 py-4 text-[13px] text-ink-soft">Loading secure payment…</p>
+                  ) : (
+                    <>
+                      {/* Offline mock card fields (no Stripe key) — cosmetic; the booking still
+                          completes against a mock PaymentIntent so the flow is testable offline. */}
+                      <Field label="Name on card" error={errors.cardName}>
+                        <input className={inputCls(errors.cardName)} value={form.cardName} onChange={set("cardName")} placeholder="Jordan Rivera" />
+                      </Field>
+                      <Field label="Card number" error={errors.cardNumber}>
+                        <div className="relative">
+                          <input className={`${inputCls(errors.cardNumber)} pr-10`} value={form.cardNumber} onChange={set("cardNumber")} placeholder="4242 4242 4242 4242" inputMode="numeric" />
+                          <Icon name="card" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
+                        </div>
+                      </Field>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Expiry" error={errors.expiry}>
+                          <input className={inputCls(errors.expiry)} value={form.expiry} onChange={set("expiry")} placeholder="MM / YY" />
+                        </Field>
+                        <Field label="CVC" error={errors.cvc}>
+                          <input className={inputCls(errors.cvc)} value={form.cvc} onChange={set("cvc")} placeholder="123" inputMode="numeric" />
+                        </Field>
+                      </div>
+                      <Field label="Billing address">
+                        <input className={inputCls()} value={form.billing} onChange={set("billing")} placeholder="221B Baker Street, London" autoComplete="street-address" />
+                      </Field>
+                    </>
+                  )}
                 </Card>
 
                 {/* Card 4 — Loyalty earnings on this booking */}
@@ -312,9 +378,29 @@ export default function BookingPage() {
                 </div>
 
                 {!booked && (
-                  <button type="button" onClick={confirm} className="mt-4 w-full rounded-lg bg-bonza px-4 py-3 text-[14px] font-semibold text-white transition-colors hover:bg-bonza-dark">
-                    Confirm and book — {formatMoney(totals.totalCash)}
-                  </button>
+                  <>
+                    {stripeReady ? (
+                      <RealPayButton
+                        label={`Confirm and book — ${formatMoney(totals.totalCash)}`}
+                        validate={validate}
+                        onPaid={finalizeBooking}
+                        onError={setPayErr}
+                        submitting={submitting}
+                        setSubmitting={setSubmitting}
+                      />
+                    ) : (
+                      <MockPayButton
+                        label={`Confirm and book — ${formatMoney(totals.totalCash)}`}
+                        validate={validate}
+                        paymentIntentId={pay?.paymentIntentId || "mock_pi_local"}
+                        onPaid={finalizeBooking}
+                        onError={setPayErr}
+                        submitting={submitting}
+                        setSubmitting={setSubmitting}
+                      />
+                    )}
+                    {payErr && <p className="mt-2 text-center text-[12px] font-medium text-bonza-dark">{payErr}</p>}
+                  </>
                 )}
               </div>
             </div>
@@ -323,9 +409,73 @@ export default function BookingPage() {
       </div>
     </div>
   );
+
+  return stripeReady ? (
+    <BookingElements clientSecret={pay.clientSecret}>{body}</BookingElements>
+  ) : (
+    body
+  );
 }
 
-// ── Small building blocks ───────────────────────────────────────────────────
+function RealPayButton({ label, validate, onPaid, onError, submitting, setSubmitting }) {
+  const stripe = useStripe();
+  const elements = useElements();
+
+  const click = async () => {
+    if (!validate()) return;
+    if (!stripe || !elements) return;
+    setSubmitting(true);
+    onError(null);
+    try {
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: window.location.href },
+        redirect: "if_required",
+      });
+      if (error) {
+        onError(error.message || "Payment could not be completed.");
+        setSubmitting(false);
+        return;
+      }
+      await onPaid(paymentIntent.id);
+    } catch (err) {
+      onError(apiErrorMessage(err));
+      setSubmitting(false);
+    }
+  };
+
+  return <PayCTA label={label} onClick={click} disabled={!stripe || submitting} submitting={submitting} />;
+}
+
+function MockPayButton({ label, validate, paymentIntentId, onPaid, onError, submitting, setSubmitting }) {
+  const click = async () => {
+    if (!validate()) return;
+    setSubmitting(true);
+    onError(null);
+    try {
+      await onPaid(paymentIntentId);
+    } catch (err) {
+      onError(apiErrorMessage(err));
+      setSubmitting(false);
+    }
+  };
+
+  return <PayCTA label={label} onClick={click} disabled={submitting} submitting={submitting} />;
+}
+
+function PayCTA({ label, onClick, disabled, submitting }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="mt-4 w-full rounded-lg bg-bonza px-4 py-3 text-[14px] font-semibold text-white transition-colors hover:bg-bonza-dark disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {submitting ? "Processing…" : label}
+    </button>
+  );
+}
+
 function Card({ icon, title, children }) {
   return (
     <section className="rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(40,30,20,0.04),0_16px_40px_rgba(120,80,50,0.07)] ring-1 ring-black/5">
@@ -393,7 +543,7 @@ function SuccessCard({ onHome }) {
         <Icon name="check" className="h-7 w-7" />
       </span>
       <h2 className="mt-4 font-display text-[26px] font-bold text-ink">Your trip is booked.</h2>
-      <p className="mt-1 text-[14px] text-ink-soft">Check your email for confirmation.</p>
+      <p className="mt-1 text-[14px] text-ink-soft">Saved to your account — you can view it any time under your bookings.</p>
       <button type="button" onClick={onHome} className="mt-5 inline-flex items-center gap-1.5 text-[13px] font-semibold text-bonza hover:text-bonza-dark">
         Return home
         <Icon name="arrow" className="h-3.5 w-3.5" />
@@ -421,7 +571,6 @@ function Steps() {
   );
 }
 
-// ── Inline SVG icon set (replaces the spec's Tabler icon font) ───────────────
 const ICONS = {
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 21v-1a6 6 0 0 1 12 0v1" /></>,
   card: <><rect x="2" y="5" width="20" height="14" rx="2" /><line x1="2" y1="10" x2="22" y2="10" /></>,

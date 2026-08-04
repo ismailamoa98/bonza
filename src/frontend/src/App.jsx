@@ -1,12 +1,6 @@
-// App.jsx — Root component & router.
-// Wrapped in Clerk's <ClerkProvider> (Clerk owns auth). <AuthSync> mirrors the
-// Clerk session into the Zustand store (for UI display) and registers Clerk's
-// getToken with the api client so requests carry a bearer token.
-// Public marketing flow ("/" -> "/optimize" -> "/booking") stays open so the
-// anonymous demo works (backed by the backend dev-user fallback); "/dashboard"
-// is the private area and requires sign-in.
+// App.jsx — routes + Clerk RequireAuth + OnboardingGate.
 import { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import {
   ClerkProvider,
   useAuth,
@@ -22,14 +16,21 @@ import Login from "./pages/Login";
 import FlexibleDates from "./pages/FlexibleDates";
 import Step2_Optimization from "./pages/Step2_Optimization";
 import BookingPage from "./pages/BookingPage";
+import UpgradePage from "./pages/UpgradePage";
+import Onboarding from "./pages/Onboarding";
+import Settings from "./pages/Settings";
+import BookingsHistory from "./pages/BookingsHistory";
 import { useAppStore } from "./store/appStore";
-import { setAuthTokenGetter } from "./utils/api";
+import {
+  setAuthTokenGetter,
+  getSubscriptionStatus,
+  getCredits,
+  getLoyaltyAccounts,
+  getProfile,
+} from "./utils/api";
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
-// Clerk owns auth and has no offline mock — a missing or placeholder publishable
-// key makes <ClerkProvider> throw and the whole app render blank. Detect that and
-// show actionable setup guidance instead of a silent white screen.
 const HAS_CLERK_KEY =
   typeof PUBLISHABLE_KEY === "string" &&
   PUBLISHABLE_KEY.startsWith("pk_") &&
@@ -67,13 +68,15 @@ function ClerkSetupNotice() {
   );
 }
 
-// Bridges Clerk -> the rest of the app: caches the user for display and feeds
-// the api client a fresh session token on every request.
 function AuthSync() {
   const { getToken, isLoaded } = useAuth();
   const { user, isSignedIn } = useUser();
   const setUser = useAppStore((s) => s.setUser);
   const logout = useAppStore((s) => s.logout);
+  const setProStatus = useAppStore((s) => s.setProStatus);
+  const setCreditBalance = useAppStore((s) => s.setCreditBalance);
+  const setLoyaltyAccounts = useAppStore((s) => s.setLoyaltyAccounts);
+  const setProfile = useAppStore((s) => s.setProfile);
 
   useEffect(() => {
     setAuthTokenGetter(getToken);
@@ -87,15 +90,34 @@ function AuthSync() {
         name: user.fullName,
         email: user.primaryEmailAddress?.emailAddress || null,
       });
+      getSubscriptionStatus().then((s) => setProStatus(s.isPro)).catch(() => {});
+      getCredits().then((c) => setCreditBalance(c.totalCreditsGbp)).catch(() => {});
+      getLoyaltyAccounts().then(setLoyaltyAccounts).catch(() => {});
+      getProfile().then(setProfile).catch(() => {});
     } else {
-      logout();
+      logout(); // clears user + isPro/creditBalance/loyaltyAccounts/profile
     }
-  }, [isLoaded, isSignedIn, user, setUser, logout]);
+  }, [isLoaded, isSignedIn, user, setUser, logout, setProStatus, setCreditBalance, setLoyaltyAccounts, setProfile]);
 
   return null;
 }
 
-// Gate for the private dashboard — bounce signed-out visitors to sign-in.
+function OnboardingGate() {
+  const { isSignedIn } = useUser();
+  const profile = useAppStore((s) => s.profile);
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    if (!isSignedIn || !profile) return;
+    if (profile.onboardingComplete) return;
+    if (pathname === "/onboarding" || pathname === "/login") return;
+    navigate("/onboarding", { replace: true });
+  }, [isSignedIn, profile, pathname, navigate]);
+
+  return null;
+}
+
 function RequireAuth({ children }) {
   return (
     <>
@@ -119,6 +141,7 @@ export default function App() {
     >
       <BrowserRouter>
         <AuthSync />
+        <OnboardingGate />
         <div className="min-h-screen bg-cream text-ink">
           <Navigation />
           <main>
@@ -137,6 +160,31 @@ export default function App() {
               <Route path="/flexible" element={<FlexibleDates />} />
               <Route path="/optimize" element={<Step2_Optimization />} />
               <Route path="/booking" element={<BookingPage />} />
+              <Route path="/upgrade" element={<UpgradePage />} />
+              <Route
+                path="/onboarding"
+                element={
+                  <RequireAuth>
+                    <Onboarding />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <RequireAuth>
+                    <Settings />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/bookings"
+                element={
+                  <RequireAuth>
+                    <BookingsHistory />
+                  </RequireAuth>
+                }
+              />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>

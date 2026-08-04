@@ -50,13 +50,14 @@ export class BonzaStack extends Stack {
       ),
     });
 
-    new Api(this, "Api", { config, network, database });
+    const api = new Api(this, "Api", { config, network, database, appSecret: appSecrets });
 
     new Jobs(this, "Jobs", { config, network, database, appSecret: appSecrets });
 
     new Frontend(this, "Frontend", {
       config,
       certificateArn: this.node.tryGetContext("certificateArn"),
+      apiLoadBalancer: api.loadBalancer,
     });
 
     const alertEmail = this.node.tryGetContext("alertEmail") ?? "ismail@bonza.app";

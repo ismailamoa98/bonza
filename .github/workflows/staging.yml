@@ -1,0 +1,119 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: staging-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: eu-west-2
+  ECR_REPOSITORY: bonza-api
+  EB_APP_NAME: bonza-staging
+  EB_ENV_NAME: bonza-staging-env
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm test --if-present # backend suite lands in Phase 12
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for AWS OIDC role assumption
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.STAGING_AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push API image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:staging .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:staging
+
+      - name: Build and deploy frontend
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.STAGING_CLERK_PUBLISHABLE_KEY }}
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STAGING_STRIPE_PUBLISHABLE_KEY }}
+          VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          VITE_GIT_COMMIT_SHA: ${{ github.sha }}
+          VITE_API_URL: https://api.staging.bonza.app
+        run: |
+          cd src/frontend
+          npm ci
+          npm run build
+          aws s3 sync dist/ s3://bonza-staging-frontend --delete
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.STAGING_CF_DISTRIBUTION_ID }} \
+            --paths "/*"
+
+      - name: Deploy to Elastic Beanstalk
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          cat > Dockerrun.aws.json << EOF
+          {
+            "AWSEBDockerrunVersion": "1",
+            "Image": {
+              "Name": "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG",
+              "Update": "true"
+            },
+            "Ports": [{ "ContainerPort": "8080" }]
+          }
+          EOF
+
+          zip deploy.zip Dockerrun.aws.json
+          aws s3 cp deploy.zip s3://bonza-deployments/staging-$IMAGE_TAG.zip
+          aws elasticbeanstalk create-application-version \
+            --application-name $EB_APP_NAME \
+            --version-label $IMAGE_TAG \
+            --source-bundle S3Bucket=bonza-deployments,S3Key=staging-$IMAGE_TAG.zip
+          aws elasticbeanstalk update-environment \
+            --environment-name $EB_ENV_NAME \
+            --version-label $IMAGE_TAG
+
+      - name: Run database migrations
+        run: echo "DB migrations handled in Phase 11j (prisma migrate deploy)"
+
+      - name: Notify Sentry of deploy
+        env:
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ]; then
+            echo "Sentry release notification skipped (SENTRY_ORG / SENTRY_AUTH_TOKEN not set)"
+            exit 0
+          fi
+          curl -sf -X POST "https://sentry.io/api/0/organizations/$SENTRY_ORG/releases/" \
+            -H "Authorization: Bearer $SENTRY_AUTH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"version\":\"${{ github.sha }}\",\"projects\":[\"bonza\"]}"

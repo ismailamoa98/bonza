@@ -1,3 +1,4 @@
+// Prisma schema — source of truth for the Bonza data model.
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -8,17 +9,40 @@ generator client {
 }
 
 model User {
-  id                String    @id @default(cuid())
+  id                String    @id
   email             String    @unique
-  passwordHash      String
   name              String?
   location          String?
   travelStatus      String?
   createdAt         DateTime  @default(now())
 
+  deviceFingerprint String?
+
+  lastLoginAt       DateTime?
+  homeAirport       String?
+
+  onboardingComplete Boolean  @default(false)
+  travelStyle        String?
+  gmailConnected     Boolean  @default(false)
+  gmailRefreshToken  String?
+  outlookConnected   Boolean  @default(false)
+  outlookRefreshToken String?
+
   trips             Trip[]
   bookingLinks      BookingLink[]
   chatSessions      ChatSession[]
+
+  subscription      Subscription?
+  bonzaCredits      BonzaCredit[]
+  loyaltyAccounts   LoyaltyAccount[]
+  affiliateClicks   AffiliateClick[]
+  bookings          Booking[]
+  journeys          UserJourney[]
+  events            UserEvent[]
+  recommendations   PersonalisedRecommendation[]
+
+  notifications          Notification[]
+  notificationPreference NotificationPreference?
 }
 
 model Trip {
@@ -138,4 +162,262 @@ model Conversion {
   commissionAmount  Float?
 
   createdAt         DateTime  @default(now())
+}
+
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  user                 User      @relation(fields: [userId], references: [id])
+
+  stripeCustomerId     String    @unique
+  stripeSubscriptionId String?   @unique
+  status               String    // 'active' | 'cancelled' | 'past_due' | 'trialing' | 'pending'
+  plan                 String    @default("pro_annual") // 'pro_annual' | 'free'
+  currentPeriodEnd     DateTime?
+
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model BonzaCredit {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  amount      Float    // in GBP, e.g. 24.00
+  source      String   // 'cashback_hotel' | 'cashback_flight' | 'cashback_car' | 'first_booking_bonus' | 'redeemed'
+  bookingId   String?  // reference to the booking that generated this credit
+  booking     Booking? @relation(fields: [bookingId], references: [id])
+
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime // credits expire 24 months from earning
+}
+
+model LoyaltyAccount {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+
+  programme     String   // 'marriott_bonvoy' | 'hilton_honors' | 'world_of_hyatt' | 'ihg_one' | 'amex_mr' | 'chase_ur' | 'united_mp' | 'ba_avios'
+  accountNumber String?  // masked — last 4 only (display)
+
+  programmeAccountId  String?
+  loyaltyEmailAddress String?
+
+  balance       Int      // points
+  valueGbp      Float    // estimated £ value at current programme rate
+  statusTier    String?  // 'Silver' | 'Gold' | 'Platinum' | 'Globalist' etc.
+
+  pointsExpireAt DateTime?
+
+  lastSynced    DateTime
+  syncMethod    String   // 'email_parse' | 'manual' | 'awardwallet'
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, programme])
+  @@unique([programme, programmeAccountId])  // same loyalty account can't link to two Bonza users
+  @@unique([programme, loyaltyEmailAddress]) // same statement email per programme can't link twice
+}
+
+model AffiliateClick {
+  id            String   @id @default(cuid())
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
+
+  programme     String   // 'travelpayouts' | 'awin_marriott' | 'awin_hilton' | 'impact_hyatt' | 'cj_seatsaero'
+  destination   String   // URL clicked
+  bookingType   String   // 'cash' | 'points' | 'hybrid'
+  leg           String   // 'flight' | 'hotel' | 'car'
+
+  clickedAt     DateTime @default(now())
+  convertedAt   DateTime?
+  commissionEst Float?   // estimated £ commission if known
+}
+
+model Booking {
+  id                 String       @id @default(cuid())
+  userId             String
+  user               User         @relation(fields: [userId], references: [id])
+
+  journeyId          String?
+  journey            UserJourney? @relation(fields: [journeyId], references: [id])
+
+  tripId             String?
+  origin             String?
+  destination        String?
+  checkIn            DateTime?
+  checkOut           DateTime?
+  travelers          Int          @default(1)
+
+  leg                String       // 'flight' | 'hotel' | 'car' | 'package'
+  bookingType        String       // 'cash' | 'points' | 'hybrid'
+  supplier           String       // 'duffel' | 'marriott_bonvoy' | … | 'cartrawler' | 'self_reported'
+  supplierReference  String?      // Duffel booking reference / loyalty confirmation number
+  description        String?      // e.g. "LHR → NCE · British Airways · Economy"
+
+  cashValueGbp       Float?
+  pointsUsed         Int?
+  pointsProgramme    String?
+  pointsValueGbp     Float?
+  serviceFeeGbp      Float?       // Bonza service fee (cash bookings only)
+
+  confirmedAt        DateTime
+  confirmationMethod String       // 'duffel' | 'affiliate_postback' | 'self_reported' | 'transfer_proxy'
+
+  status             String       @default("confirmed") // 'confirmed' | 'cancelled' | 'completed' | 'pending'
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  creditsAwarded     Float?       // Bonza Credits issued for this booking
+  credits            BonzaCredit[]
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+}
+
+model UserJourney {
+  id                   String    @id @default(cuid())
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id])
+
+  tripId               String?
+  origin               String?
+  destination          String?
+  travelDates          String?
+
+  recommendedScenario  String?   // 'points' | 'transfer' | 'hybrid' | 'cash'
+  recommendedProgramme String?
+  pointsRecommended    Int?
+
+  transferConfirmed    Boolean   @default(false)
+  transferProgramme    String?   // e.g. 'chase_ur'
+  transferToProgramme  String?   // e.g. 'aeroplan'
+  transferAmount       Int?
+  transferConfirmedAt  DateTime?
+
+  deepLinkClicked      Boolean   @default(false)
+  deepLinkClickedAt    DateTime?
+  deepLinkLeg          String?   // 'flight' | 'hotel' | 'car'
+
+  bookingConfirmed     Boolean   @default(false)
+  bookingMethod        String?   // 'duffel' | 'self_reported' | 'affiliate_postback' | 'transfer_proxy'
+  bookingConfirmedAt   DateTime?
+  bookingValueGbp      Float?
+
+  creditsAwarded       Float?
+  creditsAwardedAt     DateTime?
+  isFirstBooking       Boolean   @default(false)
+
+  bookings             Booking[]
+
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model UserEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  type      String   // e.g. 'booking_confirmed' | 'booking_cancelled'
+  metadata  Json
+  sessionId String?
+
+  createdAt DateTime @default(now())
+}
+
+model AwardAvailability {
+  id          String   @id @default(cuid())
+  userId      String
+  origin      String
+  destination String
+  programme   String
+  date        DateTime
+  cabin       String
+  pointsCost  Int
+  seatsAvail  Int?
+  taxesGbp    Float?
+  bookingUrl  String?  // deep-link to the loyalty portal
+  fetchedAt   DateTime @default(now())
+  expiresAt   DateTime // 24h TTL
+
+  @@index([userId, origin, destination])
+  @@index([expiresAt])
+}
+
+model PersonalisedRecommendation {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+
+  destination       String   // city name — maps to PackageCard title
+  destinationCity   String   // display name
+  origin            String
+  imageUrl          String?
+  specLine          String   // "5 NTS · 5-STAR · LHR → LIS"
+  rating            Float?
+
+  pointsOption      Json?    // { programme, pointsCost, cabin, availableDates[], valueGbp, centsPerPoint, aboveBenchmark, bookingUrl, seatsAvailable, source }
+  cashOption        Json?    // { priceGbp, supplier, creditsEarned, offerId }
+  hotelOption       Json?    // { name, programme, pointsCost, cashPrice, creditsEarned, nights, source }
+
+  aiInsight         String   // one line, surfaced as the card's rec
+  whyPersonalised   String   // eyebrow — "You searched Lisbon 3 times"
+  urgencySignal     String?  // "3 seats left" | "Avios expire in 87 days" | null
+
+  bestOptionType    String   // 'points' | 'cash' | 'hybrid'
+  pointsValueRating String   // 'excellent' | 'good' | 'typical' | 'below_average'
+  centsPerPoint     Float?
+  cashSavingGbp     Float?
+  creditsIfCash     Float?   // 3% of the cash package — always populated
+
+  isActive          Boolean  @default(true)
+  viewedAt          DateTime?
+  clickedAt         DateTime?
+  generatedAt       DateTime @default(now())
+  expiresAt         DateTime // 48h TTL
+
+  @@index([userId, isActive, expiresAt])
+}
+
+model Notification {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id])
+
+  type      String  // award_availability | expiry_warning | price_drop | monthly_summary |
+  title     String  // short headline — shown in the bell panel
+  body      String  // full message — shown expanded
+  ctaLabel  String?
+  ctaUrl    String?
+
+  bookingId String?
+  journeyId String?
+  programme String?
+
+  readAt      DateTime?
+  emailSentAt DateTime?
+  dismissedAt DateTime?
+
+  createdAt DateTime  @default(now())
+  expiresAt DateTime? // null = never expires
+
+  @@index([userId, dismissedAt, createdAt])
+}
+
+model NotificationPreference {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  awardAlerts     Boolean @default(true)
+  expiryWarnings  Boolean @default(true)
+  priceDropAlerts Boolean @default(true)
+  monthlySummary  Boolean @default(true)
+  bookingUpdates  Boolean @default(true) // transactional — kept true
+  proUpdates      Boolean @default(true) // transactional — kept true
+
+  updatedAt DateTime @updatedAt
 }

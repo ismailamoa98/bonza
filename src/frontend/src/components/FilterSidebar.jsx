@@ -5,6 +5,7 @@
 import { useAppStore } from "../store/appStore";
 
 const AMENITIES = ["WiFi", "Pool", "Breakfast", "Parking", "Lounge", "Spa", "Gym"];
+const PROPERTY_TYPES = ["Hotel", "Resort", "Apartment", "Boutique"];
 const LOYALTY = ["Marriott", "IHG", "Hilton"];
 const AIRLINES = ["United", "Qatar", "Etihad", "Emirates", "British Airways"];
 const CABINS = ["Economy", "Premium Economy", "Business", "First"];
@@ -26,27 +27,36 @@ export default function FilterSidebar() {
   };
 
   return (
-    <aside className="max-h-[640px] overflow-y-auto rounded-xl border border-slate-200 bg-white p-4">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+    <aside className="max-h-[760px] overflow-y-auto rounded-2xl bg-white p-4 font-jakarta ring-1 ring-black/5">
+      <h3 className="mb-3 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">
         Filters
       </h3>
 
       {activeTab === "hotels" && (
         <>
-          <Section title={`Max price / night — $${f.maxPrice || 300}`}>
-            <input
-              type="range"
-              min="50"
-              max="300"
-              value={f.maxPrice || 300}
-              onChange={(e) => setFilters({ maxPrice: Number(e.target.value) })}
-              className="w-full accent-bonza"
-            />
+          <Section title="Price / night">
+            <PriceRange f={f} min={50} max={300} setFilters={setFilters} />
+          </Section>
+
+          <Section title="Property type">
+            {PROPERTY_TYPES.map((t) => (
+              <Check key={t} label={t} checked={f.propertyType?.includes(t) || false} onChange={() => toggle("propertyType", t)} />
+            ))}
           </Section>
 
           <Section title="Star rating">
             {[5, 4, 3].map((star) => (
               <Check key={star} label={`${star} stars`} checked={f.stars?.includes(star) || false} onChange={() => toggle("stars", star)} />
+            ))}
+          </Section>
+
+          <Section title="Guest rating">
+            {[
+              { label: "9+ (Excellent)", value: 9 },
+              { label: "8+ (Very good)", value: 8 },
+              { label: "Any rating", value: null },
+            ].map((opt) => (
+              <Radio key={opt.label} name="rating" label={opt.label} checked={f.minRating === opt.value} onChange={() => setFilters({ minRating: opt.value })} />
             ))}
           </Section>
 
@@ -62,30 +72,28 @@ export default function FilterSidebar() {
             ))}
           </Section>
 
-          <Section title="Guest rating" last>
-            {[
-              { label: "9+ (Excellent)", value: 9 },
-              { label: "8+ (Very good)", value: 8 },
-              { label: "Any rating", value: null },
-            ].map((opt) => (
-              <Radio key={opt.label} name="rating" label={opt.label} checked={f.minRating === opt.value} onChange={() => setFilters({ minRating: opt.value })} />
-            ))}
+          <Section title="Booking options" last>
+            <Check label="Free cancellation" checked={!!f.freeCancellation} onChange={() => setFilters({ freeCancellation: !f.freeCancellation })} />
+            <Check label="Breakfast included" checked={!!f.breakfast} onChange={() => setFilters({ breakfast: !f.breakfast })} />
           </Section>
         </>
       )}
 
       {activeTab === "flights" && (
         <>
-          <Section title={`Max price — $${f.maxPrice || 9000}`}>
-            <input
-              type="range"
-              min="200"
-              max="9000"
-              step="100"
-              value={f.maxPrice || 9000}
-              onChange={(e) => setFilters({ maxPrice: Number(e.target.value) })}
-              className="w-full accent-bonza"
-            />
+          <Section title="Price">
+            <PriceRange f={f} min={200} max={9000} step={100} setFilters={setFilters} />
+          </Section>
+
+          <Section title="Stops">
+            {[
+              { label: "Non-stop", value: 0 },
+              { label: "Up to 1 stop", value: 1 },
+              { label: "Up to 2 stops", value: 2 },
+              { label: "Any", value: null },
+            ].map((opt) => (
+              <Radio key={opt.label} name="maxStops" label={opt.label} checked={f.maxStops === opt.value} onChange={() => setFilters({ maxStops: opt.value })} />
+            ))}
           </Section>
 
           <Section title="Airline">
@@ -101,24 +109,19 @@ export default function FilterSidebar() {
             <Radio name="cabin" label="Any cabin" checked={!f.cabin} onChange={() => setFilters({ cabin: null })} />
           </Section>
 
-          <Section title="Departure">
+          <Section title="Departure time">
             {TIMES.map((t) => (
               <Check key={t} label={t[0].toUpperCase() + t.slice(1)} checked={f.departureTime?.includes(t) || false} onChange={() => toggle("departureTime", t)} />
             ))}
           </Section>
 
-          <Section title="Stops">
-            {[
-              { label: "Non-stop", value: 0 },
-              { label: "1 stop", value: 1 },
-              { label: "2+ stops", value: 2 },
-              { label: "Any", value: null },
-            ].map((opt) => (
-              <Radio key={opt.label} name="stops" label={opt.label} checked={f.stops === opt.value} onChange={() => setFilters({ stops: opt.value })} />
+          <Section title="Arrival time">
+            {TIMES.map((t) => (
+              <Check key={t} label={t[0].toUpperCase() + t.slice(1)} checked={f.arrivalTime?.includes(t) || false} onChange={() => toggle("arrivalTime", t)} />
             ))}
           </Section>
 
-          <Section title={`Max duration — ${f.maxDuration || 18}h`} last>
+          <Section title={`Max duration — ${f.maxDuration || 18}h`}>
             <input
               type="range"
               min="6"
@@ -128,21 +131,18 @@ export default function FilterSidebar() {
               className="w-full accent-bonza"
             />
           </Section>
+
+          <Section title="Fare options" last>
+            <Check label="Refundable" checked={!!f.refundable} onChange={() => setFilters({ refundable: !f.refundable })} />
+            <Check label="Bags included" checked={!!f.baggage} onChange={() => setFilters({ baggage: !f.baggage })} />
+          </Section>
         </>
       )}
 
       {activeTab === "cars" && (
         <>
-          <Section title={`Max price / day — $${f.maxPrice || 200}`}>
-            <input
-              type="range"
-              min="20"
-              max="200"
-              step="5"
-              value={f.maxPrice || 200}
-              onChange={(e) => setFilters({ maxPrice: Number(e.target.value) })}
-              className="w-full accent-bonza"
-            />
+          <Section title="Price / day">
+            <PriceRange f={f} min={20} max={200} step={5} setFilters={setFilters} />
           </Section>
 
           <Section title="Car class">
@@ -162,10 +162,35 @@ export default function FilterSidebar() {
   );
 }
 
+// Dual min/max price sliders writing minPrice/maxPrice; each clamps against the
+// other so the range can't invert.
+function PriceRange({ f, min, max, step = 10, setFilters }) {
+  const lo = f.minPrice ?? min;
+  const hi = f.maxPrice ?? max;
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between text-[11px] tabular-nums text-ink-muted">
+        <span>Min ${lo}</span>
+        <span>Max ${hi}</span>
+      </div>
+      <input
+        type="range" min={min} max={max} step={step} value={lo}
+        onChange={(e) => setFilters({ minPrice: Math.min(Number(e.target.value), hi) })}
+        className="w-full accent-bonza"
+      />
+      <input
+        type="range" min={min} max={max} step={step} value={hi}
+        onChange={(e) => setFilters({ maxPrice: Math.max(Number(e.target.value), lo) })}
+        className="w-full accent-bonza"
+      />
+    </div>
+  );
+}
+
 function Section({ title, children, last }) {
   return (
-    <div className={last ? "" : "mb-4 border-b border-slate-100 pb-4"}>
-      <p className="mb-2 text-xs font-medium text-slate-700">{title}</p>
+    <div className={last ? "" : "mb-4 border-b border-[#f0ece5] pb-4"}>
+      <p className="mb-2 text-[12px] font-semibold text-ink">{title}</p>
       {children}
     </div>
   );
@@ -173,7 +198,7 @@ function Section({ title, children, last }) {
 
 function Check({ label, checked, onChange }) {
   return (
-    <label className="mb-1 flex cursor-pointer items-center gap-2 text-xs text-slate-600">
+    <label className="mb-1 flex cursor-pointer items-center gap-2 text-[12px] text-ink-soft">
       <input type="checkbox" checked={checked} onChange={onChange} className="h-3.5 w-3.5 accent-bonza" />
       <span>{label}</span>
     </label>
@@ -182,7 +207,7 @@ function Check({ label, checked, onChange }) {
 
 function Radio({ name, label, checked, onChange }) {
   return (
-    <label className="mb-1 flex cursor-pointer items-center gap-2 text-xs text-slate-600">
+    <label className="mb-1 flex cursor-pointer items-center gap-2 text-[12px] text-ink-soft">
       <input type="radio" name={name} checked={checked} onChange={onChange} className="h-3.5 w-3.5 accent-bonza" />
       <span>{label}</span>
     </label>

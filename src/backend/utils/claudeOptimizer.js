@@ -1,13 +1,8 @@
-// utils/claudeOptimizer.js — Claude API calls (optimizer + chat advisor).
-//
-// Uses the official @anthropic-ai/sdk with Claude Opus 4.8 and adaptive
-// thinking. The SDK is required lazily and only when a real ANTHROPIC_API_KEY
-// is configured, so the server still boots and runs on mock data when the key
-// is the dev placeholder or the SDK isn't installed yet. Any failure on the
-// Claude path falls back to deterministic mock generation.
+// utils/claudeOptimizer.js — Claude optimizer + chat advisor; falls back to deterministic mocks offline.
 const env = require("../config/env");
 const { CLAUDE_MODEL, STRATEGIES } = require("../config/constants");
 const { generateMockScenarios } = require("./mockDataGenerator");
+const { logger } = require("./logger");
 
 const BONZA_SYSTEM_PROMPT = `You are Bonza, an expert AI travel optimizer. You help users get the most value
 from their loyalty points (AMEX, Chase, United, Marriott, etc.) when booking flights, hotels, and cars.
@@ -15,21 +10,41 @@ from their loyalty points (AMEX, Chase, United, Marriott, etc.) when booking fli
 Speak like a smart, friendly friend: clear, conversational, never condescending, and free of loyalty-program
 jargon. Be honest about trade-offs, never oversell, and never invent award availability or guarantee upgrades
 (say "usually" not "will"). Always analyze all 5 strategies — transfer, status, cash, hybrid, direct — and
-present the best one first with specific numbers and the reasoning behind it.`;
+present the best one first with specific numbers and the reasoning behind it.
 
-// Calls the Messages API and returns the concatenated text output.
+Hotel pricing — you have Gondola tools available:
+- gondola_search_hotels: search hotels with both cash and points pricing
+- gondola_get_hotel_details: detailed cash vs points breakdown for a specific hotel
+When hotels are involved, ALWAYS call gondola_search_hotels first to get real cash and points
+pricing. Never invent hotel prices or points costs. For each hotel, compare: (1) the cash price,
+(2) the points cost in the user's programmes, (3) cents-per-point value vs the programme benchmark,
+and (4) whether the user has enough points (from their loyalty balances). Always state the best
+redemption path (which programme, how many points), the cash equivalent saved, whether cash or
+points is better value and why (cite the ¢/pt rate), and — if the user lacks enough points — how
+many more are needed and the fastest way to earn them.`;
+
 async function callClaude(userContent, maxTokens) {
-  // Lazy require so a missing SDK never breaks the mock path.
   const Anthropic = require("@anthropic-ai/sdk");
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
-  const response = await client.messages.create({
+  const params = {
     model: CLAUDE_MODEL,
     max_tokens: maxTokens,
     thinking: { type: "adaptive" },
     system: BONZA_SYSTEM_PROMPT,
     messages: [{ role: "user", content: userContent }],
-  });
+  };
+
+  let response;
+  if (env.hasGondola) {
+    response = await client.beta.messages.create({
+      ...params,
+      mcp_servers: [{ name: "gondola", type: "url", url: env.GONDOLA_MCP_URL }],
+      betas: ["mcp-client-2025-04-04"],
+    });
+  } else {
+    response = await client.messages.create(params);
+  }
 
   return response.content
     .filter((block) => block.type === "text")
@@ -38,7 +53,6 @@ async function callClaude(userContent, maxTokens) {
     .trim();
 }
 
-// Strips ```json fences and parses the first JSON object in a string.
 function parseJsonResponse(text) {
   const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
   const start = cleaned.indexOf("{");
@@ -47,9 +61,6 @@ function parseJsonResponse(text) {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-// Generates the 5 scenarios + opening analysis for a trip.
-// Returns { scenarios: [...], conversationalAnalysis }. Exactly one scenario
-// is flagged isRecommended.
 async function generateScenarios(trip, loyaltyPoints) {
   if (env.hasRealAnthropicKey) {
     try {
@@ -70,7 +81,6 @@ async function generateScenarios(trip, loyaltyPoints) {
       const text = await callClaude(userContent, 4096);
       const parsed = parseJsonResponse(text);
       if (Array.isArray(parsed.scenarios) && parsed.scenarios.length > 0) {
-        // Guarantee exactly one recommended scenario.
         if (!parsed.scenarios.some((s) => s.isRecommended)) {
           parsed.scenarios[0].isRecommended = true;
         }
@@ -78,13 +88,12 @@ async function generateScenarios(trip, loyaltyPoints) {
         return parsed;
       }
     } catch (err) {
-      console.error("[claudeOptimizer] optimize failed, using mock:", err.message);
+      logger.error("[claudeOptimizer] optimize failed, using mock", err);
     }
   }
   return generateMockScenarios(trip, loyaltyPoints);
 }
 
-// Deterministic, offline reply used when Claude is unavailable.
 function mockChatReply({ scenarios, selectedScenarioId, message }) {
   const recommended = scenarios.find((s) => s.isRecommended) || scenarios[0];
   let highlight = selectedScenarioId || (recommended && recommended.id);
@@ -115,7 +124,6 @@ function mockChatReply({ scenarios, selectedScenarioId, message }) {
   return { response, updatedSelectedScenarioId: highlight, shouldHighlightCard: highlight };
 }
 
-// Handles a chat turn: returns { response, updatedSelectedScenarioId, shouldHighlightCard }.
 async function chatReply({ trip, scenarios, selectedScenarioId, message, history }) {
   if (env.hasRealAnthropicKey) {
     try {
@@ -142,7 +150,7 @@ async function chatReply({ trip, scenarios, selectedScenarioId, message, history
         };
       }
     } catch (err) {
-      console.error("[claudeOptimizer] chat failed, using mock:", err.message);
+      logger.error("[claudeOptimizer] chat failed, using mock", err);
     }
   }
   return mockChatReply({ scenarios, selectedScenarioId, message });

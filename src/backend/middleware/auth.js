@@ -1,32 +1,40 @@
-// middleware/auth.js — JWT authentication.
-// Verifies a bearer token and attaches req.userId. For the development MVP
-// (no signup endpoint yet), requests without a valid token fall back to the
-// seeded demo user so the 3-step flow works out of the box.
-const jwt = require("jsonwebtoken");
+// middleware/auth.js — Clerk auth -> req.userId (dev falls back to seeded user); JIT ensureUser + login stamp.
+const { getAuth } = require("@clerk/express");
 const env = require("../config/env");
+const prisma = require("../config/database");
 const { DEV_USER } = require("../config/constants");
+const { ensureUser } = require("../utils/ensureUser");
 
-module.exports = function auth(req, res, next) {
-  const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+const LOGIN_STAMP_THROTTLE_MS = 60 * 60 * 1000; // refresh lastLoginAt at most hourly
 
-  if (token) {
-    try {
-      const payload = jwt.verify(token, env.JWT_SECRET);
-      req.userId = payload.userId || payload.sub;
+function stampLastLogin(userId) {
+  const staleBefore = new Date(Date.now() - LOGIN_STAMP_THROTTLE_MS);
+  prisma.user
+    .updateMany({
+      where: { id: userId, OR: [{ lastLoginAt: null }, { lastLoginAt: { lt: staleBefore } }] },
+      data: { lastLoginAt: new Date() },
+    })
+    .catch(() => {});
+}
+
+module.exports = async function auth(req, res, next) {
+  try {
+    const { userId } = getAuth(req);
+
+    if (userId) {
+      req.userId = userId;
+      await ensureUser(userId);
+      stampLastLogin(userId);
       return next();
-    } catch (err) {
-      // Invalid/expired token — fall through to the dev user in development.
-      if (env.NODE_ENV === "production") {
-        return res.status(401).json({ error: { message: "Invalid or expired token" } });
-      }
     }
-  }
 
-  if (env.NODE_ENV === "production") {
-    return res.status(401).json({ error: { message: "Authentication required" } });
-  }
+    if (env.NODE_ENV !== "production") {
+      req.userId = DEV_USER.id;
+      return next();
+    }
 
-  req.userId = DEV_USER.id;
-  next();
+    return res.status(401).json({ error: { message: "Unauthorised" } });
+  } catch (err) {
+    next(err);
+  }
 };

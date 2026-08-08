@@ -1,5 +1,5 @@
-// middleware/errorHandler.js — Centralized error handling.
-// Normalizes errors into friendly JSON responses and handles unknown routes.
+// middleware/errorHandler.js — 404 + central error handler; logs 5xx via logger (Sentry).
+const { logger } = require("../utils/logger");
 
 function notFound(req, res, _next) {
   res.status(404).json({
@@ -7,7 +7,6 @@ function notFound(req, res, _next) {
   });
 }
 
-// eslint-disable-next-line no-unused-vars
 function errorHandler(err, req, res, _next) {
   const status = err.status || err.statusCode || 500;
   const message =
@@ -16,7 +15,12 @@ function errorHandler(err, req, res, _next) {
       : err.message || "Request could not be processed.";
 
   if (status >= 500) {
-    console.error("[error]", err);
+    logger.error("Unhandled request error", err, {
+      path: req.path,
+      method: req.method,
+      status,
+      userId: req.userId,
+    });
   }
 
   res.status(status).json({ error: { message } });

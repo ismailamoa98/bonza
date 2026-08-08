@@ -32,6 +32,7 @@ const bookingsRouter = require("./api/bookings");
 const affiliateRouter = require("./api/affiliate");
 const journeysRouter = require("./api/journeys");
 const recommendationsRouter = require("./api/recommendations");
+const searchRouter = require("./api/search");
 const { router: notificationsRouter, unsubscribe } = require("./api/notifications");
 const { affiliateWebhook } = require("./api/webhooks");
 const { oauthCallback } = require("./api/oauthCallback");
@@ -90,6 +91,12 @@ const recsLimiter = rateLimit({
   keyGenerator: userKey,
   message: { error: { message: "Too many recommendation refreshes — please wait a moment" } },
 });
+const searchLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 60,
+  keyGenerator: userKey,
+  message: { error: { message: "Too many searches — please wait a moment" } },
+});
 const onboardingLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3,
@@ -131,6 +138,7 @@ app.use("/api/v1/bookings", auth, bookingsLimiter, bookingsRouter); // POST / ·
 app.use("/api/v1/affiliate", auth, affiliateRouter); // POST /click (outbound tracking)
 app.use("/api/v1/journeys", auth, journeysRouter); // POST /confirm-booking · /confirm-transfer
 app.use("/api/v1/recommendations", auth, recsLimiter, recommendationsRouter); // GET / (personalised packages)
+app.use("/api/v1/search", auth, searchLimiter, searchRouter); // GET /hotels · /hotel/:id · /flights
 app.use("/api/v1/notifications", auth, notificationsRouter); // GET / · read-all · dismiss · preferences
 app.use("/api/v1", auth, inventoryRouter); // POST /flights/search · /flights/confirm-price · /hotels/search
 app.use("/api/v1", auth, bookingRouter); // POST /api/v1/create-booking-link

@@ -1,10 +1,4 @@
-// components/PackageCard.jsx — Editorial "destination card" (Plus Jakarta Sans).
-// Text on top (destination, short description, Bonza recommendation, "View package")
-// over a photo on the bottom with deal-rating chip, points pill, and the price + save
-// overlaid on a gradient scrim. Width is set by the parent (the carousel
-// wraps each in a fixed-width track item; the grid uses its cell). Fully prop-driven so
-// it renders mock deck data today and real results later. The card shows its OWN price
-// (decoupled from the loyalty balance). Props: { package, seed, onOpen }.
+// components/PackageCard.jsx — offer card; shows its own redemption cost (not the loyalty balance).
 import { useEffect, useState } from "react";
 import { imageUrl, fetchImage } from "../data/packages";
 
@@ -13,7 +7,6 @@ const MONTHS = {
   jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
 };
 
-// "Jun 23 - Jul 1" -> 8 (nights), handling a year wrap (e.g. "Dec 28 - Jan 3").
 function nightCount(dates) {
   const [a, b] = String(dates || "").split(" - ");
   if (!a || !b) return null;
@@ -30,15 +23,11 @@ function nightCount(dates) {
 }
 
 export default function PackageCard({ package: pkg, seed = 1, onOpen }) {
-  // "9.1 Excellent" -> "9.1" for the deal-rating chip.
   const ratingNum = String(pkg.rate || "").split(/\s+/)[0];
   const nights = nightCount(pkg.dates);
-  // "215,000 Bonvoy · 1.4¢/pt" -> points amount (photo pill) + per-point value (text row).
-  // The amount splits again into number ("215,000") + currency ("Bonvoy", "Avios + £140").
   const [ptsAmount, ptsRate] = String(pkg.pts || "").split(" · ");
   const [ptsNumber, ptsCurrency] = String(ptsAmount || "").split(/\s+(.+)/);
 
-  // Start with the synchronous LoremFlickr URL; upgrade to Unsplash if a key is set.
   const [src, setSrc] = useState(() => imageUrl(pkg.query, seed));
   const [broken, setBroken] = useState(false);
 
@@ -64,6 +53,12 @@ export default function PackageCard({ package: pkg, seed = 1, onOpen }) {
     >
       {/* Top text block */}
       <div className="flex flex-1 flex-col p-5">
+        {/* Personalisation eyebrow (8n) — only when this is a real personalised rec. */}
+        {pkg.whyPersonalised && (
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-bonza">
+            {pkg.whyPersonalised}
+          </p>
+        )}
         <h3 className="text-[18px] font-extrabold leading-tight tracking-[-0.01em] text-ink">
           {pkg.city}
         </h3>
@@ -112,6 +107,12 @@ export default function PackageCard({ package: pkg, seed = 1, onOpen }) {
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-black/25" />
 
+        {/* Urgency signal (8n) — e.g. "3 seats left" (only on real recs). */}
+        {pkg.urgencySignal && (
+          <span className="absolute left-3 top-3 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.04em] text-white backdrop-blur-sm">
+            {pkg.urgencySignal}
+          </span>
+        )}
         {/* Deal rating */}
         <span className="absolute right-3 top-3 flex items-center gap-1 rounded-full bg-[#1f7a3f]/90 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -134,6 +135,12 @@ export default function PackageCard({ package: pkg, seed = 1, onOpen }) {
             <span className="ml-1.5 text-[12px] font-medium text-white/70 line-through">{pkg.was}</span>
           </p>
           <p className="mt-1 text-[11px] font-bold text-[#7BE0A0]">Save {pkg.save}</p>
+          {/* 3% Bonza Credits on cash (8n) — only when present. */}
+          {pkg.creditsIfCash != null && (
+            <p className="mt-0.5 text-[10px] font-bold text-bonza-light">
+              + earn £{Number(pkg.creditsIfCash).toFixed(2)} credits
+            </p>
+          )}
         </div>
       </div>
     </div>

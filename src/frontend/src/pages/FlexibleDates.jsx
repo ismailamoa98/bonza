@@ -13,6 +13,7 @@ import {
   comboFitsBudget,
 } from "../store/appStore";
 import { getFlights, getHotels, getCars, createTrip } from "../utils/api";
+import { buildSearchUrl } from "../utils/searchUrl";
 import { formatMoney, formatPoints, shortDate } from "../utils/format";
 
 const MONTHS = 12;
@@ -112,7 +113,16 @@ export default function FlexibleDates() {
       /* offline / API hiccup — still load the selection so the user can browse */
     }
     setSelections({ flight: mo.flight, hotel: mo.hotel, car: mo.car });
-    navigate("/optimize");
+    navigate(
+      buildSearchUrl({
+        origin: trip.origin,
+        destination: trip.destination,
+        departureDate: mo.checkIn,
+        returnDate: mo.checkOut,
+        travelers: trip.numberOfTravelers || 2,
+        style: trip.preferences?.style,
+      })
+    );
   };
 
   if (!trip?.origin) return null;

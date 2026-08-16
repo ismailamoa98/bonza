@@ -21,6 +21,9 @@ const env = {
 
   hasSeatsAero: Boolean((process.env.SEATS_AERO_API_KEY || "").trim()),
 
+  GOOGLE_PLACES_API_KEY: (process.env.GOOGLE_PLACES_API_KEY || "").trim(),
+  hasGooglePlaces: Boolean((process.env.GOOGLE_PLACES_API_KEY || "").trim()),
+
   GONDOLA_MCP_URL,
   hasGondola: Boolean(GONDOLA_MCP_URL),
 

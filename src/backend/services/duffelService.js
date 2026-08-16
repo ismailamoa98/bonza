@@ -5,6 +5,8 @@
 const env = require("../config/env");
 const { getFlights } = require("../utils/mockFlights");
 const { getHotels } = require("../utils/mockHotels");
+const { resolveAirport } = require("../utils/airportSearch");
+const { logger } = require("../utils/logger");
 
 let _duffel = null;
 function getDuffel() {
@@ -29,22 +31,31 @@ async function duffelSearchFlights({ origin, destination, departureDate, returnD
     return_offers: true,
   });
 
-  return response.data.offers.slice(0, 20).map((offer) => ({
-    duffelOfferId: offer.id,
-    totalAmount: parseFloat(offer.total_amount),
-    currency: offer.total_currency,
-    slices: offer.slices.map((s) => ({
-      origin: s.origin.iata_code,
-      destination: s.destination.iata_code,
-      duration: s.duration,
-      segments: s.segments.map((seg) => ({
-        carrier: seg.marketing_carrier.name,
-        flightNumber: seg.marketing_carrier_flight_number,
-        departure: seg.departing_at,
-        arrival: seg.arriving_at,
+  return response.data.offers.slice(0, 20).map((offer) => {
+    const firstSlice = offer.slices?.[0];
+    const firstSeg = firstSlice?.segments?.[0];
+    return {
+      duffelOfferId: offer.id,
+      totalAmount: parseFloat(offer.total_amount),
+      currency: offer.total_currency,
+      slices: offer.slices.map((s) => ({
+        origin: s.origin.iata_code,
+        destination: s.destination.iata_code,
+        duration: s.duration,
+        segments: s.segments.map((seg) => ({
+          carrier: seg.marketing_carrier.name,
+          flightNumber: seg.marketing_carrier_flight_number,
+          departure: seg.departing_at,
+          arrival: seg.arriving_at,
+        })),
       })),
-    })),
-  }));
+      // Filterable fare attributes (best-effort from the offer) so the search UI can filter flights.
+      airline: firstSeg?.marketing_carrier?.name || null,
+      cabin: firstSeg?.passengers?.[0]?.cabin_class || null,
+      stops: firstSlice ? Math.max(0, (firstSlice.segments?.length || 1) - 1) : 0,
+      refundable: !!offer.conditions?.refund_before_departure?.allowed,
+    };
+  });
 }
 
 async function duffelConfirmFlightPrice(offerId) {
@@ -126,7 +137,12 @@ function resolveCoords(location) {
   ) {
     return { latitude: location.latitude, longitude: location.longitude };
   }
-  const key = String(location || "").toLowerCase();
+  const raw = String(location || "").trim();
+  // Airport code (e.g. "LHR") → the serving city's coordinates.
+  const airport = resolveAirport(raw);
+  if (airport) return { latitude: airport.latitude, longitude: airport.longitude };
+  // City name (e.g. "London", or "CDG — Paris") → known-city coordinates.
+  const key = raw.toLowerCase();
   const hit = Object.keys(CITY_COORDS).find((c) => key.includes(c));
   if (hit) return CITY_COORDS[hit];
   throw new Error("Duffel Stays needs coordinates ({latitude, longitude}) or a known city");
@@ -135,7 +151,9 @@ function resolveCoords(location) {
 async function duffelSearchHotels({ location, checkIn, checkOut, adults, rooms }) {
   const duffel = getDuffel();
   const results = await duffel.stays.search({
-    location: { radius: 5, geographic_coordinates: resolveCoords(location) },
+    // City-centre coords (see airportSearch) with a metro-wide radius so we get city hotels, not just
+    // properties on the airport apron.
+    location: { radius: 25, geographic_coordinates: resolveCoords(location) },
     check_in_date: checkIn,
     check_out_date: checkOut,
     rooms: rooms || 1,
@@ -143,15 +161,42 @@ async function duffelSearchHotels({ location, checkIn, checkOut, adults, rooms }
   });
 
   // Result fields are nested under `accommodation`; rate is on the result.
-  return results.data.results.slice(0, 20).map((r) => ({
-    duffelHotelId: r.id,
-    name: r.accommodation?.name,
-    starRating: r.accommodation?.rating,
-    location: r.accommodation?.location,
-    lowestRate: r.cheapest_rate_total_amount,
-    currency: r.cheapest_rate_currency,
-    imageUrl: r.accommodation?.photos?.[0]?.url || null,
-  }));
+  return results.data.results.slice(0, 20).map((r) => {
+    const acc = r.accommodation || {};
+    const photos = (acc.photos || []).map((p) => p.url).filter(Boolean);
+    return {
+      duffelHotelId: r.id,
+      name: acc.name,
+      starRating: acc.rating,
+      // Guest review score (0–10), distinct from the star rating, when Duffel provides one.
+      rating: acc.review_score ?? acc.ratings?.[0]?.value ?? null,
+      location: acc.location, // includes { address, geographic_coordinates }
+      lowestRate: r.cheapest_rate_total_amount,
+      currency: r.cheapest_rate_currency,
+      amenities: (acc.amenities || []).map((a) => a.description || a.type).filter(Boolean),
+      description: acc.description || null,
+      photos,
+      imageUrl: photos[0] || null,
+      // Genuine only — never fabricated. Search results rarely carry the full cancellation timeline
+      // (that needs a rate-detail fetch, future); default false so the "free cancellation" badge stays
+      // dark unless the supplier truly reports a refundable rate.
+      freeCancellation: isRefundableRate(r.cheapest_rate),
+    };
+  });
+}
+
+// True only when a Duffel rate genuinely signals a free-cancellation / refundable window. Defensive:
+// returns false whenever the signal is absent (which is the common case in search results).
+function isRefundableRate(rate) {
+  if (!rate || typeof rate !== "object") return false;
+  if (rate.conditions?.refund_before_deadline) return true;
+  const timeline = rate.cancellation_timeline;
+  if (Array.isArray(timeline)) {
+    return timeline.some(
+      (t) => Number(t?.refund_amount) > 0 && new Date(t?.before || 0) > new Date()
+    );
+  }
+  return false;
 }
 
 // ── Mock fallback (offline / dev) — same response shapes as the real path ──────
@@ -194,6 +239,12 @@ function mockSearchFlights({ origin, destination, departureDate, returnDate }) {
       totalAmount: f.basePrice + (returnDate ? f.basePrice : 0),
       currency: "GBP",
       slices,
+      // Filterable fare attributes (dropped before — the search UI needs these to filter flights).
+      airline: f.airline,
+      cabin: f.cabin,
+      stops: f.stops,
+      refundable: f.refundable,
+      baggageIncluded: f.baggageIncluded,
     };
   });
 }
@@ -210,31 +261,73 @@ function mockBookFlight({ offerId }) {
 }
 
 function mockSearchHotels({ location, checkIn }) {
+  // City-centre coords for the whole result set so the detail-panel map has something to show; the mock
+  // inventory has no per-property coordinates. Unknown city → omit coords (map falls back to a placeholder).
+  let coords = null;
+  try {
+    coords = resolveCoords(location);
+  } catch {
+    /* unknown city — leave coords null */
+  }
   return getHotels(location, checkIn)
     .slice(0, 20)
     .map((h) => ({
       duffelHotelId: `mock_${h.id}`,
       name: h.name,
       starRating: h.stars,
-      location: { city: h.city },
+      rating: h.rating,
+      location: { city: h.city, ...(coords ? { geographic_coordinates: coords } : {}) },
       lowestRate: h.pricePerNight,
       currency: "GBP",
+      amenities: h.benefits || [],
+      propertyType: h.propertyType || null,
+      freeCancellation: !!h.freeCancellation,
+      breakfastIncluded: !!h.breakfastIncluded,
       imageUrl: h.imageUrl || null,
     }));
 }
 
 // ── Public wrappers (callers don't care which path ran) ────────────────────────
 
-function searchFlights(params) {
-  return env.hasDuffel ? duffelSearchFlights(params) : Promise.resolve(mockSearchFlights(params));
+// Same resilience as searchHotels: try live Duffel when a key is present, but fall back to the mock
+// inventory if it throws (e.g. an invalid token) or returns nothing, so the flights grid is never empty.
+async function searchFlights(params) {
+  if (!env.hasDuffel) return mockSearchFlights(params);
+  try {
+    const real = await duffelSearchFlights(params);
+    if (real && real.length) return real;
+    logger.warn("Duffel flight search returned no offers — falling back to mock", {
+      route: `${params?.origin}-${params?.destination}`,
+    });
+  } catch (err) {
+    logger.warn("Duffel flight search failed — falling back to mock", {
+      route: `${params?.origin}-${params?.destination}`,
+      error: err.message || err?.errors?.[0]?.title,
+    });
+  }
+  return mockSearchFlights(params);
 }
 
 function confirmFlightPrice(offerId) {
   return env.hasDuffel ? duffelConfirmFlightPrice(offerId) : Promise.resolve(mockConfirmFlightPrice(offerId));
 }
 
-function searchHotels(params) {
-  return env.hasDuffel ? duffelSearchHotels(params) : Promise.resolve(mockSearchHotels(params));
+// Real Duffel Stays when a key is present, but never let it blank the grid: if the live search throws
+// (e.g. an unresolvable destination) or returns nothing (sparse test-mode inventory), fall back to the
+// deterministic mock inventory. Offline (no key) goes straight to mock.
+async function searchHotels(params) {
+  if (!env.hasDuffel) return mockSearchHotels(params);
+  try {
+    const real = await duffelSearchHotels(params);
+    if (real && real.length) return real;
+    logger.warn("Duffel Stays returned no hotels — falling back to mock", { location: params?.location });
+  } catch (err) {
+    logger.warn("Duffel Stays search failed — falling back to mock", {
+      location: params?.location,
+      error: err.message,
+    });
+  }
+  return mockSearchHotels(params);
 }
 
 module.exports = { searchFlights, confirmFlightPrice, bookFlight, bookCashFlight, searchHotels };

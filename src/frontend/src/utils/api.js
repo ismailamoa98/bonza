@@ -1,6 +1,4 @@
-// utils/api.js — API client for the Bonza backend.
-// Axios instance pointed at the versioned API (Vite proxies /api -> :5000 in
-// dev), plus one typed helper per endpoint used by the 3-step flow.
+// utils/api.js — axios client (relative /api/v1) + Clerk bearer interceptor + endpoint helpers.
 import axios from "axios";
 
 const client = axios.create({
@@ -8,27 +6,35 @@ const client = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// --- Step 1: Trip Details ---------------------------------------------------
+let authTokenGetter = null;
+export function setAuthTokenGetter(getter) {
+  authTokenGetter = getter;
+}
 
-// GET /airports?q= -> [{ code, name, city, country, countryCode }]
+client.interceptors.request.use(async (config) => {
+  try {
+    const token = await authTokenGetter?.();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+  } catch {
+    /* not signed in / token unavailable — backend dev fallback handles it */
+  }
+  return config;
+});
+
+export const getTrips = () => client.get("/trips").then((r) => r.data.trips || []);
+
 export const getAirports = (q) =>
   client.get("/airports", { params: { q } }).then((r) => r.data.airports || []);
 
-// GET /user/loyalty-points -> { amex, chaseUr, unitedMiles, marriottPoints, other }
 export const getLoyaltyPoints = () =>
   client.get("/user/loyalty-points").then((r) => r.data);
 
-// POST /trips -> { id, status }
 export const createTrip = (tripData) =>
   client.post("/trips", tripData).then((r) => r.data);
 
-// POST /optimize -> { recommendedScenarioId, recommendedScenario, allScenarios, conversationalAnalysis }
 export const optimizeTrip = (tripId) =>
   client.post("/optimize", { tripId }).then((r) => r.data);
 
-// --- Step 2: Browse & Optimize ----------------------------------------------
-
-// GET /hotels?destination=&maxPrice=&stars=&… -> [hotel, …]
 export const getHotels = (filters = {}) => {
   const params = {};
   if (filters.destination) params.destination = filters.destination;
@@ -46,7 +52,6 @@ export const getHotels = (filters = {}) => {
   return client.get("/hotels", { params }).then((r) => r.data.hotels || []);
 };
 
-// GET /flights?from=&to=&cabin=&airlines=&… -> [flight, …]
 export const getFlights = (filters = {}) => {
   const params = {};
   if (filters.from) params.from = filters.from;
@@ -67,7 +72,6 @@ export const getFlights = (filters = {}) => {
   return client.get("/flights", { params }).then((r) => r.data.flights || []);
 };
 
-// GET /cars?location=&maxPrice=&carClass=&vendors=&sort= -> [car, …]
 export const getCars = (filters = {}) => {
   const params = {};
   if (filters.location) params.location = filters.location;
@@ -80,24 +84,109 @@ export const getCars = (filters = {}) => {
   return client.get("/cars", { params }).then((r) => r.data.cars || []);
 };
 
-// POST /chat -> { response, updatedSelectedScenarioId, shouldHighlightCard }
+// Unified Phase 12 search — one call returns cash hotels (+points), cash flights (+award) and context.
+export const searchTrip = (body) =>
+  client.post("/search", body).then((r) => r.data);
+
+// Genuine property core (Google Places): rating, review count, editorial summary, address, map coords.
+export const getHotelDetails = (params) =>
+  client.get("/hotels/details", { params }).then((r) => r.data);
+
+// Genuine property reviews (Google Places) + aspect scores + Bonza verified reviews for the open hotel.
+export const getReviews = (params) =>
+  client.get("/reviews", { params }).then((r) => r.data);
+
+// Submit a Bonza verified review (backend enforces a confirmed booking for the property).
+export const submitBonzaReview = (body) =>
+  client.post("/reviews/bonza", body).then((r) => r.data);
+
 export const sendChatMessage = (tripId, selectedScenarioId, message) =>
   client.post("/chat", { tripId, selectedScenarioId, message }).then((r) => r.data);
 
-// POST /create-booking-link -> { bookingLink, affiliateLinks }
-// selectedVendors: { flight, hotel, car } vendor objects the user picked.
 export const createBookingLink = (tripId, selectedScenarioId, selectedVendors) =>
   client
     .post("/create-booking-link", { tripId, selectedScenarioId, selectedVendors })
     .then((r) => r.data);
 
-// --- Step 3: Booking Link ---------------------------------------------------
-
-// POST /conversion -> { tracked, conversionId }
 export const trackConversion = (bookingToken, type, data = {}) =>
   client.post("/conversion", { bookingToken, type, ...data }).then((r) => r.data);
 
-// Surfaces a friendly message from an Axios error for UI display.
+export const createBookingPaymentIntent = (amountGbp, tripId) =>
+  client.post("/bookings/payment-intent", { amountGbp, tripId }).then((r) => r.data);
+
+export const confirmCashBooking = (payload) =>
+  client.post("/bookings/confirm-cash", payload).then((r) => r.data);
+
+export const getSubscriptionStatus = () =>
+  client.get("/subscriptions/status").then((r) => r.data);
+
+export const startProCheckout = () =>
+  client.post("/subscriptions/create").then((r) => r.data);
+
+export const cancelSubscription = () =>
+  client.post("/subscriptions/cancel").then((r) => r.data);
+
+export const getCredits = () => client.get("/credits").then((r) => r.data);
+
+export const getLoyaltyAccounts = () =>
+  client.get("/loyalty/accounts").then((r) => r.data.accounts || []);
+
+export const syncLoyalty = (provider = "gmail") =>
+  client.post("/loyalty/sync-email", { provider }).then((r) => r.data);
+
+export const getRedemptionOptions = (tripId) =>
+  client.post("/optimize/redemption", { tripId }).then((r) => r.data);
+
+export const recordAffiliateClick = (payload) =>
+  client.post("/affiliate/click", payload).then((r) => r.data);
+
+export const confirmJourneyBooking = (journeyId, leg) =>
+  client.post("/journeys/confirm-booking", { journeyId, leg }).then((r) => r.data);
+
+export const getRecommendations = () =>
+  client.get("/recommendations").then((r) => r.data);
+
+export const getNotifications = () =>
+  client.get("/notifications").then((r) => r.data);
+
+export const markAllNotificationsRead = () =>
+  client.post("/notifications/read-all").then((r) => r.data);
+
+export const dismissNotification = (id) =>
+  client.post(`/notifications/${id}/dismiss`).then((r) => r.data);
+
+export const getNotificationPreferences = () =>
+  client.get("/notifications/preferences").then((r) => r.data.preferences || {});
+
+export const updateNotificationPreferences = (prefs) =>
+  client.put("/notifications/preferences", prefs).then((r) => r.data.preferences);
+
+export const getProfile = () => client.get("/user/profile").then((r) => r.data.profile);
+
+export const updateProfile = (patch) =>
+  client.patch("/user/profile", patch).then((r) => r.data.profile);
+
+export const getLoyaltyProviders = () =>
+  client.get("/loyalty/providers").then((r) => r.data.providers || {});
+
+export const startLoyaltyOAuth = (provider, from = "settings") =>
+  client.get(`/loyalty/oauth/${provider}/start`, { params: { from } }).then((r) => r.data.url);
+
+export const syncLoyaltyNow = (provider) =>
+  client.post("/loyalty/sync-now", { provider }).then((r) => r.data);
+
+export const disconnectLoyalty = (provider) =>
+  client.post("/loyalty/disconnect", { provider }).then((r) => r.data);
+
+export const addLoyaltyAccount = (payload) =>
+  client.post("/loyalty/accounts", payload).then((r) => r.data);
+
+export const removeLoyaltyAccount = (programme) =>
+  client.delete(`/loyalty/accounts/${programme}`).then((r) => r.data);
+
+export const getBookings = () =>
+  client.get("/bookings").then((r) => r.data.bookings || []);
+
 export const apiErrorMessage = (err) =>
   err?.response?.data?.error ||
   err?.response?.data?.message ||

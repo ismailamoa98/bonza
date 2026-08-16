@@ -43,6 +43,8 @@ export function shuffle(arr) {
 export const PACKAGES = [
   {
     city: "Lisbon Escape",
+    destination: "Lisbon",
+    origin: "LHR",
     query: "lisbon,portugal",
     grad: "linear-gradient(135deg,#F2B07A,#D9763F)",
     loyalty: "Marriott Bonvoy",
@@ -59,6 +61,8 @@ export const PACKAGES = [
   },
   {
     city: "Barcelona Weekend",
+    destination: "Barcelona",
+    origin: "LHR",
     query: "barcelona,spain",
     grad: "linear-gradient(135deg,#E8956B,#C25E36)",
     loyalty: "BA Executive Club",
@@ -75,6 +79,8 @@ export const PACKAGES = [
   },
   {
     city: "French Riviera",
+    destination: "Nice",
+    origin: "LHR",
     query: "nice,france",
     grad: "linear-gradient(135deg,#6FB7D4,#3D7EA6)",
     loyalty: "World of Hyatt",
@@ -91,6 +97,8 @@ export const PACKAGES = [
   },
   {
     city: "Rome Getaway",
+    destination: "Rome",
+    origin: "LHR",
     query: "rome,italy",
     grad: "linear-gradient(135deg,#D8A15E,#B06B2E)",
     loyalty: "Hilton Honors",
@@ -107,6 +115,8 @@ export const PACKAGES = [
   },
   {
     city: "Tokyo Discovery",
+    destination: "Tokyo",
+    origin: "LHR",
     query: "tokyo,japan",
     grad: "linear-gradient(135deg,#E2738F,#B23A66)",
     loyalty: "ANA Mileage Club",
@@ -123,6 +133,8 @@ export const PACKAGES = [
   },
   {
     city: "Dubai Luxury",
+    destination: "Dubai",
+    origin: "LHR",
     query: "dubai",
     grad: "linear-gradient(135deg,#E8B96B,#C98A2E)",
     loyalty: "Emirates Skywards",
@@ -139,6 +151,8 @@ export const PACKAGES = [
   },
   {
     city: "Bali Retreat",
+    destination: "Bali",
+    origin: "LHR",
     query: "bali,beach",
     grad: "linear-gradient(135deg,#5FB89A,#2E8B6B)",
     loyalty: "Singapore KrisFlyer",
@@ -155,6 +169,8 @@ export const PACKAGES = [
   },
   {
     city: "Reykjavik Aurora",
+    destination: "Reykjavik",
+    origin: "LHR",
     query: "reykjavik,iceland",
     grad: "linear-gradient(135deg,#8A9BD4,#4A5BA6)",
     loyalty: "Icelandair Saga Club",

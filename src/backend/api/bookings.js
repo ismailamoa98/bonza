@@ -6,6 +6,7 @@ const { writeBooking } = require("../utils/bookingWriter");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
 const { createBookingPaymentIntent, retrievePaymentIntent } = require("../services/paymentService");
 const { bookCashFlight } = require("../services/duffelService");
+const { getPropertyReviews } = require("../services/googlePlacesService");
 const { COMMISSION_RATES } = require("../config/constants");
 
 const router = express.Router();
@@ -91,6 +92,20 @@ router.post("/confirm-cash", async (req, res, next) => {
         supplierReference = order.bookingReference;
       }
 
+      // Stamp property identity on hotel legs so this stay is later reviewable (verified guest).
+      // Best-effort — a lookup failure must never block the booking.
+      let propertyName = null;
+      let propertyPlaceId = null;
+      if (type === "hotel" && leg.propertyName) {
+        propertyName = leg.propertyName;
+        try {
+          const g = await getPropertyReviews({ name: propertyName, city: destination });
+          if (g?.matched) propertyPlaceId = g.placeId;
+        } catch {
+          /* ignore — booking proceeds without a place_id */
+        }
+      }
+
       const booking = await writeBooking(req.userId, {
         ...ctx,
         leg: type,
@@ -98,6 +113,8 @@ router.post("/confirm-cash", async (req, res, next) => {
         supplier: LEG_SUPPLIER[type],
         supplierReference,
         description: leg.description || null,
+        propertyName,
+        propertyPlaceId,
         cashValueGbp: cash,
         serviceFeeGbp: cash != null ? round2(cash * (COMMISSION_RATES[type] || 0)) : null,
         confirmationMethod: LEG_METHOD[type],

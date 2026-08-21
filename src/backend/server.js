@@ -14,6 +14,7 @@ const { notFound, errorHandler } = require("./middleware/errorHandler");
 const { clerkWebhook } = require("./api/webhooks");
 const tripsRouter = require("./api/trips");
 const airportsRouter = require("./api/airports");
+const fxRouter = require("./api/fx");
 const hotelsRouter = require("./api/hotels");
 const flightsRouter = require("./api/flights");
 const carsRouter = require("./api/cars");
@@ -119,6 +120,7 @@ const bookingsLimiter = rateLimit({
 });
 
 app.use("/api/v1/airports", airportsRouter); // GET /api/v1/airports?q=
+app.use("/api/v1/fx", fxRouter); // GET /api/v1/fx → GBP display rates (public)
 app.use("/api/v1/hotels", hotelsRouter); // GET /api/v1/hotels?destination=&…
 app.use("/api/v1/flights", flightsRouter); // GET /api/v1/flights?from=&to=&…
 app.use("/api/v1/cars", carsRouter); // GET /api/v1/cars?location=&…

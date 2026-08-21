@@ -110,7 +110,7 @@ router.post("/", async (req, res, next) => {
     const flights = cashFlights.map((f) => ({
       ...f,
       id: f.duffelOfferId,
-      creditsIfCash: round2((f.totalAmount || 0) * CASHBACK_RATE),
+      creditsIfCash: 0, // flights earn no Bonza Credits (3% cashback would wipe the ~3% flight commission)
     }));
 
     let awardFlights = [];

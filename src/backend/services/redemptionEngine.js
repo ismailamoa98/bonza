@@ -212,4 +212,4 @@ async function generateRedemptionOptions(userId, trip) {
   };
 }
 
-module.exports = { generateRedemptionOptions, TRANSFER_PARTNERS, BENCHMARK_CPP };
+module.exports = { generateRedemptionOptions, TRANSFER_PARTNERS, BENCHMARK_CPP, formatProgramme };

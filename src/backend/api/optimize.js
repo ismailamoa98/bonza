@@ -3,11 +3,61 @@ const express = require("express");
 const prisma = require("../config/database");
 const { generateScenarios } = require("../utils/claudeOptimizer");
 const { generateRedemptionOptions } = require("../services/redemptionEngine");
+const { optimizeTrip } = require("../services/tripOptimizer");
+const { PROGRAMME_VALUATIONS } = require("../services/emailLoyaltySync");
+const { formatProgramme } = require("../services/redemptionEngine");
 const { ownedOr403 } = require("../utils/ownedOr403");
 const requirePro = require("../middleware/requirePro");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
 
 const router = express.Router();
+
+// Relevant award programmes per leg type + a deterministic per-programme ¢/pt so the optimiser has real
+// choices offline (demo inventory, same spirit as components/search/points.js — real award data replaces it).
+const LEG_PROGRAMMES = {
+  hotel: ["marriott_bonvoy", "hilton_honors", "world_of_hyatt", "ihg_one"],
+  flight: ["ba_avios", "united_mp"],
+  car: [],
+};
+function hashFactor(s) {
+  let h = 0;
+  for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) & 0xffff;
+  return 0.7 + (h % 80) / 100; // 0.70–1.49 × the programme's typical value
+}
+function deriveAwards(leg) {
+  const cash = Number(leg.cashGbp) || 0;
+  return (LEG_PROGRAMMES[leg.type] || [])
+    .map((p) => {
+      const cppGbp = (PROGRAMME_VALUATIONS[p] || 0.01) * hashFactor(`${leg.type}:${p}`);
+      return { programme: p, pointsCost: Math.max(1, Math.ceil(cash / cppGbp)) };
+    })
+    .filter(() => cash > 0);
+}
+
+// Plain-language recommendation in Bonza's voice (deterministic; real Claude prose can wrap this later).
+function narrate(result) {
+  const r = result.recommended;
+  const pts = r.legs.filter((l) => l.pointsUsed > 0 || l.pointsBought > 0);
+  const cash = r.legs.filter((l) => l.pointsUsed === 0 && l.pointsBought === 0);
+  if (!pts.length) {
+    return "Pay cash across the board — your points are worth more saved for a stronger redemption than anything on this trip.";
+  }
+  const bits = pts.map((l) => {
+    const via = `redeem the ${l.type} via ${formatProgramme(l.awardProgramme)}`;
+    if (l.pointsBought > 0) {
+      const promo = l.buyPromo ? ` (${l.buyPromo} on right now)` : "";
+      return `${via} — buy ${l.pointsBought.toLocaleString()} points for £${l.buyCostGbp.toFixed(0)}${promo}`;
+    }
+    return `${via} (${l.centsPerPoint.toFixed(1)}¢/pt)`;
+  });
+  const cashBit = cash.length ? `, and pay cash for the ${cash.map((l) => l.type).join(" & ")}` : "";
+  const purchase = r.pointsPurchaseGbp ? ` (incl. £${r.pointsPurchaseGbp.toFixed(0)} to buy points)` : "";
+  return (
+    `Best value: ${bits.join("; ")}${cashBit}. Net saving about £${r.netSavingsGbp.toFixed(0)} — ` +
+    `£${r.totalCash.toFixed(0)} cash${purchase}` +
+    `${r.creditsEarned ? `, earning £${r.creditsEarned.toFixed(2)} in Credits` : ""}.`
+  );
+}
 
 function toApiScenario(row) {
   return {
@@ -142,6 +192,40 @@ router.post("/redemption", requirePro, async (req, res, next) => {
     });
 
     res.json({ ...options, journeyId: journey.id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /optimize/trip — cross-leg points/cash optimisation for the selected trip (no Trip record needed).
+// Body: { legs: [{ type, label, cashGbp }], overrides? }. Not Pro-gated so the core value is demoable;
+// gate with requirePro if the product decides to.
+router.post("/trip", async (req, res, next) => {
+  try {
+    const { legs, overrides } = req.body || {};
+    if (!Array.isArray(legs) || !legs.length) {
+      return res.status(400).json({ error: { message: "legs must be a non-empty array" } });
+    }
+
+    const withAwards = legs
+      .filter((l) => l && ["flight", "hotel", "car"].includes(l.type))
+      .map((l) => ({
+        type: l.type,
+        label: l.label || l.type,
+        cashGbp: Number(l.cashGbp) || 0,
+        awards: deriveAwards(l),
+      }));
+
+    const accounts = await prisma.loyaltyAccount.findMany({ where: { userId: req.userId } });
+    const result = optimizeTrip({ legs: withAwards, accounts, overrides: overrides || {} });
+    result.narrative = narrate(result);
+
+    recordEvent(req.userId, EVENT_TYPES.OPTIMISATION_RUN, {
+      legs: withAwards.map((l) => l.type),
+      recommendedPointsLegs: result.recommended.legs.filter((l) => l.method === "points").map((l) => l.type),
+    }).catch(() => {});
+
+    res.json(result);
   } catch (err) {
     next(err);
   }

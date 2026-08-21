@@ -5,7 +5,7 @@
 const env = require("../config/env");
 const { getFlights } = require("../utils/mockFlights");
 const { getHotels } = require("../utils/mockHotels");
-const { resolveAirport } = require("../utils/airportSearch");
+const { resolveAirport, airportInfo } = require("../utils/airportSearch");
 const { logger } = require("../utils/logger");
 
 let _duffel = null;
@@ -31,6 +31,10 @@ async function duffelSearchFlights({ origin, destination, departureDate, returnD
     return_offers: true,
   });
 
+  // Airport endpoints as { code, city, name } for the planner UI (Duffel gives city_name/name inline).
+  const ptToInfo = (pt) =>
+    pt ? { code: pt.iata_code, city: pt.city_name || pt.city?.name || pt.iata_code, name: pt.name || pt.iata_code } : null;
+
   return response.data.offers.slice(0, 20).map((offer) => {
     const firstSlice = offer.slices?.[0];
     const firstSeg = firstSlice?.segments?.[0];
@@ -39,18 +43,24 @@ async function duffelSearchFlights({ origin, destination, departureDate, returnD
       totalAmount: parseFloat(offer.total_amount),
       currency: offer.total_currency,
       slices: offer.slices.map((s) => ({
-        origin: s.origin.iata_code,
-        destination: s.destination.iata_code,
+        origin: ptToInfo(s.origin),
+        destination: ptToInfo(s.destination),
         duration: s.duration,
+        stops: Math.max(0, (s.segments?.length || 1) - 1),
         segments: s.segments.map((seg) => ({
-          carrier: seg.marketing_carrier.name,
+          origin: ptToInfo(seg.origin),
+          destination: ptToInfo(seg.destination),
+          carrier: seg.marketing_carrier?.name,
+          carrierCode: seg.marketing_carrier?.iata_code,
           flightNumber: seg.marketing_carrier_flight_number,
+          aircraft: seg.aircraft?.name || null,
           departure: seg.departing_at,
           arrival: seg.arriving_at,
         })),
       })),
-      // Filterable fare attributes (best-effort from the offer) so the search UI can filter flights.
+      // Fare attributes (best-effort) so the search UI can filter + brand flights.
       airline: firstSeg?.marketing_carrier?.name || null,
+      airlineCode: firstSeg?.marketing_carrier?.iata_code || null,
       cabin: firstSeg?.passengers?.[0]?.cabin_class || null,
       stops: firstSlice ? Math.max(0, (firstSlice.segments?.length || 1) - 1) : 0,
       refundable: !!offer.conditions?.refund_before_departure?.allowed,
@@ -201,27 +211,59 @@ function isRefundableRate(rate) {
 
 // ── Mock fallback (offline / dev) — same response shapes as the real path ──────
 
-// ISO-8601 duration ("PT8H") between two ISO timestamps.
-function isoDuration(departISO, arriveISO) {
-  const ms = new Date(arriveISO).getTime() - new Date(departISO).getTime();
-  const hours = Math.max(1, Math.round(ms / 3600000));
-  return `PT${hours}H`;
+// Generic connecting hubs used to synthesise realistic layovers for the mock (demo inventory only —
+// real segments come from Duffel). The carrier's own hub is preferred first.
+const HUB_POOL = ["AMS", "FRA", "DOH", "DXB", "SIN", "MAD", "AUH"];
+
+function pickHubs(f, originCode, destCode) {
+  const used = new Set([originCode, destCode]);
+  const hubs = [];
+  for (const h of [f.hub, ...HUB_POOL]) {
+    if (hubs.length >= (f.stops || 0)) break;
+    if (h && !used.has(h)) {
+      hubs.push(h);
+      used.add(h);
+    }
+  }
+  return hubs;
 }
 
-function flightToSlice(f, origin, destination) {
-  return {
-    origin: origin || f.from,
-    destination: destination || f.to,
-    duration: isoDuration(f.departureTime, f.arrivalTime),
-    segments: [
-      {
-        carrier: f.airline,
-        flightNumber: f.flightNumber,
-        departure: f.departureTime,
-        arrival: f.arrivalTime,
-      },
-    ],
-  };
+// Build a realistic multi-segment slice from a mock flight: origin → [hub…] → destination, splitting the
+// total journey time into flying legs separated by ~90-min layovers. Each segment carries its own
+// airports, times, carrier, flight number and aircraft so the planner UI can show a full itinerary.
+function flightToSlice(f, originCode, destCode) {
+  const oCode = originCode || f.from;
+  const dCode = destCode || f.to;
+  const stops = f.stops || 0;
+  const codes = [oCode, ...pickHubs(f, oCode, dCode), dCode];
+  const nSeg = codes.length - 1;
+
+  const dep = new Date(f.departureTime).getTime();
+  const arr = new Date(f.arrivalTime).getTime();
+  const LAYOVER = 90 * 60 * 1000; // 1h30 per connection
+  const total = Math.max(nSeg * 3600000 + stops * LAYOVER, arr - dep);
+  const legMs = Math.round((total - stops * LAYOVER) / nSeg);
+  const baseNo = parseInt(String(f.flightNumber).replace(/\D/g, ""), 10) || 100;
+
+  const segments = [];
+  let cursor = dep;
+  for (let s = 0; s < nSeg; s++) {
+    const segDep = cursor;
+    const segArr = s === nSeg - 1 ? dep + total : segDep + legMs;
+    segments.push({
+      origin: airportInfo(codes[s]),
+      destination: airportInfo(codes[s + 1]),
+      carrier: f.airline,
+      carrierCode: f.airlineCode,
+      flightNumber: `${f.airlineCode || "XX"}${baseNo + s}`,
+      aircraft: f.aircraft || null,
+      departure: new Date(segDep).toISOString(),
+      arrival: new Date(segArr).toISOString(),
+    });
+    cursor = segArr + LAYOVER;
+  }
+
+  return { origin: airportInfo(oCode), destination: airportInfo(dCode), stops, segments };
 }
 
 function mockSearchFlights({ origin, destination, departureDate, returnDate }) {
@@ -239,8 +281,9 @@ function mockSearchFlights({ origin, destination, departureDate, returnDate }) {
       totalAmount: f.basePrice + (returnDate ? f.basePrice : 0),
       currency: "GBP",
       slices,
-      // Filterable fare attributes (dropped before — the search UI needs these to filter flights).
+      // Filterable + brandable fare attributes (dropped before — the search UI needs these).
       airline: f.airline,
+      airlineCode: f.airlineCode,
       cabin: f.cabin,
       stops: f.stops,
       refundable: f.refundable,

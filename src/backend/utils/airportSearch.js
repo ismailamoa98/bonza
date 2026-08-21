@@ -29,6 +29,8 @@ const FALLBACK_AIRPORTS = [
   { code: "MAD", name: "Adolfo Suarez Madrid-Barajas", city: "Madrid", country: "Spain", countryCode: "ES", latitude: 40.4168, longitude: -3.7038 },
   { code: "FCO", name: "Leonardo da Vinci-Fiumicino", city: "Rome", country: "Italy", countryCode: "IT", latitude: 41.9028, longitude: 12.4964 },
   { code: "DXB", name: "Dubai International", city: "Dubai", country: "United Arab Emirates", countryCode: "AE", latitude: 25.2048, longitude: 55.2708 },
+  { code: "AUH", name: "Zayed International", city: "Abu Dhabi", country: "United Arab Emirates", countryCode: "AE", latitude: 24.4539, longitude: 54.3773 },
+  { code: "DOH", name: "Hamad International", city: "Doha", country: "Qatar", countryCode: "QA", latitude: 25.2731, longitude: 51.6081 },
   { code: "HND", name: "Tokyo Haneda", city: "Tokyo", country: "Japan", countryCode: "JP", latitude: 35.6762, longitude: 139.6503 },
   { code: "NRT", name: "Tokyo Narita", city: "Tokyo", country: "Japan", countryCode: "JP", latitude: 35.6762, longitude: 139.6503 },
   { code: "SIN", name: "Singapore Changi", city: "Singapore", country: "Singapore", countryCode: "SG", latitude: 1.3521, longitude: 103.8198 },
@@ -43,6 +45,14 @@ function resolveAirport(code) {
   if (key.length !== 3) return null;
   const hit = FALLBACK_AIRPORTS.find((a) => a.code === key);
   return hit ? { code: hit.code, city: hit.city, latitude: hit.latitude, longitude: hit.longitude } : null;
+}
+
+// IATA code → { code, city, name } for display (flight segments/airports). Falls back to the raw code
+// when the airport isn't in the bundled table, so any code is still renderable.
+function airportInfo(code) {
+  const key = String(code || "").trim().toUpperCase();
+  const hit = FALLBACK_AIRPORTS.find((a) => a.code === key);
+  return hit ? { code: hit.code, city: hit.city, name: hit.name } : { code: key, city: key, name: key };
 }
 
 function filterFallback(q) {
@@ -84,4 +94,4 @@ async function searchAirports(q) {
   }
 }
 
-module.exports = { searchAirports, FALLBACK_AIRPORTS, resolveAirport };
+module.exports = { searchAirports, FALLBACK_AIRPORTS, resolveAirport, airportInfo };

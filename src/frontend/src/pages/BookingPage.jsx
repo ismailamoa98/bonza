@@ -1,5 +1,5 @@
 // pages/BookingPage.jsx — confirm booking: guest/loyalty/payment + loyalty-earnings card; on-site cash flow.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAppStore, computeCombination, tripNights } from "../store/appStore";
 import {
@@ -28,6 +28,18 @@ const ratingNum = (rate) => (rate ? String(rate).split(/\s+/)[0] : null);
 const VPP = { marriott: 0.7, ihg: 0.5, hilton: 0.5, hyatt: 1.7, amex: 1.4, chaseUr: 1.5 };
 const SHADE = { marriott: "#B0552F", ihg: "#1f7a3f", hilton: "#2563a8", hyatt: "#8a6d3b", default: "#da7756" };
 
+// Map a Phase-12 search hotel (cashOption/pointsOption/location) onto the shape the booking page consumes
+// (pricePerNight, stars, city, loyaltyPrograms) so it reflects the actually-selected property + price.
+const hotelToBookingShape = (h) => ({
+  duffelHotelId: h.duffelHotelId,
+  name: h.name,
+  stars: h.starRating || 4,
+  city: h.location?.city || h.location || "",
+  rating: h.rating != null ? h.rating : null,
+  pricePerNight: h.cashOption?.priceGbp || 0,
+  loyaltyPrograms: {}, // search flow doesn't carry the old per-night award map; omit the hotel earn row
+});
+
 export default function BookingPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -39,6 +51,10 @@ export default function BookingPage() {
   const selectedCar = useAppStore((s) => s.selectedCar);
   const loyaltyPoints = useAppStore((s) => s.loyaltyPoints);
   const ratio = useAppStore((s) => s.ratio);
+  // Phase 12 search-flow state — the hotel/flight the user actually chose.
+  const selectedResult = useAppStore((s) => s.selectedResult);
+  const searchResults = useAppStore((s) => s.searchResults);
+  const searchMeta = useAppStore((s) => s.searchMeta);
   const bookingLink = useAppStore((s) => s.bookingLink);
   const affiliateLinks = useAppStore((s) => s.affiliateLinks);
   const reset = useAppStore((s) => s.reset);
@@ -47,64 +63,68 @@ export default function BookingPage() {
   const setSelections = useAppStore((s) => s.setSelections);
   const setBooking = useAppStore((s) => s.setBooking);
 
-  // Search-page entry: arrive at /booking?hotel=…&origin=…&destination=…&checkIn=… with no store state.
-  // Bootstrap a trip + selections + booking link from the URL so the page works (and survives refresh)
-  // without relying on Zustand currentPackage. The existing store-driven entry points skip this.
+  // Search-page entry: arrive at /booking?hotel=…&origin=…&destination=…&checkIn=… — bootstrap a trip +
+  // selections + booking link from the store's chosen hotel/flight (falling back to a browse fetch on a
+  // hard refresh when the store is empty). Runs EXACTLY ONCE (ref-guarded): it calls setTrip mid-flight, so
+  // it must NOT depend on `trip` / self-cancel, or it aborts before creating the booking link.
   const [bootstrapping, setBootstrapping] = useState(false);
+  const didBootstrap = useRef(false);
   useEffect(() => {
-    const hasUrlSelection = searchParams.get("hotel") || searchParams.get("flight");
-    if (!hasUrlSelection || trip) return;
-    const origin = searchParams.get("origin") || "LHR";
-    const destination = searchParams.get("destination") || "";
-    const checkIn = searchParams.get("checkIn");
-    const checkOut = searchParams.get("checkOut");
-    const adults = parseInt(searchParams.get("adults") || "2", 10);
-    let cancelled = false;
+    if (didBootstrap.current) return;
+    const hotelId = searchParams.get("hotel");
+    const flightId = searchParams.get("flight");
+    if ((!hotelId && !flightId) || trip) return;
+    didBootstrap.current = true;
+
+    const origin = searchParams.get("origin") || searchMeta?.origin || "LHR";
+    const destination = searchParams.get("destination") || searchMeta?.destination || "";
+    const checkIn = searchParams.get("checkIn") || searchMeta?.departureDate;
+    const checkOut = searchParams.get("checkOut") || searchMeta?.returnDate;
+    const adults = parseInt(searchParams.get("adults") || String(searchMeta?.travelers || 2), 10);
+
+    // The hotel/flight the user actually selected (store), matched by id; else the first browse result.
+    const byId = (list, id, key) => (list || []).find((x) => x?.[key] === id) || null;
+    const chosenHotel =
+      (selectedResult?.duffelHotelId === hotelId && selectedResult) ||
+      byId(searchResults?.hotels, hotelId, "duffelHotelId");
+    const chosenFlight =
+      (selectedResult?.duffelOfferId === flightId && selectedResult) ||
+      byId(searchResults?.flights, flightId, "duffelOfferId") ||
+      byId(searchResults?.flights, flightId, "id");
+
     setBootstrapping(true);
     (async () => {
       try {
         const tripData = {
-          origin,
-          originLabel: origin,
-          destination,
-          destinationLabel: destination,
-          checkIn,
-          checkOut,
-          budget: 0,
-          numberOfTravelers: adults,
-          flexibility: false,
+          origin, originLabel: origin, destination, destinationLabel: destination,
+          checkIn, checkOut, budget: 0, numberOfTravelers: adults, flexibility: false,
           preferences: { style: "Points Max" },
         };
         const { id } = await createTrip(tripData);
-        if (cancelled) return;
         setTrip(tripData);
         setTripId(id);
-        const [flights, hotels, cars] = await Promise.all([
-          getFlights({ from: origin, to: destination, checkIn }).catch(() => []),
-          getHotels({ destination, checkIn }).catch(() => []),
-          getCars({ location: destination, checkIn }).catch(() => []),
-        ]);
-        if (cancelled) return;
-        const flight = flights[0] || null;
-        const hotel = hotels[0] || null;
-        const car = cars[0] || null;
-        setSelections({ flight, hotel, car });
+
+        // Prefer the chosen hotel; fall back to browse inventory only when the store had nothing.
+        let hotel = chosenHotel ? hotelToBookingShape(chosenHotel) : null;
+        if (hotelId && !hotel) {
+          const hotels = await getHotels({ destination, checkIn }).catch(() => []);
+          hotel = hotels[0] || null;
+        }
+        const flight = chosenFlight || (flightId ? (await getFlights({ from: origin, to: destination, checkIn }).catch(() => []))[0] : null) || null;
+
+        setSelections({ flight, hotel, car: null });
         const vendors = {};
         if (flight) vendors.flight = { vendor: flight.airline, label: flight.cabin };
-        if (hotel) vendors.hotel = { vendor: "Marriott", label: hotel.name };
-        if (car) vendors.car = { vendor: car.vendor, label: car.carClass };
+        if (hotel) vendors.hotel = { vendor: "hotel", label: hotel.name };
         const data = await createBookingLink(id, null, vendors);
-        if (!cancelled) setBooking(data);
+        setBooking(data);
       } catch {
-        /* leave store empty — the redirect effect sends the user home */
+        /* leave store empty — the redirect effect handles it */
       } finally {
-        if (!cancelled) setBootstrapping(false);
+        setBootstrapping(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [searchParams, trip, setTrip, setTripId, setSelections, setBooking]);
+  }, [searchParams, trip, searchMeta, selectedResult, searchResults, setTrip, setTripId, setSelections, setBooking]);
 
   const [form, setForm] = useState({
     title: "mr", firstName: "", lastName: "", dob: "", email: "", countryCode: "+44", phone: "", passport: "",
@@ -125,6 +145,15 @@ export default function BookingPage() {
   const cashByType = Object.fromEntries(totals.items.map((it) => [it.type, it.cash]));
 
   const hasUrlSelection = Boolean(searchParams.get("hotel") || searchParams.get("flight"));
+  // The bootstrap now completes almost instantly, so hold the branded loading screen for a perceptible
+  // beat on URL-driven entries (cash flow, OptimizePanel "Book this trip"). Store-driven entries
+  // (currentPackage) start true and render immediately.
+  const [minTimePassed, setMinTimePassed] = useState(!hasUrlSelection);
+  useEffect(() => {
+    if (!hasUrlSelection) return;
+    const t = setTimeout(() => setMinTimePassed(true), 800);
+    return () => clearTimeout(t);
+  }, [hasUrlSelection]);
   useEffect(() => {
     if (!hasTrip && !bootstrapping && !hasUrlSelection) navigate("/", { replace: true });
   }, [hasTrip, bootstrapping, hasUrlSelection, navigate]);
@@ -138,14 +167,8 @@ export default function BookingPage() {
     return () => { cancelled = true; };
   }, [hasTrip, totals.totalCash, trip?.id]);
 
-  if (!hasTrip) {
-    if (bootstrapping || hasUrlSelection) {
-      return (
-        <div className="flex min-h-screen items-center justify-center bg-cream font-jakarta text-[14px] text-ink-soft">
-          Preparing your booking…
-        </div>
-      );
-    }
+  if (!hasTrip || (hasUrlSelection && !minTimePassed)) {
+    if (bootstrapping || hasUrlSelection) return <PreparingScreen />;
     return null;
   }
 
@@ -596,6 +619,20 @@ function SummaryRow({ icon, text }) {
     <div className="flex items-center gap-2.5 py-2">
       <Icon name={icon} className="h-4 w-4 shrink-0 text-bonza" />
       <span className="tabular-nums text-ink-soft">{text}</span>
+    </div>
+  );
+}
+
+// Branded transitional screen while the trip + booking link bootstrap (held ~0.8s so it's actually seen).
+function PreparingScreen() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-cream font-jakarta">
+      <span className="font-display text-[24px] font-semibold tracking-[-0.01em] text-ink">Bonza</span>
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-ink-900/10 border-t-bonza" />
+      <div className="text-center">
+        <p className="font-display text-[18px] font-semibold text-ink">Preparing your booking…</p>
+        <p className="mt-1 text-[13px] text-ink-soft">Locking in your rate and points options.</p>
+      </div>
     </div>
   );
 }

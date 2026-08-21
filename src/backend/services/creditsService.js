@@ -2,7 +2,7 @@
 const prisma = require("../config/database");
 const { isProActive } = require("../middleware/requirePro");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
-const { CASHBACK_RATE, CREDIT_EXPIRY_MONTHS } = require("../config/constants");
+const { cashbackRateFor, CREDIT_EXPIRY_MONTHS } = require("../config/constants");
 
 const NEVER_EXPIRES = new Date("9999-12-31T00:00:00.000Z");
 
@@ -16,6 +16,10 @@ function expiryFromNow(months) {
 
 async function awardCashback({ userId, bookingId, cashValueGbp, leg }) {
   if (!(cashValueGbp > 0)) return null;
+
+  // Cashback only on higher-margin legs (hotels/cars) — flights earn no Credits (see config/constants).
+  const rate = cashbackRateFor(leg);
+  if (!(rate > 0)) return null;
 
   const bookingCount = await prisma.booking.count({ where: { userId } });
   const isFirstBooking = bookingCount <= 1;
@@ -47,7 +51,7 @@ async function awardCashback({ userId, bookingId, cashValueGbp, leg }) {
   const credit = await prisma.bonzaCredit.create({
     data: {
       userId,
-      amount: round2(cashValueGbp * CASHBACK_RATE),
+      amount: round2(cashValueGbp * rate),
       source: isFirstBooking ? "first_booking_bonus" : `cashback_${leg}`,
       bookingId,
       expiresAt: expiryFromNow(CREDIT_EXPIRY_MONTHS),

@@ -4,7 +4,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { PROGRAMME_LABELS } from "./programmes";
-import { hotelPhoto } from "./photo";
+import { hotelPhotos } from "./photo";
+import PhotoGallery from "./PhotoGallery";
+import AirlineLogo from "./AirlineLogo";
+import FlightItinerary from "./FlightItinerary";
+import TripToggle from "./TripToggle";
+import { fmtDate } from "./flightFormat";
 import { pointsFor } from "./points";
 import { pointsForFullStay } from "./redemptionMath";
 import CompareDeals from "./CompareDeals";
@@ -12,7 +17,6 @@ import ReviewsTab from "./ReviewsTab";
 import { getHotelDetails } from "../../utils/api";
 import {
   XIcon,
-  CameraIcon,
   CardIcon,
   CheckIcon,
   LockIcon,
@@ -61,9 +65,9 @@ export default function DetailPanel({ result, meta, loyaltyAccounts = [], onClos
         role="dialog"
         aria-modal="true"
         aria-label={isFlight ? "Flight details" : "Hotel details"}
-        className={`w-full max-w-[920px] bg-white h-full shadow-2xl flex flex-col transform transition-transform duration-300 ${
-          shown ? "translate-x-0" : "translate-x-full"
-        }`}
+        className={`w-full bg-white h-full shadow-2xl flex flex-col transform transition-transform duration-300 ${
+          isFlight ? "max-w-[600px]" : "max-w-[920px]"
+        } ${shown ? "translate-x-0" : "translate-x-full"}`}
       >
         {isFlight ? (
           <FlightBody result={result} meta={meta} navigate={navigate} onClose={onClose} />
@@ -152,13 +156,10 @@ function HotelBody({ result, meta, loyaltyAccounts, tab, setTab, navigate, onClo
 
   return (
     <>
-      {/* Photo header */}
+      {/* Photo header — genuine Duffel photos as a slideshow; gradient shows through when none */}
       <div className="relative flex-shrink-0 h-[280px] bg-gradient-to-br from-[#6FB7D4] to-[#3D7EA6]">
-        <img src={hotelPhoto(result, 1000, 560)} alt={result.name} className="w-full h-full object-cover" />
+        <PhotoGallery photos={hotelPhotos(result)} alt={result.name} />
         <CloseButton onClose={onClose} />
-        <span className="absolute bottom-3 right-3 bg-black/60 text-white text-[11px] font-semibold px-3 py-1.5 rounded-md flex items-center gap-1.5">
-          <CameraIcon /> View photos
-        </span>
       </div>
 
       {/* Title + tabs */}
@@ -341,6 +342,7 @@ function HotelBody({ result, meta, loyaltyAccounts, tab, setTab, navigate, onClo
 
       {/* Sticky CTAs */}
       <div className="border-t border-ink-900/[0.06] px-6 py-4 flex flex-col sm:flex-row gap-3 bg-white flex-shrink-0">
+        <TripToggle type="hotel" item={result} variant="cta" />
         <button
           onClick={bookCash}
           className={`flex-1 py-3 rounded-full text-[13px] font-semibold tabular-nums transition-all ${
@@ -381,37 +383,65 @@ function FlightBody({ result, meta, navigate, onClose }) {
     navigate(`/booking?${qs.toString()}`);
   }
 
+  const slices = [out, ret].filter(Boolean);
+  const airlineName = result.airline || slices[0]?.segments?.[0]?.carrier || "Flight";
+  const airlineCode = result.airlineCode || slices[0]?.segments?.[0]?.carrierCode;
+  const routeFrom = slices[0]?.origin?.code || meta?.origin;
+  const routeTo = slices[0]?.destination?.code || meta?.destination;
+
   return (
     <>
       <div className="relative flex-shrink-0 px-6 pt-5 pb-4 border-b border-ink-900/[0.06]">
         <CloseButton onClose={onClose} />
-        <h2 className="text-[20px] font-display font-semibold text-ink-900">Flight details</h2>
-        <p className="text-[12px] text-ink-300 mt-0.5 tabular-nums">
-          {meta?.origin} → {meta?.destination} · {travelers} {travelers === 1 ? "adult" : "adults"}
-        </p>
+        <div className="flex items-center gap-3">
+          <AirlineLogo code={airlineCode} name={airlineName} size={40} />
+          <div className="min-w-0">
+            <h2 className="text-[20px] font-display font-semibold text-ink-900 leading-tight">{airlineName}</h2>
+            <p className="text-[12px] text-ink-300 mt-0.5 tabular-nums">
+              {routeFrom} → {routeTo}
+              {result.cabin ? ` · ${result.cabin}` : ""} · {travelers} {travelers === 1 ? "adult" : "adults"}
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="px-6 py-5 flex-1 overflow-y-auto">
-        {[out, ret].filter(Boolean).map((slice, i) => (
-          <div key={i} className="mb-5">
-            <p className="text-[11px] font-bold text-ink-300 tracking-wider mb-2">{i === 0 ? "OUTBOUND" : "RETURN"}</p>
-            {slice.segments.map((seg, j) => (
-              <div key={j} className="bg-cream rounded-xl p-4 mb-2">
-                <p className="text-[14px] font-semibold text-ink-900">{seg.carrier} {seg.flightNumber}</p>
-                <p className="text-[12px] text-ink-300 tabular-nums">{slice.origin} → {slice.destination}</p>
-              </div>
-            ))}
+        {slices.map((slice, i) => (
+          <div key={i} className="mb-6">
+            <div className="flex items-baseline justify-between mb-2">
+              <SectionLabel>{i === 0 ? "OUTBOUND" : "RETURN"}</SectionLabel>
+              <span className="text-[11px] text-ink-300">{fmtDate(slice.segments?.[0]?.departure)}</span>
+            </div>
+            <div className="bg-cream rounded-2xl p-4">
+              <FlightItinerary slice={slice} cabin={result.cabin} />
+            </div>
           </div>
         ))}
+
+        <SectionLabel>FARE</SectionLabel>
+        <div className="flex flex-wrap gap-2">
+          {result.cabin && <FareChip>{result.cabin}</FareChip>}
+          <FareChip>{result.refundable ? "Refundable" : "Non-refundable"}</FareChip>
+          <FareChip>{result.baggageIncluded ? "Checked bag included" : "Checked bag extra"}</FareChip>
+        </div>
       </div>
 
-      <div className="border-t border-ink-900/[0.06] px-6 py-4 bg-white flex-shrink-0">
-        <button onClick={bookFlight} className="w-full py-3 bg-bonza text-white rounded-full text-[13px] font-semibold tabular-nums">
+      <div className="border-t border-ink-900/[0.06] px-6 py-4 bg-white flex-shrink-0 flex gap-3">
+        <TripToggle type="flight" item={result} variant="cta" />
+        <button onClick={bookFlight} className="flex-1 py-3 bg-bonza text-white rounded-full text-[13px] font-semibold tabular-nums">
           Book for £{(result.totalAmount || 0).toFixed(0)}
           {result.creditsIfCash > 0 ? ` — earn £${result.creditsIfCash} credits` : ""}
         </button>
       </div>
     </>
+  );
+}
+
+function FareChip({ children }) {
+  return (
+    <span className="inline-flex items-center bg-cream text-ink-600 text-[11px] font-semibold px-2.5 py-1 rounded-full">
+      {children}
+    </span>
   );
 }
 

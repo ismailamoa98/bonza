@@ -1,4 +1,5 @@
 // utils/format.js — currency / points / date formatting helpers.
+import { money } from "./money";
 
 export const STRATEGY_LABELS = {
   transfer: "Transfer Strategy",
@@ -37,9 +38,10 @@ export const formatPoints = (n) => {
   return num >= 1000 ? `${Math.round(num / 1000)}k` : `${num}`;
 };
 
-export const formatMoney = (n) => `$${(Number(n) || 0).toLocaleString()}`;
+// All amounts are GBP values; both helpers convert to the user's display currency (see utils/money).
+export const formatMoney = (n) => money(n);
 
-export const formatGbp = (n) => `£${(Number(n) || 0).toLocaleString()}`;
+export const formatGbp = (n) => money(n);
 
 export const cppRating = (cpp, benchmark) => {
   const c = Number(cpp) || 0;

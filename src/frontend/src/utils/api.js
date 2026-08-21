@@ -137,6 +137,10 @@ export const syncLoyalty = (provider = "gmail") =>
 export const getRedemptionOptions = (tripId) =>
   client.post("/optimize/redemption", { tripId }).then((r) => r.data);
 
+// Cross-leg trip optimiser — { legs:[{type,label,cashGbp}], overrides? } → recommended split + scenarios.
+export const optimizeTripSelection = (payload) =>
+  client.post("/optimize/trip", payload).then((r) => r.data);
+
 export const recordAffiliateClick = (payload) =>
   client.post("/affiliate/click", payload).then((r) => r.data);
 

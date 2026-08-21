@@ -116,6 +116,12 @@ export const SearchOffIcon = (p) => (
   </svg>
 );
 
+export const PlusIcon = (p) => (
+  <svg width="13" height="13" viewBox="0 0 24 24" {...s} {...p}>
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
 // ── Amenity icons (used as tiles in the Hotel details tab) ─────────────────────
 export const WifiIcon = (p) => (
   <svg width="16" height="16" viewBox="0 0 24 24" {...s} {...p}>

@@ -5,6 +5,9 @@
 import { PROGRAMME_LABELS } from "./programmes";
 import { hotelPhoto } from "./photo";
 import { pointsFor } from "./points";
+import AirlineLogo from "./AirlineLogo";
+import { fmtTime, fmtDur, dayOffset, layovers, sliceDurationMs } from "./flightFormat";
+import TripToggle from "./TripToggle";
 
 export default function SearchResultCard({ result, isSelected, onClick, activeTab, nights = 1, dateLabel = "" }) {
   if (activeTab === "flights") return <FlightCard result={result} isSelected={isSelected} onClick={onClick} />;
@@ -83,13 +86,16 @@ function HotelCard({ result, isSelected, onClick, nights, dateLabel }) {
           <span className="line-clamp-2">{rec}</span>
         </p>
 
-        <span className="mt-auto inline-flex items-center gap-1.5 pt-3 text-[13px] font-bold text-bonza">
-          View details
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">
-            <line x1="5" y1="12" x2="19" y2="12" />
-            <polyline points="12 5 19 12 12 19" />
-          </svg>
-        </span>
+        <div className="mt-auto pt-3 flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-bonza">
+            View details
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </span>
+          <TripToggle type="hotel" item={result} />
+        </div>
       </div>
 
       {/* Photo with overlays */}
@@ -132,9 +138,9 @@ function HotelCard({ result, isSelected, onClick, nights, dateLabel }) {
 
 function FlightCard({ result, isSelected, onClick }) {
   const out = result.slices?.[0];
-  const carrier = result.airline || out?.segments?.[0]?.carrier || "Flight";
-  // Prefer the plumbed stop count (segments are single in the mock, so segments−1 is always 0).
-  const stops = result.stops != null ? result.stops : (out?.segments?.length || 1) - 1;
+  const ret = result.slices?.[1];
+  const airlineName = result.airline || out?.segments?.[0]?.carrier || "Flight";
+  const airlineCode = result.airlineCode || out?.segments?.[0]?.carrierCode;
 
   return (
     <div
@@ -142,24 +148,70 @@ function FlightCard({ result, isSelected, onClick }) {
       role="button"
       tabIndex={0}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onClick()}
-      className={`flex flex-shrink-0 items-center gap-3 bg-white rounded-2xl p-3.5 cursor-pointer transition-all ${
+      className={`flex-shrink-0 bg-white rounded-2xl p-3.5 cursor-pointer transition-all ${
         isSelected ? "border-[1.5px] border-bonza" : "border border-ink-900/[0.05] hover:border-ink-900/[0.12]"
       }`}
     >
-      <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-semibold text-ink-900 truncate">
-          {carrier}
-          {result.cabin ? <span className="font-normal text-ink-300"> · {result.cabin}</span> : ""}
-        </p>
-        <p className="text-[11px] text-ink-300 tabular-nums">
-          {out ? `${out.origin} → ${out.destination}` : ""} · {stops === 0 ? "Direct" : `${stops} stop${stops > 1 ? "s" : ""}`}
-        </p>
+      <div className="flex items-center gap-3 mb-2.5">
+        <AirlineLogo code={airlineCode} name={airlineName} size={34} />
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-ink-900 truncate">{airlineName}</p>
+          {result.cabin && <p className="text-[11px] text-ink-300">{result.cabin}</p>}
+        </div>
+        <div className="ml-auto text-right tabular-nums">
+          <p className="text-[16px] font-bold text-ink-900">£{(result.totalAmount || 0).toFixed(0)}</p>
+          {result.creditsIfCash > 0 && (
+            <p className="text-[10px] text-bonza font-semibold">+ £{result.creditsIfCash} credits</p>
+          )}
+        </div>
       </div>
-      <div className="text-right tabular-nums">
-        <p className="text-[15px] font-semibold text-ink-900">£{(result.totalAmount || 0).toFixed(0)}</p>
-        {result.creditsIfCash > 0 && (
-          <p className="text-[10px] text-bonza font-semibold">+ £{result.creditsIfCash} credits</p>
-        )}
+
+      {out && <SliceSummary slice={out} />}
+      {ret && (
+        <div className="mt-2.5 pt-2.5 border-t border-ink-900/[0.05]">
+          <SliceSummary slice={ret} />
+        </div>
+      )}
+
+      <div className="mt-2.5 pt-2.5 border-t border-ink-900/[0.05] flex justify-end">
+        <TripToggle type="flight" item={result} />
+      </div>
+    </div>
+  );
+}
+
+// One-line origin→destination summary with times, duration and stop/connection info.
+function SliceSummary({ slice }) {
+  const segs = slice?.segments || [];
+  const dep = segs[0]?.departure;
+  const arr = segs[segs.length - 1]?.arrival;
+  const stops = slice?.stops ?? segs.length - 1;
+  const conns = layovers(segs).map((l) => l.airport?.code).filter(Boolean).join(", ");
+  const day = dayOffset(dep, arr);
+
+  return (
+    <div className="flex items-center gap-3 tabular-nums">
+      <div className="text-center w-11 flex-shrink-0">
+        <p className="text-[15px] font-semibold text-ink-900">{fmtTime(dep)}</p>
+        <p className="text-[11px] text-ink-300">{slice?.origin?.code}</p>
+      </div>
+      <div className="flex-1 flex flex-col items-center">
+        <span className="text-[10px] text-ink-300">{fmtDur(sliceDurationMs(slice))}</span>
+        <div className="w-full flex items-center gap-1 my-0.5">
+          <span className="h-px flex-1 bg-ink-900/[0.15]" />
+          <span className="w-1.5 h-1.5 rounded-full bg-ink-900/25" />
+          <span className="h-px flex-1 bg-ink-900/[0.15]" />
+        </div>
+        <span className="text-[10px] text-ink-300">
+          {stops === 0 ? "Direct" : `${stops} stop${stops > 1 ? "s" : ""}${conns ? ` · ${conns}` : ""}`}
+        </span>
+      </div>
+      <div className="text-center w-11 flex-shrink-0">
+        <p className="text-[15px] font-semibold text-ink-900">
+          {fmtTime(arr)}
+          {day > 0 && <sup className="text-[9px] text-bonza font-bold ml-0.5">+{day}</sup>}
+        </p>
+        <p className="text-[11px] text-ink-300">{slice?.destination?.code}</p>
       </div>
     </div>
   );

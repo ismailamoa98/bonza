@@ -8,8 +8,10 @@ import SearchFilters from "../components/search/SearchFilters";
 import SearchResultsList from "../components/search/SearchResultsList";
 import DetailPanel from "../components/search/DetailPanel";
 import ChatDrawer from "../components/search/ChatDrawer";
+import TripTray from "../components/search/TripTray";
+import OptimizePanel from "../components/search/OptimizePanel";
 import { SparklesIcon } from "../components/search/icons";
-import { filterResults, nightsFromMeta, PRICE_MAX } from "../components/search/filterResults";
+import { filterResults, nightsFromMeta, PRICE_MAX, DURATION_MAX, LAYOVER_MAX } from "../components/search/filterResults";
 
 const TABS = ["hotels", "flights", "cars"];
 
@@ -31,6 +33,15 @@ const DEFAULT_FILTERS = {
   cabins: [],
   departureTime: [],
   arrivalTime: [],
+  fMaxDuration: DURATION_MAX,
+  maxLayover: LAYOVER_MAX,
+  refundableOnly: false,
+  bagIncluded: false,
+  connectVia: [],
+  alliances: [],
+  aircraft: [],
+  returnDepartureTime: [],
+  returnArrivalTime: [],
 };
 
 export default function SearchPage() {
@@ -121,6 +132,10 @@ export default function SearchPage() {
       )}
 
       <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} searchContext={{ meta, selectedResult }} />
+
+      {/* Trip tray (bottom) + optimize overlay */}
+      <TripTray />
+      <OptimizePanel />
     </div>
   );
 }

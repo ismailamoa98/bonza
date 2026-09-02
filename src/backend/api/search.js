@@ -25,7 +25,9 @@ function buildPointsOption(award, hotel, accounts) {
     pointsCost: award.pointsCost,
     centsPerPoint,
     aboveBenchmark: centsPerPoint >= POINTS_BENCHMARK_CPP,
-    bookingUrl: award.bookingUrl || null,
+    // The hotel award deep link is generated at handoff time from the hotel + dates (POST
+    // /bookings/points-handoff) — never reuse the flight award row's URL here (wrong domain).
+    bookingUrl: null,
     userCanAfford: accounts.some((a) => a.programme === award.programme && a.balance >= award.pointsCost),
   };
 }

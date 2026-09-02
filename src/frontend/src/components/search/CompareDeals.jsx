@@ -4,9 +4,8 @@
 // slider that blends how many points to spend, and a dynamic advice callout. Cash + Credits recompute on
 // every slider move; the pure maths lives in redemptionMath.js. Built standalone so the flight body can
 // reuse it next.
-import { useState } from "react";
 import { PROGRAMME_LABELS } from "./programmes";
-import { computeRedemption, redemptionAdvice, pointsForFullStay, snapPoints } from "./redemptionMath";
+import { computeRedemption, redemptionAdvice, pointsForFullStay } from "./redemptionMath";
 import { formatGbp } from "../../utils/format";
 import { SparklesIcon, StarIcon } from "./icons";
 
@@ -26,7 +25,8 @@ export default function CompareDeals({
   const fullStay = pointsForFullStay(totalCash, centsPerPoint);
   const effectiveAvailable = balanceKnown ? availablePoints : fullStay;
 
-  // Start on Bonza's optimised pick (points-only / cash-only / blend, whichever is realistic).
+  // Fixed on Bonza's optimised pick (points-only / cash-only / blend, whichever is realistic) — this tab is
+  // now a read-only summary; the actionable choice lives in the "Book with points" modal.
   const initial = computeRedemption({
     totalCash,
     centsPerPoint,
@@ -34,7 +34,7 @@ export default function CompareDeals({
     availablePoints: effectiveAvailable,
     pointsUsed: 0,
   });
-  const [pointsUsed, setPointsUsed] = useState(initial.optimalPoints);
+  const pointsUsed = initial.optimalPoints;
 
   const r = computeRedemption({
     totalCash,
@@ -53,7 +53,6 @@ export default function CompareDeals({
     aboveBenchmark,
   });
 
-  const step = 500;
   // The bar tracks ONLY the programme this stay redeems into — points used ÷ that programme's balance.
   const usedPct = effectiveAvailable > 0 ? Math.min(100, (r.pointsUsed / effectiveAvailable) * 100) : 0;
   const hasPoints = r.maxPoints > 0;
@@ -147,24 +146,9 @@ export default function CompareDeals({
           />
         </div>
 
-        {/* Always-on blend slider */}
+        {/* Points usage (read-only) — how many of the user's points Bonza's pick uses out of their balance */}
         <div className="rounded-2xl bg-cream p-4">
-          <div className="flex justify-between text-[11px] font-medium text-ink-300 mb-1">
-            <span>More cash</span>
-            <span>More points</span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max={r.maxPoints || 0}
-            step={step}
-            value={r.pointsUsed}
-            disabled={!hasPoints}
-            onChange={(e) => setPointsUsed(snapPoints(Number(e.target.value), step))}
-            className="w-full accent-bonza disabled:opacity-40"
-            aria-label="Points to apply"
-          />
-          <div className="flex items-center justify-between mt-1.5">
+          <div className="flex items-center justify-between mb-2">
             <p className="text-[11px] text-ink-300 tabular-nums">
               {hasPoints
                 ? `Using ${r.pointsUsed.toLocaleString()} of ${Math.round(effectiveAvailable).toLocaleString()} ${programmeLabel} pts`
@@ -173,6 +157,9 @@ export default function CompareDeals({
             {centsPerPoint > 0 && (
               <p className="text-[11px] font-semibold text-ink-600 tabular-nums">{centsPerPoint.toFixed(1)}¢/pt</p>
             )}
+          </div>
+          <div className="h-2 bg-ink-900/[0.08] rounded-full overflow-hidden">
+            <div className="h-2 bg-bonza rounded-full transition-[width] duration-150" style={{ width: `${usedPct}%` }} />
           </div>
 
           {/* You pay — recalculates live */}

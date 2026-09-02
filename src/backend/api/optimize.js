@@ -3,9 +3,10 @@ const express = require("express");
 const prisma = require("../config/database");
 const { generateScenarios } = require("../utils/claudeOptimizer");
 const { generateRedemptionOptions } = require("../services/redemptionEngine");
-const { optimizeTrip } = require("../services/tripOptimizer");
+const { optimizeTrip, hotelRedemptionOptions, TRANSFER } = require("../services/tripOptimizer");
 const { PROGRAMME_VALUATIONS } = require("../services/emailLoyaltySync");
 const { formatProgramme } = require("../services/redemptionEngine");
+const { issuerTransferLink } = require("../services/awardLinks");
 const { ownedOr403 } = require("../utils/ownedOr403");
 const requirePro = require("../middleware/requirePro");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
@@ -23,6 +24,16 @@ function hashFactor(s) {
   let h = 0;
   for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) & 0xffff;
   return 0.7 + (h % 80) / 100; // 0.70–1.49 × the programme's typical value
+}
+
+// Award "duty" (taxes/resort fees paid in cash on a points redemption). Real value comes from the
+// Seats.aero / loyalty feed; offline this is a deterministic per-programme stand-in, clamped so it never
+// looks silly against a cheap stay.
+function mockAwardDuty(programme, cashGbp) {
+  let h = 0;
+  for (const ch of String(programme)) h = (h * 31 + ch.charCodeAt(0)) & 0xffff;
+  const perStay = 20 + (h % 5) * 10; // £20–£60, stable per programme
+  return Math.min(perStay, Math.round((Number(cashGbp) || 0) * 0.15));
 }
 function deriveAwards(leg) {
   const cash = Number(leg.cashGbp) || 0;
@@ -226,6 +237,53 @@ router.post("/trip", async (req, res, next) => {
     }).catch(() => {});
 
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /optimize/hotel-options — compare redemption options for one hotel stay (cash · full points · buy the
+// shortfall · Points+Cash tiers) and recommend the cheapest. Not Pro-gated (guided transfer/buy steps are).
+router.post("/hotel-options", async (req, res, next) => {
+  try {
+    const { cashGbp, centsPerPoint, programme } = req.body || {};
+    if (!programme || !(Number(cashGbp) > 0)) {
+      return res.status(400).json({ error: { message: "programme and cashGbp (>0) are required" } });
+    }
+
+    const accounts = await prisma.loyaltyAccount.findMany({ where: { userId: req.userId } });
+    const direct = accounts.find((a) => a.programme === programme)?.balance || 0;
+
+    // Fold in transferable currency (Amex MR / Chase UR) that maps to this programme — the largest single
+    // source — so "available" points reflect what the user could actually deploy via an exchange.
+    let transfer = null;
+    for (const a of accounts) {
+      const route = a.programme !== programme && TRANSFER[a.programme] && TRANSFER[a.programme][programme];
+      if (route) {
+        const converted = Math.floor((a.balance || 0) * (route.ratio || 1));
+        if (converted > 0 && (!transfer || converted > transfer.availablePoints)) {
+          transfer = { fromProgramme: a.programme, toProgramme: programme, ratio: route.ratio || 1, availablePoints: converted, issuerUrl: issuerTransferLink(a.programme) };
+        }
+      }
+    }
+    const availablePoints = direct + (transfer?.availablePoints || 0);
+
+    // Award "duty" (taxes/fees). Real value comes from the Seats.aero / loyalty-programme feed; offline we
+    // mock a small, deterministic per-stay figure so the redemption maths and UI have a value to show.
+    const dutyGbp = mockAwardDuty(programme, cashGbp);
+
+    const result = hotelRedemptionOptions({ cashGbp, centsPerPoint, programme, availablePoints, dutyGbp });
+
+    // Only surface the guided transfer when a points option actually needs the transferred points.
+    const needsTransfer = transfer != null && direct < result.fullPoints;
+
+    res.json({
+      ...result,
+      programme,
+      programmeLabel: formatProgramme(programme),
+      directPoints: direct,
+      transfer: needsTransfer ? transfer : null,
+    });
   } catch (err) {
     next(err);
   }

@@ -306,4 +306,56 @@ function optimizeTrip({ legs = [], accounts = [], overrides = {} } = {}) {
   };
 }
 
-module.exports = { optimizeTrip, TRANSFER, BUY_POINT_COST, BUY_PROMOS };
+// Redemption options for a SINGLE hotel stay. An award = a fixed points cost + a cash "duty" (award
+// taxes/fees, from the loyalty/Seats.aero feed; `dutyGbp` is passed in). Exactly two options each time:
+//   • enough points (owned + transfers ≥ full award) → Points only (full pts + duty) · Cash only
+//   • not enough                                      → Cash + Points (your pts + duty + BUY the shortfall) · Cash only
+// `availablePoints` already includes transferable currency converted at ratio (the endpoint folds exchanges
+// in). The shortfall is always covered by BUYING points (promo-aware). Ranks by economic cost.
+function hotelRedemptionOptions({ cashGbp, centsPerPoint, programme, availablePoints, dutyGbp = 0 }) {
+  const cash = Math.max(0, Number(cashGbp) || 0);
+  const cpp = Math.max(0, Number(centsPerPoint) || 0);
+  const rate = cpp / 100; // £ per point
+  const avail = Math.max(0, Math.round(Number(availablePoints) || 0));
+  const duty = round2(Math.max(0, Number(dutyGbp) || 0));
+  const valuation = PROGRAMME_VALUATIONS[programme] || 0.01;
+  const full = rate > 0 ? Math.round(cash / rate) : 0;
+  const eff = effBuyCost(programme); // £/pt to buy (promo-aware), or null if not buyable
+  const canAffordFull = full > 0 && avail >= full;
+  const shortfall = Math.max(0, full - avail);
+
+  const options = [];
+
+  if (canAffordFull) {
+    // Points only — the whole award is covered by available points; you still pay the cash duty.
+    options.push({ method: "points", pointsUsed: full, pointsBought: 0, buyCostGbp: 0, dutyGbp: duty, cashPaid: duty, economicCostGbp: round2(full * valuation + duty), promo: null });
+  } else if (full > 0 && eff != null) {
+    // Cash + Points — use every available point, BUY the shortfall, plus the cash duty.
+    const buyCostGbp = round2(shortfall * eff);
+    options.push({
+      method: "cash_points",
+      pointsUsed: avail,
+      pointsBought: shortfall,
+      buyCostGbp,
+      dutyGbp: duty,
+      cashPaid: round2(buyCostGbp + duty),
+      economicCostGbp: round2(avail * valuation + buyCostGbp + duty),
+      promo: BUY_PROMOS[programme]?.label || null,
+    });
+  }
+
+  // Cash only — always.
+  options.push({ method: "cash", pointsUsed: 0, pointsBought: 0, buyCostGbp: 0, dutyGbp: 0, cashPaid: round2(cash), economicCostGbp: round2(cash), promo: null });
+
+  // Recommend the lowest economic cost; a Cash+Points that relies on buying must clear the saving threshold.
+  let recommendedIndex = 0;
+  let best = Infinity;
+  options.forEach((o, i) => {
+    if (o.pointsBought > 0 && !buyClears(o.buyCostGbp, cash)) return;
+    if (o.economicCostGbp < best) { best = o.economicCostGbp; recommendedIndex = i; }
+  });
+
+  return { fullPoints: full, availablePoints: avail, canAffordFull, shortfall, dutyGbp: duty, options, recommendedIndex };
+}
+
+module.exports = { optimizeTrip, hotelRedemptionOptions, TRANSFER, BUY_POINT_COST, BUY_PROMOS };

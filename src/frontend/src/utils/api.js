@@ -147,6 +147,19 @@ export const recordAffiliateClick = (payload) =>
 export const confirmJourneyBooking = (journeyId, leg) =>
   client.post("/journeys/confirm-booking", { journeyId, leg }).then((r) => r.data);
 
+// Compare redemption options for one hotel stay (cash · points · cash+points), cheapest recommended.
+export const getHotelRedemptionOptions = (payload) =>
+  client.post("/optimize/hotel-options", payload).then((r) => r.data);
+
+// Points redemption handoff — creates a journey, records the click, returns the award-site deep link
+// (+ a buy-points step for a buy blend, + any transfer the user needs first). Nothing is booked until the
+// user self-reports.
+export const pointsHandoff = (payload) =>
+  client.post("/bookings/points-handoff", payload).then((r) => r.data);
+
+export const confirmTransfer = (journeyId, { fromProgramme, toProgramme, amount } = {}) =>
+  client.post("/journeys/confirm-transfer", { journeyId, fromProgramme, toProgramme, amount }).then((r) => r.data);
+
 export const getRecommendations = () =>
   client.get("/recommendations").then((r) => r.data);
 

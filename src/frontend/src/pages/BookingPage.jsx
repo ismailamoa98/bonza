@@ -73,7 +73,10 @@ export default function BookingPage() {
     if (didBootstrap.current) return;
     const hotelId = searchParams.get("hotel");
     const flightId = searchParams.get("flight");
-    if ((!hotelId && !flightId) || trip) return;
+    // Skip only when there's no URL selection, or a booking link already exists (store-driven package
+    // entry / already bootstrapped). Must NOT guard on `trip`: the Home/Dashboard search flow sets `trip`
+    // before navigating here, so `|| trip` would self-cancel and never create the booking link.
+    if ((!hotelId && !flightId) || bookingLink) return;
     didBootstrap.current = true;
 
     const origin = searchParams.get("origin") || searchMeta?.origin || "LHR";
@@ -124,7 +127,7 @@ export default function BookingPage() {
         setBootstrapping(false);
       }
     })();
-  }, [searchParams, trip, searchMeta, selectedResult, searchResults, setTrip, setTripId, setSelections, setBooking]);
+  }, [searchParams, bookingLink, searchMeta, selectedResult, searchResults, setTrip, setTripId, setSelections, setBooking]);
 
   const [form, setForm] = useState({
     title: "mr", firstName: "", lastName: "", dob: "", email: "", countryCode: "+44", phone: "", passport: "",

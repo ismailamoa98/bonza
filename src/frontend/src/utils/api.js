@@ -88,6 +88,11 @@ export const getCars = (filters = {}) => {
 export const searchTrip = (body) =>
   client.post("/search", body).then((r) => r.data);
 
+// Resolve one hotel by its search id (duffelHotelId) — used by the booking page to restore the exact
+// chosen property on a hard refresh / cold deep link when the store is empty.
+export const getSearchHotel = (id, params) =>
+  client.get(`/search/hotel/${id}`, { params }).then((r) => r.data.hotel);
+
 // Genuine property core (Google Places): rating, review count, editorial summary, address, map coords.
 export const getHotelDetails = (params) =>
   client.get("/hotels/details", { params }).then((r) => r.data);
@@ -147,8 +152,29 @@ export const recordAffiliateClick = (payload) =>
 export const confirmJourneyBooking = (journeyId, leg) =>
   client.post("/journeys/confirm-booking", { journeyId, leg }).then((r) => r.data);
 
+// Compare redemption options for one hotel stay (cash · points · cash+points), cheapest recommended.
+export const getHotelRedemptionOptions = (payload) =>
+  client.post("/optimize/hotel-options", payload).then((r) => r.data);
+
+// Points redemption handoff — creates a journey, records the click, returns the award-site deep link
+// (+ a buy-points step for a buy blend, + any transfer the user needs first). Nothing is booked until the
+// user self-reports.
+export const pointsHandoff = (payload) =>
+  client.post("/bookings/points-handoff", payload).then((r) => r.data);
+
+export const confirmTransfer = (journeyId, { fromProgramme, toProgramme, amount } = {}) =>
+  client.post("/journeys/confirm-transfer", { journeyId, fromProgramme, toProgramme, amount }).then((r) => r.data);
+
 export const getRecommendations = () =>
   client.get("/recommendations").then((r) => r.data);
+
+// Phase 14 — Points Portfolio. Portfolio = accounts grouped by category + header metrics; programme detail
+// = held value, best transfer, and the full transfer-partner table for one account.
+export const getPointsPortfolio = () =>
+  client.get("/points/portfolio").then((r) => r.data);
+
+export const getProgrammeDetail = (accountId) =>
+  client.get(`/points/programme/${accountId}`).then((r) => r.data);
 
 export const getNotifications = () =>
   client.get("/notifications").then((r) => r.data);

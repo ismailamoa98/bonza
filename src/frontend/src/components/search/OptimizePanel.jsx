@@ -22,6 +22,7 @@ export default function OptimizePanel() {
   const setOptimizeOpen = useAppStore((s) => s.setOptimizeOpen);
   const tripSelection = useAppStore((s) => s.tripSelection);
   const searchMeta = useAppStore((s) => s.searchMeta);
+  const searchResults = useAppStore((s) => s.searchResults);
   const navigate = useNavigate();
 
   const [shown, setShown] = useState(false);
@@ -31,7 +32,7 @@ export default function OptimizePanel() {
   const [overrides, setOverrides] = useState({});
 
   const nights = nightsFromMeta(searchMeta);
-  const legs = tripPayload(tripSelection, nights);
+  const legs = tripPayload(tripSelection, nights, searchResults?.awardFlights);
 
   const close = useCallback(() => {
     setShown(false);
@@ -193,6 +194,15 @@ export default function OptimizePanel() {
             onClick={() => {
               const meta = searchMeta || {};
               const hotel = tripSelection.hotel;
+              const flight = tripSelection.flight;
+              // Encode the chosen allocation so the booking page reflects which legs go points vs cash
+              // (e.g. "flight:points:united_mp,hotel:cash").
+              const plan = (view?.legs || [])
+                .map((l) => {
+                  const isPts = l.pointsUsed > 0 || l.pointsBought > 0;
+                  return isPts ? `${l.type}:points:${l.awardProgramme}` : `${l.type}:cash`;
+                })
+                .join(",");
               const qs = new URLSearchParams({
                 type: "cash",
                 origin: meta.origin || "",
@@ -201,6 +211,8 @@ export default function OptimizePanel() {
                 checkOut: meta.returnDate || "",
                 adults: String(meta.travelers || 1),
                 ...(hotel?.duffelHotelId ? { hotel: hotel.duffelHotelId } : {}),
+                ...(flight?.duffelOfferId ? { flight: flight.duffelOfferId } : {}),
+                ...(plan ? { plan } : {}),
               });
               close();
               navigate(`/booking?${qs.toString()}`);

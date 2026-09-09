@@ -12,6 +12,8 @@ import {
 import Navigation from "./components/Navigation";
 import HomePage from "./pages/HomePage";
 import Dashboard from "./pages/Dashboard";
+import Destinations from "./pages/Destinations";
+import PointsPage from "./pages/PointsPage";
 import Login from "./pages/Login";
 import FlexibleDates from "./pages/FlexibleDates";
 import SearchPage from "./pages/SearchPage";
@@ -154,6 +156,22 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <Dashboard />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/destinations"
+                element={
+                  <RequireAuth>
+                    <Destinations />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/points"
+                element={
+                  <RequireAuth>
+                    <PointsPage />
                   </RequireAuth>
                 }
               />

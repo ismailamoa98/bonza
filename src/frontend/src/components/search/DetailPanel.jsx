@@ -14,9 +14,12 @@ import { pointsFor } from "./points";
 import { pointsForFullStay } from "./redemptionMath";
 import CompareDeals from "./CompareDeals";
 import ReviewsTab from "./ReviewsTab";
+import PointsRedeemModal from "./PointsRedeemModal";
+import PostClickPrompt from "../PostClickPrompt";
 import { getHotelDetails } from "../../utils/api";
 import {
   XIcon,
+  ShareIcon,
   CardIcon,
   CheckIcon,
   LockIcon,
@@ -99,6 +102,31 @@ function CloseButton({ onClose }) {
   );
 }
 
+// Copies the current deep-link URL (incl. ?hotel= / ?flight=) so the recipient opens straight to this
+// panel; shows a confirmation tick for 2s.
+function ShareButton() {
+  const [copied, setCopied] = useState(false);
+  const share = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked (insecure context / denied) — leave state unchanged */
+    }
+  };
+  return (
+    <button
+      onClick={share}
+      className="absolute top-3 right-14 w-9 h-9 rounded-full bg-white/95 shadow flex items-center justify-center text-ink-600 hover:text-ink-900 z-10"
+      aria-label={copied ? "Link copied" : "Share this deal"}
+      title={copied ? "Link copied" : "Copy link to share"}
+    >
+      {copied ? <CheckIcon width="16" height="16" className="text-[#1E7E40]" /> : <ShareIcon width="15" height="15" />}
+    </button>
+  );
+}
+
 function HotelBody({ result, meta, loyaltyAccounts, tab, setTab, navigate, onClose }) {
   const cash = result.cashOption;
   const pts = pointsFor(result);
@@ -134,9 +162,12 @@ function HotelBody({ result, meta, loyaltyAccounts, tab, setTab, navigate, onClo
   const mapLng = details?.longitude ?? coords?.longitude ?? null;
 
   const userAccount = loyaltyAccounts.find((a) => a.programme === pts?.programme);
-  // Points to cover the whole stay, derived from cash + ¢/pt (see redemptionMath) — not raw pointsCost.
-  const totalPoints = pts ? pointsForFullStay(totalCash, pts.centsPerPoint) : 0;
-  const canAffordPoints = userAccount && pts ? userAccount.balance >= totalPoints : false;
+  // Points to cover the whole stay (from cash + ¢/pt) — used to label the CTA with the amount + programme.
+  const fullStayPoints = pts ? pointsForFullStay(totalCash, pts.centsPerPoint) : 0;
+  const ptsProgrammeLabel = PROGRAMME_LABELS[pts?.programme] || pts?.programme || "points";
+
+  const [pointsModal, setPointsModal] = useState(false);
+  const [handoffJourney, setHandoffJourney] = useState(null);
 
   function bookCash() {
     const qs = new URLSearchParams({
@@ -151,7 +182,7 @@ function HotelBody({ result, meta, loyaltyAccounts, tab, setTab, navigate, onClo
     navigate(`/booking?${qs.toString()}`);
   }
   function bookPoints() {
-    if (pts?.bookingUrl) window.open(pts.bookingUrl, "_blank", "noopener,noreferrer");
+    setPointsModal(true);
   }
 
   return (
@@ -160,6 +191,7 @@ function HotelBody({ result, meta, loyaltyAccounts, tab, setTab, navigate, onClo
       <div className="relative flex-shrink-0 h-[280px] bg-gradient-to-br from-[#6FB7D4] to-[#3D7EA6]">
         <PhotoGallery photos={hotelPhotos(result)} alt={result.name} />
         <CloseButton onClose={onClose} />
+        <ShareButton />
       </div>
 
       {/* Title + tabs */}
@@ -354,13 +386,31 @@ function HotelBody({ result, meta, loyaltyAccounts, tab, setTab, navigate, onClo
         {pts && (
           <button
             onClick={bookPoints}
-            disabled={!canAffordPoints && !!userAccount}
-            className="flex-1 py-3 bg-bonza text-white rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 tabular-nums disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 py-3 bg-bonza text-white rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 tabular-nums text-center"
           >
-            <StarIcon width="15" height="15" /> Book with {totalPoints.toLocaleString()} pts
+            <StarIcon width="15" height="15" className="flex-shrink-0" /> Book with {fullStayPoints.toLocaleString()} {ptsProgrammeLabel} pts
           </button>
         )}
       </div>
+
+      <PointsRedeemModal
+        open={pointsModal}
+        onClose={() => setPointsModal(false)}
+        result={result}
+        meta={meta}
+        programme={pts?.programme}
+        centsPerPoint={pts?.centsPerPoint || 0}
+        totalCash={totalCash}
+        onHandoff={(journeyId) => setHandoffJourney(journeyId)}
+      />
+      {handoffJourney && (
+        <PostClickPrompt
+          journeyId={handoffJourney}
+          programme={pts?.programme}
+          leg="hotel"
+          onClose={() => setHandoffJourney(null)}
+        />
+      )}
     </>
   );
 }
@@ -393,6 +443,7 @@ function FlightBody({ result, meta, navigate, onClose }) {
     <>
       <div className="relative flex-shrink-0 px-6 pt-5 pb-4 border-b border-ink-900/[0.06]">
         <CloseButton onClose={onClose} />
+        <ShareButton />
         <div className="flex items-center gap-3">
           <AirlineLogo code={airlineCode} name={airlineName} size={40} />
           <div className="min-w-0">

@@ -219,12 +219,19 @@ router.post("/trip", async (req, res, next) => {
     }
 
     const withAwards = legs
-      .filter((l) => l && ["flight", "hotel", "car"].includes(l.type))
+      .filter((l) => l && ["flight", "hotel"].includes(l.type))
       .map((l) => ({
         type: l.type,
         label: l.label || l.type,
         cashGbp: Number(l.cashGbp) || 0,
-        awards: deriveAwards(l),
+        // Prefer the real award options the client threads through (hotel pointsOption / route award
+        // flights); fall back to the deterministic estimate only when none were supplied.
+        awards:
+          Array.isArray(l.awards) && l.awards.length
+            ? l.awards
+                .filter((a) => a && a.programme && Number(a.pointsCost) > 0)
+                .map((a) => ({ programme: a.programme, pointsCost: Math.round(Number(a.pointsCost)) }))
+            : deriveAwards(l),
       }));
 
     const accounts = await prisma.loyaltyAccount.findMany({ where: { userId: req.userId } });

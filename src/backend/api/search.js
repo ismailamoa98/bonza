@@ -139,4 +139,42 @@ router.post("/", async (req, res, next) => {
   }
 });
 
+// GET /search/hotel/:id — resolve one hotel by its search id (duffelHotelId) in the search shape, so the
+// booking page can restore the exact chosen property on a hard refresh / cold deep link (when the store is
+// empty). Location + dates come as query params (the booking URL already carries them).
+router.get("/hotel/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { destination, checkIn, checkOut, adults } = req.query;
+    if (!destination) {
+      return res.status(400).json({ error: { message: "destination is required" } });
+    }
+
+    const hotels = await searchHotels({
+      location: destination,
+      checkIn,
+      checkOut,
+      adults: parseInt(adults, 10) || 2,
+    }).catch(() => []);
+
+    const match = hotels.find((h) => h.duffelHotelId === id);
+    if (!match) return res.status(404).json({ error: { message: "hotel not found" } });
+
+    res.json({
+      hotel: {
+        ...match,
+        cashOption: {
+          priceGbp: match.lowestRate,
+          supplier: "duffel",
+          creditsEarned: round2(match.lowestRate * CASHBACK_RATE),
+          offerId: match.duffelHotelId,
+        },
+      },
+      mock: !env.hasDuffel,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

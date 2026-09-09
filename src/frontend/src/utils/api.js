@@ -88,6 +88,11 @@ export const getCars = (filters = {}) => {
 export const searchTrip = (body) =>
   client.post("/search", body).then((r) => r.data);
 
+// Resolve one hotel by its search id (duffelHotelId) — used by the booking page to restore the exact
+// chosen property on a hard refresh / cold deep link when the store is empty.
+export const getSearchHotel = (id, params) =>
+  client.get(`/search/hotel/${id}`, { params }).then((r) => r.data.hotel);
+
 // Genuine property core (Google Places): rating, review count, editorial summary, address, map coords.
 export const getHotelDetails = (params) =>
   client.get("/hotels/details", { params }).then((r) => r.data);
@@ -162,6 +167,14 @@ export const confirmTransfer = (journeyId, { fromProgramme, toProgramme, amount 
 
 export const getRecommendations = () =>
   client.get("/recommendations").then((r) => r.data);
+
+// Phase 14 — Points Portfolio. Portfolio = accounts grouped by category + header metrics; programme detail
+// = held value, best transfer, and the full transfer-partner table for one account.
+export const getPointsPortfolio = () =>
+  client.get("/points/portfolio").then((r) => r.data);
+
+export const getProgrammeDetail = (accountId) =>
+  client.get(`/points/programme/${accountId}`).then((r) => r.data);
 
 export const getNotifications = () =>
   client.get("/notifications").then((r) => r.data);

@@ -60,7 +60,8 @@ const initialState = {
   searchError: null,
 
   // Phase 13 — trip tray: legs the user has chosen to optimise across (distinct from selectedResult).
-  tripSelection: { hotel: null, flight: null, car: null },
+  // Cars are out of scope — only flight + hotel legs.
+  tripSelection: { hotel: null, flight: null },
   optimizeOpen: false, // the OptimizePanel overlay
 };
 
@@ -134,7 +135,7 @@ export const useAppStore = create((set) => ({
     set((state) => ({ tripSelection: { ...state.tripSelection, [type]: item } })),
   removeFromTrip: (type) =>
     set((state) => ({ tripSelection: { ...state.tripSelection, [type]: null } })),
-  clearTrip: () => set({ tripSelection: { hotel: null, flight: null, car: null } }),
+  clearTrip: () => set({ tripSelection: { hotel: null, flight: null } }),
   setOptimizeOpen: (optimizeOpen) => set({ optimizeOpen }),
 
   setOptimization: ({

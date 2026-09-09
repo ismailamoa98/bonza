@@ -51,12 +51,14 @@ const PROGRAMME_PATTERNS = {
     senderDomains: ["united.com"],
     subjectPatterns: ["MileagePlus", "miles statement"],
     balanceRegex: /(\d{1,3}(?:,\d{3})*)\s*(?:MileagePlus\s*)?miles/i,
+    balanceUnit: "miles",
     statusRegex: /(?:Member|Silver|Gold|Platinum|1K)/i,
   },
   ba_avios: {
     senderDomains: ["britishairways.com", "ba.com"],
     subjectPatterns: ["Executive Club", "Avios statement"],
     balanceRegex: /(\d{1,3}(?:,\d{3})*)\s*Avios/i,
+    balanceUnit: "Avios",
     statusRegex: /(?:Blue|Bronze|Silver|Gold)\s*(?:Executive Club)?/i,
   },
 };
@@ -85,6 +87,19 @@ const PROGRAMME_NAMES = {
   ba_avios: "British Airways Avios",
 };
 const formatProgramme = (p) => PROGRAMME_NAMES[p] || p;
+
+// Programmes whose statement/post-stay emails reliably include the current balance — the only ones we
+// offer "Verify with email" for. Hotels + major airlines qualify. Banks/cards (amex_mr, chase_ur, …) are
+// deliberately excluded even though patterns exist: they keep balances behind login and don't email them,
+// so scraping them produces wrong numbers. Those route to manual (or a future aggregator / AwardWallet).
+const EMAIL_VERIFIABLE = new Set([
+  "marriott_bonvoy",
+  "hilton_honors",
+  "world_of_hyatt",
+  "ihg_one",
+  "united_mp",
+  "ba_avios",
+]);
 
 // ── Duplicate-account prevention (8l) ──────────────────────────────────────────
 
@@ -202,6 +217,34 @@ const EMAIL_PROVIDERS = {
   outlook: { fetchLatestBody: fetchOutlookLatestBody },
 };
 
+// ── Balance extraction ─────────────────────────────────────────────────────
+
+// Pull a points balance out of an email body. Ordered from most to least reliable:
+//   1-2. a number sitting next to a balance-context word ("balance"/"available"/…) — this dodges
+//        promotional "earn 2,000 bonus points" figures that would otherwise win as the first match;
+//   3.   any correctly-formed number followed by the programme's unit, using a corrected number token
+//        (\d{1,3}(?:,\d{3})+|\d{4,}) that requires real comma-grouping OR 4+ raw digits — this fixes the
+//        old token's "124000 points" → "000" → 0 mis-parse and ignores sub-1000 un-grouped promo numbers;
+//   4.   the pattern's legacy balanceRegex, only as a last resort.
+// Returns an integer, or null when nothing plausible is found. Exported for unit checks (no test runner).
+function extractBalance(body, patterns) {
+  if (!body) return null;
+  const NUM = "(\\d{1,3}(?:,\\d{3})+|\\d{4,})";
+  const unit = patterns.balanceUnit || "points|pts";
+  const ctx = "balance|available|current|total|you have";
+  const candidates = [
+    new RegExp(`(?:${ctx})[^\\d]{0,40}${NUM}\\s*(?:${unit})`, "i"), // "balance … 124,000 points"
+    new RegExp(`${NUM}\\s*(?:${unit})[^\\d]{0,25}(?:${ctx})`, "i"), // "124,000 points … your balance"
+    new RegExp(`${NUM}\\s*(?:${unit})`, "i"), // corrected loose match (fixes un-grouped numbers)
+    patterns.balanceRegex, // legacy loose regex — last resort
+  ];
+  for (const re of candidates) {
+    const m = re && body.match(re);
+    if (m) return parseInt(m[1].replace(/,/g, ""), 10);
+  }
+  return null;
+}
+
 // ── Real sync ────────────────────────────────────────────────────────────────
 
 // Parse the user's recent loyalty emails (via `provider`) and upsert balances.
@@ -216,10 +259,23 @@ async function parseEmailsForUser(userId, accessToken, provider = "gmail") {
       const body = await impl.fetchLatestBody(accessToken, patterns);
       if (!body) continue;
 
-      const balanceMatch = body.match(patterns.balanceRegex);
-      if (!balanceMatch) continue;
+      const balance = extractBalance(body, patterns);
+      if (balance == null) continue;
 
-      const balance = parseInt(balanceMatch[1].replace(/,/g, ""), 10);
+      // Overwrite guardrail: a parsed 0, or a sharp drop to <10% of a positive existing balance, is
+      // almost certainly a mis-scrape — skip it rather than clobber a good balance and mislabel it
+      // "Verified". The programme then falls back to the user's typed/self-reported value.
+      const existing = await prisma.loyaltyAccount.findUnique({
+        where: { userId_programme: { userId, programme } },
+      });
+      if (balance === 0 || (existing && existing.balance > 0 && balance < existing.balance * 0.1)) {
+        logger.warn(
+          `[emailLoyaltySync] suspicious ${programme} balance ${balance}` +
+            (existing ? ` (existing ${existing.balance})` : "") + ` via ${provider} — skipping overwrite`
+        );
+        continue;
+      }
+
       const statusMatch = patterns.statusRegex ? body.match(patterns.statusRegex) : null;
       const statusTier = statusMatch ? statusMatch[0].trim() : null;
       const valueGbp = Math.round(balance * PROGRAMME_VALUATIONS[programme] * 100) / 100;
@@ -304,6 +360,8 @@ async function mockSyncForUser(userId) {
 
 module.exports = {
   parseEmailsForUser,
+  extractBalance,
+  EMAIL_VERIFIABLE,
   mockSyncForUser,
   checkLoyaltyAccountConflict,
   formatProgramme,

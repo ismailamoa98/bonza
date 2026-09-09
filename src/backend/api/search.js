@@ -25,7 +25,9 @@ function buildPointsOption(award, hotel, accounts) {
     pointsCost: award.pointsCost,
     centsPerPoint,
     aboveBenchmark: centsPerPoint >= POINTS_BENCHMARK_CPP,
-    bookingUrl: award.bookingUrl || null,
+    // The hotel award deep link is generated at handoff time from the hotel + dates (POST
+    // /bookings/points-handoff) — never reuse the flight award row's URL here (wrong domain).
+    bookingUrl: null,
     userCanAfford: accounts.some((a) => a.programme === award.programme && a.balance >= award.pointsCost),
   };
 }
@@ -130,6 +132,44 @@ router.post("/", async (req, res, next) => {
       loyaltyAccounts: accounts,
       searchMeta: { origin: origin || null, destination, departureDate, returnDate, travelers, travelStyle: travelStyle || null },
       preSelectedPackageId: packageId || null,
+      mock: !env.hasDuffel,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /search/hotel/:id — resolve one hotel by its search id (duffelHotelId) in the search shape, so the
+// booking page can restore the exact chosen property on a hard refresh / cold deep link (when the store is
+// empty). Location + dates come as query params (the booking URL already carries them).
+router.get("/hotel/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { destination, checkIn, checkOut, adults } = req.query;
+    if (!destination) {
+      return res.status(400).json({ error: { message: "destination is required" } });
+    }
+
+    const hotels = await searchHotels({
+      location: destination,
+      checkIn,
+      checkOut,
+      adults: parseInt(adults, 10) || 2,
+    }).catch(() => []);
+
+    const match = hotels.find((h) => h.duffelHotelId === id);
+    if (!match) return res.status(404).json({ error: { message: "hotel not found" } });
+
+    res.json({
+      hotel: {
+        ...match,
+        cashOption: {
+          priceGbp: match.lowestRate,
+          supplier: "duffel",
+          creditsEarned: round2(match.lowestRate * CASHBACK_RATE),
+          offerId: match.duffelHotelId,
+        },
+      },
       mock: !env.hasDuffel,
     });
   } catch (err) {

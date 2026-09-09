@@ -8,8 +8,103 @@ const { createBookingPaymentIntent, retrievePaymentIntent } = require("../servic
 const { bookCashFlight } = require("../services/duffelService");
 const { getPropertyReviews } = require("../services/googlePlacesService");
 const { COMMISSION_RATES } = require("../config/constants");
+const env = require("../config/env");
+const { buildAffiliateUrl, hotelAffiliateProgramme, recordClick } = require("../services/affiliateService");
+const { hotelAwardLink, buyPointsLink, issuerTransferLink } = require("../services/awardLinks");
+const { TRANSFER } = require("../services/tripOptimizer");
 
 const router = express.Router();
+
+// Detect whether the user must transfer points into `programme` to redeem: none if they hold it directly,
+// otherwise the cheapest transferable currency they hold that maps to it (Amex MR / Chase UR).
+function detectTransfer(heldProgrammes, programme, pointsUsed) {
+  if (heldProgrammes.includes(programme)) return null;
+  for (const from of heldProgrammes) {
+    const route = TRANSFER[from] && TRANSFER[from][programme];
+    if (route) {
+      const ratio = route.ratio || 1;
+      return {
+        fromProgramme: from,
+        toProgramme: programme,
+        ratio,
+        pointsToTransfer: Math.ceil((Number(pointsUsed) || 0) / ratio),
+        issuerUrl: issuerTransferLink(from),
+      };
+    }
+  }
+  return null;
+}
+
+// POST /bookings/points-handoff — start an honest award-redemption handoff: create a journey, record the
+// outbound click, and return the affiliate-wrapped deep link to the programme's award site (+ any transfer
+// the user needs first). No points move and nothing is booked here — the user completes it on the site and
+// self-reports via PostClickPrompt (→ /journeys/confirm-booking).
+router.post("/points-handoff", async (req, res, next) => {
+  try {
+    const { hotelId, name, city, programme, checkIn, checkOut, adults, method, pointsUsed, pointsBought, buyCostGbp, cashGbp } = req.body || {};
+    if (!programme) {
+      const err = new Error("programme is required");
+      err.status = 400;
+      throw err;
+    }
+
+    const destination = city || name || null;
+    const totalPoints = (Number(pointsUsed) || 0) + (Number(pointsBought) || 0);
+    const journey = await prisma.userJourney.create({
+      data: {
+        userId: req.userId,
+        destination,
+        recommendedScenario: "points",
+        recommendedProgramme: programme,
+        pointsRecommended: totalPoints ? Math.round(totalPoints) : null,
+        bookingValueGbp: cashGbp != null ? Number(cashGbp) : null,
+        deepLinkLeg: "hotel",
+      },
+    });
+
+    const rawUrl = hotelAwardLink(programme, { name, city, checkIn, checkOut, adults });
+    const affiliateProgramme = hotelAffiliateProgramme(programme);
+    const awardUrl = rawUrl ? buildAffiliateUrl(affiliateProgramme, rawUrl, "hotel") : null;
+    // A blend that buys the shortfall needs a first hop to the programme's buy-points page.
+    const buyPointsUrl = Number(pointsBought) > 0 ? buyPointsLink(programme) : null;
+
+    if (awardUrl) {
+      await recordClick({
+        userId: req.userId,
+        programme: affiliateProgramme,
+        destinationUrl: rawUrl,
+        bookingType: "points",
+        leg: "hotel",
+      }).catch(() => {});
+      await prisma.userJourney
+        .update({ where: { id: journey.id }, data: { deepLinkClicked: true, deepLinkClickedAt: new Date() } })
+        .catch(() => {});
+    }
+
+    const accounts = await prisma.loyaltyAccount.findMany({ where: { userId: req.userId } });
+    const transfer = detectTransfer(accounts.map((a) => a.programme), programme, pointsUsed);
+
+    recordEvent(req.userId, EVENT_TYPES.DEEP_LINK_CLICKED, {
+      journeyId: journey.id,
+      leg: "hotel",
+      programme,
+      method: method || "points",
+      needsTransfer: Boolean(transfer),
+    }).catch(() => {});
+
+    res.status(201).json({
+      journeyId: journey.id,
+      awardUrl,
+      buyPointsUrl,
+      hotelId: hotelId || null,
+      needsTransfer: Boolean(transfer),
+      transfer,
+      mock: !env.hasAffiliate,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 const NEVER_EXPIRES = new Date("9999-12-31T00:00:00.000Z");
 

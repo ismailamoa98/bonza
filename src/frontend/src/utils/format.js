@@ -38,6 +38,19 @@ export const formatPoints = (n) => {
   return num >= 1000 ? `${Math.round(num / 1000)}k` : `${num}`;
 };
 
+// Locale-aware "last updated" timestamp (uses the viewer's own locale). `withTime` adds hour:minute.
+export const formatUpdatedAt = (iso, { withTime = false } = {}) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
+  });
+};
+
 // All amounts are GBP values; both helpers convert to the user's display currency (see utils/money).
 export const formatMoney = (n) => money(n);
 

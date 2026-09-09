@@ -4,6 +4,7 @@
 // Run via `npm run db:seed` (after `npm run db:setup`).
 const prisma = require("../config/database");
 const { DEV_USER } = require("../config/constants");
+const { seedProgrammes } = require("./seedProgrammes");
 
 async function main() {
   const user = await prisma.user.upsert({
@@ -19,6 +20,9 @@ async function main() {
   });
 
   console.log(`Seeded demo user: ${user.email} (${user.id})`);
+
+  // Phase 14 — programme valuations + transfer graph (reference data).
+  await seedProgrammes();
 }
 
 main()

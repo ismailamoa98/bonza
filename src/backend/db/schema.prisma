@@ -211,6 +211,8 @@ model LoyaltyAccount {
   statusTier String? // 'Silver' | 'Gold' | 'Platinum' | 'Globalist' etc.
 
   pointsExpireAt DateTime?
+  statusRenewsAt DateTime? // Phase 14: when elite status is reviewed (email-parsed; nullable)
+  nightsThisYear Int? // Phase 14: hotel status progress (email-parsed; nullable)
 
   lastSynced DateTime
   syncMethod String // 'email_parse' | 'manual' | 'awardwallet'
@@ -469,4 +471,53 @@ model PropertyReview {
 
   @@unique([userId, placeId])
   @@index([placeId, status, createdAt])
+}
+
+// ── Phase 14: Points Portfolio ──────────────────────────────────────────────
+// Bonza-maintained programme valuations (cents-per-point) + transfer graph. Reference data seeded once
+// (seedProgrammes.js) and refreshed nightly (valuationRefreshJob.js). The /points page renders from these
+// cached rows rather than any live third-party API.
+model ProgrammeValuation {
+  id        String @id @default(cuid())
+  programme String @unique // 'marriott_bonvoy' | 'amex_mr' | 'ba_avios' | ...
+
+  displayName String
+  category    String // 'hotel' | 'airline' | 'card' | 'car'
+  brandColor  String // hex for the row dot
+
+  centsPerPoint Float // current valuation, e.g. 0.8
+  benchmarkCpp  Float // programme's typical rate for comparison
+  currency      String @default("pts") // 'pts' | 'miles' | 'Avios'
+
+  isTransferable     Boolean @default(false) // Amex MR, Chase UR, Marriott
+  hasPointsProgramme Boolean @default(true) // false for car-rental status programmes
+
+  updatedAt       DateTime @updatedAt
+  lastRefreshedAt DateTime @default(now())
+
+  transfersFrom TransferPartner[] @relation("FromProgramme")
+  transfersTo   TransferPartner[] @relation("ToProgramme")
+}
+
+model TransferPartner {
+  id String @id @default(cuid())
+
+  fromProgramme String
+  from          ProgrammeValuation @relation("FromProgramme", fields: [fromProgramme], references: [programme])
+
+  toProgramme String
+  to          ProgrammeValuation @relation("ToProgramme", fields: [toProgramme], references: [programme])
+
+  ratioFrom       Int // e.g. 3 for Marriott 3:1
+  ratioTo         Int // e.g. 1
+  transferTimeHrs Int? // typical transfer time in hours; null if instant/unknown
+  minimumTransfer Int? // minimum points that can be transferred
+  isActive        Boolean @default(true) // false when a partnership ends
+  bonusActive     Boolean @default(false) // true during a transfer bonus promotion
+  bonusPercent    Int? // e.g. 30 for a 30% transfer bonus
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([fromProgramme, toProgramme])
+  @@index([fromProgramme, isActive])
 }

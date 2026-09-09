@@ -5,7 +5,7 @@ import { nightsFromMeta } from "./filterResults";
 import { tripLegInfo } from "./tripLeg";
 import { XIcon, SparklesIcon } from "./icons";
 
-const TYPES = ["flight", "hotel", "car"];
+const TYPES = ["flight", "hotel"];
 
 export default function TripTray() {
   const tripSelection = useAppStore((s) => s.tripSelection);

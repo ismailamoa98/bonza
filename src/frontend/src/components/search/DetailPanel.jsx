@@ -19,6 +19,7 @@ import PostClickPrompt from "../PostClickPrompt";
 import { getHotelDetails } from "../../utils/api";
 import {
   XIcon,
+  ShareIcon,
   CardIcon,
   CheckIcon,
   LockIcon,
@@ -101,6 +102,31 @@ function CloseButton({ onClose }) {
   );
 }
 
+// Copies the current deep-link URL (incl. ?hotel= / ?flight=) so the recipient opens straight to this
+// panel; shows a confirmation tick for 2s.
+function ShareButton() {
+  const [copied, setCopied] = useState(false);
+  const share = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked (insecure context / denied) — leave state unchanged */
+    }
+  };
+  return (
+    <button
+      onClick={share}
+      className="absolute top-3 right-14 w-9 h-9 rounded-full bg-white/95 shadow flex items-center justify-center text-ink-600 hover:text-ink-900 z-10"
+      aria-label={copied ? "Link copied" : "Share this deal"}
+      title={copied ? "Link copied" : "Copy link to share"}
+    >
+      {copied ? <CheckIcon width="16" height="16" className="text-[#1E7E40]" /> : <ShareIcon width="15" height="15" />}
+    </button>
+  );
+}
+
 function HotelBody({ result, meta, loyaltyAccounts, tab, setTab, navigate, onClose }) {
   const cash = result.cashOption;
   const pts = pointsFor(result);
@@ -165,6 +191,7 @@ function HotelBody({ result, meta, loyaltyAccounts, tab, setTab, navigate, onClo
       <div className="relative flex-shrink-0 h-[280px] bg-gradient-to-br from-[#6FB7D4] to-[#3D7EA6]">
         <PhotoGallery photos={hotelPhotos(result)} alt={result.name} />
         <CloseButton onClose={onClose} />
+        <ShareButton />
       </div>
 
       {/* Title + tabs */}
@@ -416,6 +443,7 @@ function FlightBody({ result, meta, navigate, onClose }) {
     <>
       <div className="relative flex-shrink-0 px-6 pt-5 pb-4 border-b border-ink-900/[0.06]">
         <CloseButton onClose={onClose} />
+        <ShareButton />
         <div className="flex items-center gap-3">
           <AirlineLogo code={airlineCode} name={airlineName} size={40} />
           <div className="min-w-0">

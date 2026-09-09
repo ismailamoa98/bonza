@@ -22,22 +22,39 @@ export function tripLegInfo(type, item, nights = 1) {
       img: null,
     };
   }
-  // car (future)
-  return {
-    type,
-    label: item.name || "Car",
-    sub: item.vendor || "",
-    cashGbp: Math.round(item.cashOption?.priceGbp || item.totalAmount || 0),
-    img: null,
-  };
+  return null; // cars are out of scope
 }
 
-// The { legs } payload for POST /optimize/trip from the current tray selection.
-export function tripPayload(tripSelection, nights = 1) {
+// Real award options for one leg, so the optimiser reasons over genuine pricing instead of an estimate.
+// Hotel: the selected result's own pointsOption (real award availability). Flight: the route's award
+// flights from the search (Seats.aero). Shape matches the backend's deriveAwards fallback.
+function legAwards(type, item, cashGbp, awardFlights = []) {
+  if (type === "hotel" && item?.pointsOption?.programme && item.pointsOption.centsPerPoint > 0) {
+    const pointsCost = Math.round((cashGbp * 100) / item.pointsOption.centsPerPoint);
+    return pointsCost > 0 ? [{ programme: item.pointsOption.programme, pointsCost }] : [];
+  }
+  if (type === "flight") {
+    return (awardFlights || [])
+      .filter((a) => a?.programme && Number(a.pointsCost) > 0)
+      .map((a) => ({ programme: a.programme, pointsCost: Math.round(Number(a.pointsCost)) }));
+  }
+  return [];
+}
+
+// The { legs } payload for POST /optimize/trip from the current tray selection. `awardFlights` (from the
+// search results) supplies real flight award pricing; hotel award pricing comes off the item itself.
+export function tripPayload(tripSelection, nights = 1, awardFlights = []) {
   return Object.entries(tripSelection)
     .filter(([, item]) => item)
     .map(([type, item]) => {
       const info = tripLegInfo(type, item, nights);
-      return { type, label: info.label, cashGbp: info.cashGbp };
-    });
+      if (!info) return null;
+      return {
+        type,
+        label: info.label,
+        cashGbp: info.cashGbp,
+        awards: legAwards(type, item, info.cashGbp, awardFlights),
+      };
+    })
+    .filter(Boolean);
 }

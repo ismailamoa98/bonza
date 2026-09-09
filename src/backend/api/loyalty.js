@@ -155,24 +155,34 @@ router.post("/disconnect", async (req, res, next) => {
 // Manual balance entry — the universal fallback when a user won't connect email.
 router.post("/accounts", async (req, res, next) => {
   try {
-    const { programme, balance, statusTier } = req.body || {};
-    if (!programme || !(programme in PROGRAMME_VALUATIONS)) {
-      return res.status(400).json({
-        error: { message: `Unknown programme. One of: ${Object.keys(PROGRAMME_VALUATIONS).join(", ")}` },
-      });
+    const { programme, balance, statusTier, accountNumber, loyaltyEmailAddress } = req.body || {};
+    if (!programme) {
+      return res.status(400).json({ error: { message: "programme is required" } });
+    }
+    // Validate against the full Phase 14 programme catalog (18 programmes), pricing from its cents/pt.
+    const valuation = await prisma.programmeValuation.findUnique({ where: { programme } });
+    if (!valuation) {
+      return res.status(400).json({ error: { message: `Unknown programme '${programme}'` } });
     }
     const bal = parseInt(balance, 10);
     if (!Number.isFinite(bal) || bal < 0) {
       return res.status(400).json({ error: { message: "balance must be a non-negative number" } });
     }
-    const valueGbp = round2(bal * PROGRAMME_VALUATIONS[programme]);
+    const valueGbp = round2(bal * (valuation.centsPerPoint / 100));
     const account = await prisma.loyaltyAccount.upsert({
       where: { userId_programme: { userId: req.userId, programme } },
-      update: { balance: bal, valueGbp, statusTier: statusTier || null, lastSynced: new Date(), syncMethod: "manual" },
-      create: { userId: req.userId, programme, balance: bal, valueGbp, statusTier: statusTier || null, lastSynced: new Date(), syncMethod: "manual" },
+      update: {
+        balance: bal, valueGbp, statusTier: statusTier || null, lastSynced: new Date(), syncMethod: "manual",
+        accountNumber: accountNumber || null, loyaltyEmailAddress: loyaltyEmailAddress || null,
+      },
+      create: {
+        userId: req.userId, programme, balance: bal, valueGbp, statusTier: statusTier || null,
+        lastSynced: new Date(), syncMethod: "manual",
+        accountNumber: accountNumber || null, loyaltyEmailAddress: loyaltyEmailAddress || null,
+      },
     });
     recordEvent(req.userId, EVENT_TYPES.LOYALTY_SYNCED, { provider: "manual", synced: 1, programme });
-    res.status(201).json({ account, name: PROGRAMME_NAMES[programme] || programme });
+    res.status(201).json({ account, name: valuation.displayName || PROGRAMME_NAMES[programme] || programme });
   } catch (err) {
     next(err);
   }

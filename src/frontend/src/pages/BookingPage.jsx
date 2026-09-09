@@ -1,5 +1,5 @@
 // pages/BookingPage.jsx — confirm booking: guest/loyalty/payment + loyalty-earnings card; on-site cash flow.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAppStore, computeCombination, tripNights } from "../store/appStore";
 import {
@@ -10,6 +10,7 @@ import {
   getFlights,
   getHotels,
   getCars,
+  getSearchHotel,
   createBookingLink,
 } from "../utils/api";
 import { formatMoney, formatPoints, shortDate } from "../utils/format";
@@ -107,11 +108,17 @@ export default function BookingPage() {
         setTrip(tripData);
         setTripId(id);
 
-        // Prefer the chosen hotel; fall back to browse inventory only when the store had nothing.
+        // Prefer the chosen hotel; on a cold refresh (empty store) resolve the EXACT hotel by its search
+        // id, then fall back to browse inventory only if that lookup fails.
         let hotel = chosenHotel ? hotelToBookingShape(chosenHotel) : null;
         if (hotelId && !hotel) {
-          const hotels = await getHotels({ destination, checkIn }).catch(() => []);
-          hotel = hotels[0] || null;
+          const exact = await getSearchHotel(hotelId, { destination, checkIn, checkOut, adults }).catch(() => null);
+          if (exact) {
+            hotel = hotelToBookingShape(exact);
+          } else {
+            const hotels = await getHotels({ destination, checkIn }).catch(() => []);
+            hotel = hotels[0] || null;
+          }
         }
         const flight = chosenFlight || (flightId ? (await getFlights({ from: origin, to: destination, checkIn }).catch(() => []))[0] : null) || null;
 
@@ -147,6 +154,24 @@ export default function BookingPage() {
     : { items: [], totalCash: 0, totalPoints: 0, savingsAmount: 0 };
   const cashByType = Object.fromEntries(totals.items.map((it) => [it.type, it.cash]));
 
+  // Phase 13 — "Book this trip" carries a per-leg allocation plan (e.g. "flight:points:united_mp,hotel:cash").
+  // Points legs are shown as points and EXCLUDED from the cash charged/booked here (award legs are completed
+  // on the programme's own site); only cash legs are paid through the on-site Stripe/Duffel flow.
+  const tripPlan = useMemo(() => {
+    const raw = searchParams.get("plan");
+    if (!raw) return null;
+    const map = {};
+    raw.split(",").forEach((p) => {
+      const [type, method, programme] = p.split(":");
+      if (type) map[type] = { method: method === "points" ? "points" : "cash", programme: programme || null };
+    });
+    return map;
+  }, [searchParams]);
+  const isPointsLeg = (t) => tripPlan?.[t]?.method === "points";
+  const payableCash = totals.items
+    .filter((it) => !isPointsLeg(it.type))
+    .reduce((s, it) => s + it.cash, 0);
+
   const hasUrlSelection = Boolean(searchParams.get("hotel") || searchParams.get("flight"));
   // The bootstrap now completes almost instantly, so hold the branded loading screen for a perceptible
   // beat on URL-driven entries (cash flow, OptimizePanel "Book this trip"). Store-driven entries
@@ -162,13 +187,13 @@ export default function BookingPage() {
   }, [hasTrip, bootstrapping, hasUrlSelection, navigate]);
 
   useEffect(() => {
-    if (!hasTrip || !(totals.totalCash > 0)) return;
+    if (!hasTrip || !(payableCash > 0)) return;
     let cancelled = false;
-    createBookingPaymentIntent(totals.totalCash, trip.id)
+    createBookingPaymentIntent(payableCash, trip.id)
       .then((p) => { if (!cancelled) setPay(p); })
       .catch(() => { if (!cancelled) setPay({ mock: true, paymentIntentId: "mock_pi_local" }); });
     return () => { cancelled = true; };
-  }, [hasTrip, totals.totalCash, trip?.id]);
+  }, [hasTrip, payableCash, trip?.id]);
 
   if (!hasTrip || (hasUrlSelection && !minTimePassed)) {
     if (bootstrapping || hasUrlSelection) return <PreparingScreen />;
@@ -211,8 +236,8 @@ export default function BookingPage() {
     });
   }
   const earnValue = earnRows.reduce((s, r) => s + r.value, 0);
-  const cardLow = Math.round(totals.totalCash * 0.01);
-  const cardHigh = Math.round(totals.totalCash * 0.03);
+  const cardLow = Math.round(payableCash * 0.01);
+  const cardHigh = Math.round(payableCash * 0.03);
   const totalEarnLow = earnValue + cardLow;
   const totalEarnHigh = earnValue + cardHigh;
   const connected = Boolean(loyaltyPoints);
@@ -251,7 +276,7 @@ export default function BookingPage() {
         phone_number: `${form.countryCode}${form.phone}`.replace(/\s/g, ""),
       },
     ];
-    const legs = totals.items.map((it) => ({
+    const legs = totals.items.filter((it) => !isPointsLeg(it.type)).map((it) => ({
       type: it.type,
       cashValueGbp: it.cash,
       vendor: affiliateLinks?.[it.type]?.vendor,
@@ -275,6 +300,7 @@ export default function BookingPage() {
     });
 
     ["hotel", "car"].forEach((t) => {
+      if (isPointsLeg(t)) return; // points legs are redeemed on the programme site, not via affiliate cash
       const url = affiliateLinks?.[t]?.affiliateUrl;
       if (url && cashByType[t] != null) window.open(url, "_blank", "noopener");
     });
@@ -470,14 +496,20 @@ export default function BookingPage() {
 
                 {/* Price breakdown */}
                 <div className="mt-4 rounded-xl bg-cream p-3.5 text-[13px] tabular-nums">
-                  {selectedFlight && <PriceRow label="Flight" value={formatMoney(cashByType.flight || 0)} />}
-                  {selectedHotel && <PriceRow label={`Hotel (${nights} nts)`} value={formatMoney(cashByType.hotel || 0)} />}
+                  {selectedFlight && <PriceRow label="Flight" value={isPointsLeg("flight") ? "Points" : formatMoney(cashByType.flight || 0)} accent={isPointsLeg("flight")} />}
+                  {selectedHotel && <PriceRow label={`Hotel (${nights} nts)`} value={isPointsLeg("hotel") ? "Points" : formatMoney(cashByType.hotel || 0)} accent={isPointsLeg("hotel")} />}
                   {selectedCar && <PriceRow label="Car rental" value={formatMoney(cashByType.car || 0)} />}
                   {totals.savingsAmount > 0 && <PriceRow label="Package saving" value={`−${formatMoney(totals.savingsAmount)}`} accent />}
                   <div className="mt-2 flex items-center justify-between border-t border-[#e6ddd2] pt-2">
-                    <span className="text-[13px] font-bold text-ink">Total</span>
-                    <span className="text-xl font-extrabold text-bonza">{formatMoney(totals.totalCash)}</span>
+                    <span className="text-[13px] font-bold text-ink">Total to pay</span>
+                    <span className="text-xl font-extrabold text-bonza">{formatMoney(payableCash)}</span>
                   </div>
+                  {tripPlan && Object.values(tripPlan).some((p) => p.method === "points") && (
+                    <p className="mt-2 text-[11px] leading-snug text-ink-muted">
+                      Points legs are redeemed on the loyalty programme&apos;s own site — only the cash legs
+                      above are charged here.
+                    </p>
+                  )}
                 </div>
 
                 {/* Trust chips 2×2 */}
@@ -492,7 +524,7 @@ export default function BookingPage() {
                   <>
                     {stripeReady ? (
                       <RealPayButton
-                        label={`Confirm and book — ${formatMoney(totals.totalCash)}`}
+                        label={`Confirm and book — ${formatMoney(payableCash)}`}
                         validate={validate}
                         onPaid={finalizeBooking}
                         onError={setPayErr}
@@ -501,7 +533,7 @@ export default function BookingPage() {
                       />
                     ) : (
                       <MockPayButton
-                        label={`Confirm and book — ${formatMoney(totals.totalCash)}`}
+                        label={`Confirm and book — ${formatMoney(payableCash)}`}
                         validate={validate}
                         paymentIntentId={pay?.paymentIntentId || "mock_pi_local"}
                         onPaid={finalizeBooking}

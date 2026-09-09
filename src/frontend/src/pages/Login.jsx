@@ -20,7 +20,7 @@ const CLERK_APPEARANCE = {
     colorBackground: "#ffffff",
     colorText: "#2a2420",
     colorTextSecondary: "#6a6258",
-    fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
+    fontFamily: "'Inter', system-ui, sans-serif",
     borderRadius: "0.75rem",
   },
   elements: {

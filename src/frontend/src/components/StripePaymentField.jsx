@@ -12,7 +12,7 @@ const APPEARANCE = {
     colorPrimary: "#da7756",
     colorText: "#2a2420",
     colorTextPlaceholder: "#9a9088",
-    fontFamily: '"Plus Jakarta Sans", sans-serif',
+    fontFamily: '"Inter", sans-serif',
     borderRadius: "8px",
     spacingUnit: "3px",
   },

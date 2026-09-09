@@ -6,6 +6,7 @@
 /* Pampas cream flows through the entire app. */
 body {
   background-color: #f4f3ee;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Homepage only (class toggled while HomePage is mounted): soft "slide" snapping.

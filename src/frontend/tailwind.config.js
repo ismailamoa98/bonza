@@ -4,10 +4,12 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        jakarta: ['"Plus Jakarta Sans"', "ui-sans-serif", "system-ui", "sans-serif"],
-        // Serif display — used ONLY on the hero <h1>, the nav/footer wordmark, and
-        // the final-CTA <h2> (visitsaudi-style serif-display + sans-body pairing).
-        display: ['"Playfair Display"', "ui-serif", "Georgia", "serif"],
+        // Single typeface across the whole app — Inter for a clean, professional look.
+        // Both tokens resolve to Inter so existing `font-jakarta` / `font-display` usages
+        // stay valid while rendering one consistent font.
+        sans: ['"Inter"', "ui-sans-serif", "system-ui", "sans-serif"],
+        jakarta: ['"Inter"', "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ['"Inter"', "ui-sans-serif", "system-ui", "sans-serif"],
       },
       keyframes: {
         fadein: { from: { opacity: "0" }, to: { opacity: "1" } },

@@ -2,8 +2,7 @@
 // Parses the package's dates + destination and routes to /search with the trip pre-filled. Shared by
 // the public homepage and the logged-in dashboard so browse behaviour stays identical.
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { buildSearchUrl } from "../utils/searchUrl";
+import { buildSearchUrl, openSearch } from "../utils/searchUrl";
 import { apiErrorMessage } from "../utils/api";
 
 const MONTHS = {
@@ -37,7 +36,6 @@ function parsePackageDates(dates) {
 }
 
 export function useOpenPackage() {
-  const navigate = useNavigate();
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState(null);
 
@@ -47,7 +45,7 @@ export function useOpenPackage() {
     setOpenError(null);
     try {
       const { checkIn, checkOut } = parsePackageDates(pkg.dates);
-      navigate(
+      openSearch(
         buildSearchUrl({
           origin: pkg.origin || "LHR",
           destination: pkg.destination || pkg.city,

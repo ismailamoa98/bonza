@@ -1,6 +1,6 @@
 // pages/Settings.jsx — Profile / Loyalty / Notifications / Pro tabs.
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import AirportDropdown from "../components/AirportDropdown";
 import { PROGRAMMES, programmeLabel } from "../data/programmes";
 import { useAppStore } from "../store/appStore";
@@ -9,9 +9,9 @@ import {
   updateProfile,
   getLoyaltyAccounts,
   getLoyaltyProviders,
+  getPointsPortfolio,
   startLoyaltyOAuth,
   syncLoyalty,
-  syncLoyaltyNow,
   disconnectLoyalty,
   addLoyaltyAccount,
   removeLoyaltyAccount,
@@ -33,7 +33,15 @@ const TRAVEL_STYLES = [
 
 export default function Settings() {
   const [params] = useSearchParams();
-  const [tab, setTab] = useState(params.get("synced") || params.get("loyaltyError") ? "Loyalty" : "Profile");
+  const initialTab = (() => {
+    const t = params.get("tab");
+    if (t) {
+      const match = TABS.find((x) => x.toLowerCase() === t.toLowerCase());
+      if (match) return match;
+    }
+    return params.get("synced") || params.get("loyaltyError") ? "Loyalty" : "Profile";
+  })();
+  const [tab, setTab] = useState(initialTab);
   const banner = params.get("loyaltyError")
     ? { kind: "error", text: `Couldn't connect: ${params.get("loyaltyError").replace(/_/g, " ")}` }
     : params.get("synced")
@@ -73,8 +81,8 @@ export default function Settings() {
   );
 }
 
-function Card({ children }) {
-  return <div className="rounded-2xl border border-[rgba(40,30,20,0.06)] bg-white p-6">{children}</div>;
+function Card({ children, className = "" }) {
+  return <div className={`rounded-2xl border border-[rgba(40,30,20,0.06)] bg-white p-6 ${className}`}>{children}</div>;
 }
 
 function ProfileTab() {
@@ -133,6 +141,7 @@ function ProfileTab() {
 }
 
 function LoyaltyTab() {
+  const navigate = useNavigate();
   const accounts = useAppStore((s) => s.loyaltyAccounts);
   const setLoyaltyAccounts = useAppStore((s) => s.setLoyaltyAccounts);
   const [providers, setProviders] = useState({ gmail: {}, outlook: {} });
@@ -166,7 +175,9 @@ function LoyaltyTab() {
       await refresh();
     });
 
-  const syncNow = (provider) => guard(async () => { await syncLoyaltyNow(provider); await refresh(); });
+  // Route re-syncs through the "Gathering your points" progress flow (deep sync) — the same
+  // known-working path as the OAuth callback — rather than the silent inline sync-now endpoint.
+  const syncNow = (provider) => navigate(`/points/connecting?from=settings&provider=${provider}`);
   const disconnect = (provider) =>
     guard(async () => {
       await disconnectLoyalty(provider);
@@ -201,9 +212,10 @@ function LoyaltyTab() {
             </div>
           ))}
         </div>
-        <ManualAdd onAdded={refresh} onError={setError} />
         {error && <p className="mt-2 text-[12px] font-medium text-bonza-dark">{error}</p>}
       </Card>
+
+      <ManualAdd onAdded={refresh} />
 
       <Card>
         <p className="text-[13px] font-semibold text-ink">Connected accounts</p>
@@ -233,41 +245,140 @@ function LoyaltyTab() {
   );
 }
 
-function ManualAdd({ onAdded, onError }) {
+const FIELD_INPUT =
+  "rounded-lg border border-[#e0d9cf] bg-white px-3 py-2.5 text-[13px] focus:outline-none focus:border-bonza";
+const FIELD_LABEL = "text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-muted";
+
+function ManualAdd({ onAdded }) {
+  const navigate = useNavigate();
+  const user = useAppStore((s) => s.user);
   const [programme, setProgramme] = useState(PROGRAMMES[0].key);
   const [balance, setBalance] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [loyaltyEmail, setLoyaltyEmail] = useState("");
+  const [expireAt, setExpireAt] = useState(""); // optional YYYY-MM-DD
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [added, setAdded] = useState(false);
+  // Programme keys whose statements Bonza can read from the inbox (hotels + major airlines) — these
+  // route to the inbox-verification flow after saving. Sourced from the live portfolio catalog.
+  const [emailProgrammes, setEmailProgrammes] = useState(() => new Set());
+
+  useEffect(() => {
+    getPointsPortfolio()
+      .then((p) => {
+        const keys = (p?.catalog || [])
+          .filter((c) => (c.verifyMethod || "manual") === "email")
+          .map((c) => c.programme);
+        setEmailProgrammes(new Set(keys));
+      })
+      .catch(() => {});
+  }, []);
+
+  const canEmailVerify = emailProgrammes.has(programme);
+
+  const reset = () => {
+    setBalance("");
+    setAccountNumber("");
+    setLoyaltyEmail("");
+    setExpireAt("");
+  };
 
   const add = async () => {
     if (!balance) return;
     setSaving(true);
-    onError(null);
+    setError(null);
+    setAdded(false);
     try {
-      await addLoyaltyAccount({ programme, balance: Number(balance) });
-      setBalance("");
+      await addLoyaltyAccount({
+        programme,
+        balance: Number(balance),
+        accountNumber: accountNumber.trim() || null,
+        loyaltyEmailAddress: loyaltyEmail.trim() || null,
+        pointsExpireAt: expireAt || null,
+      });
+      // Hotel/airline programmes email a statement — kick off the inbox parse to verify the balance
+      // (the same "Gathering your points" flow the connect step uses), which lands on the review page.
+      if (canEmailVerify) {
+        navigate("/points/connecting?from=settings");
+        return;
+      }
+      reset();
+      setAdded(true);
       await onAdded();
     } catch (err) {
-      onError(apiErrorMessage(err));
+      setError(apiErrorMessage(err));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="mt-3 rounded-xl bg-cream p-3">
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Add a balance manually</p>
-      <div className="flex flex-wrap items-center gap-2">
-        <select value={programme} onChange={(e) => setProgramme(e.target.value)} className="rounded-lg border border-[#e0d9cf] bg-white px-3 py-2 text-[13px]">
-          {PROGRAMMES.map((p) => (
-            <option key={p.key} value={p.key}>{p.label}</option>
-          ))}
-        </select>
-        <input value={balance} onChange={(e) => setBalance(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" placeholder="Balance" className="w-28 rounded-lg border border-[#e0d9cf] bg-white px-3 py-2 text-[13px] tabular-nums" />
-        <button type="button" onClick={add} disabled={saving || !balance} className="rounded-lg border border-bonza px-3 py-2 text-[13px] font-semibold text-bonza hover:bg-bonza-50 disabled:opacity-50">
-          {saving ? "Adding…" : "Add"}
-        </button>
+    <Card className="bg-bonza-50/50">
+      <div className="flex items-center gap-2">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-bonza/15 text-bonza">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </span>
+        <p className="text-[15px] font-semibold text-ink">Add a balance manually</p>
       </div>
-    </div>
+      <p className="mt-1 text-[12.5px] text-ink-soft">
+        No email needed — enter your points and, optionally, the membership details. A new membership number
+        adds a separate account; reusing an existing number updates it.
+      </p>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-1">
+          <span className={FIELD_LABEL}>Programme</span>
+          <select value={programme} onChange={(e) => { setProgramme(e.target.value); setAdded(false); }} className={FIELD_INPUT}>
+            {PROGRAMMES.map((p) => (
+              <option key={p.key} value={p.key}>{p.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className={FIELD_LABEL}>Points balance</span>
+          <input value={balance} onChange={(e) => { setBalance(e.target.value.replace(/[^\d]/g, "")); setAdded(false); }} inputMode="numeric" placeholder="e.g. 42,000" className={`${FIELD_INPUT} tabular-nums`} />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className={FIELD_LABEL}>
+            Membership number <span className="font-medium normal-case tracking-normal text-ink-muted/80">(optional)</span>
+          </span>
+          <input value={accountNumber} onChange={(e) => { setAccountNumber(e.target.value); setAdded(false); }} placeholder="—" className={FIELD_INPUT} />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className={FIELD_LABEL}>
+            Membership email <span className="font-medium normal-case tracking-normal text-ink-muted/80">(optional)</span>
+          </span>
+          <input value={loyaltyEmail} onChange={(e) => { setLoyaltyEmail(e.target.value); setAdded(false); }} placeholder={user?.email || "you@example.com"} className={FIELD_INPUT} />
+        </label>
+
+        <label className="flex flex-col gap-1 sm:col-span-2 sm:max-w-[220px]">
+          <span className={FIELD_LABEL}>
+            Points expire <span className="font-medium normal-case tracking-normal text-ink-muted/80">(optional)</span>
+          </span>
+          <input type="date" value={expireAt} onChange={(e) => { setExpireAt(e.target.value); setAdded(false); }} className={FIELD_INPUT} />
+        </label>
+      </div>
+
+      <p className="mt-2 text-[11.5px] text-ink-muted">
+        {canEmailVerify
+          ? "This programme emails a statement — after saving, Bonza checks your inbox to verify the balance."
+          : "Set an expiry date and Bonza warns you (and emails you) as it approaches."}
+      </p>
+
+      <div className="mt-3.5 flex items-center gap-3">
+        <button type="button" onClick={add} disabled={saving || !balance} className="rounded-lg bg-bonza px-5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-bonza-dark disabled:opacity-50">
+          {saving ? "Saving…" : canEmailVerify ? "Save & verify" : "Add balance"}
+        </button>
+        {error && <span className="text-[12px] font-medium text-bonza-dark">{error}</span>}
+        {added && !error && <span className="text-[12px] font-medium text-[#1E7E40]">Balance added to your portfolio.</span>}
+      </div>
+    </Card>
   );
 }
 

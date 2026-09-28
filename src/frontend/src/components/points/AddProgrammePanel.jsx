@@ -1,35 +1,26 @@
-// components/points/AddProgrammePanel.jsx — right-side slide-in for adding a loyalty programme.
-// Two steps: form → confirm. Verification is routed per programme (catalog `verifyMethod`):
-//   "email"  → hotels + major airlines whose statements email a balance → offer "Verify with email"
-//              (real only when an inbox is genuinely connected; never fabricates offline).
-//   "manual" → banks/cards + long-tail → no verify button, balance is self-reported.
-// The self-reported path upserts via POST /loyalty/accounts; the email path upserts via the real sync.
+// components/points/AddProgrammePanel.jsx — right-side slide-in for adding/editing a loyalty programme.
+// Two steps: form → confirm. The confirm step captures the balance (+ email/number/expiry) and saves via
+// POST /loyalty/accounts. Verification no longer happens here: saving an email-eligible programme
+// (verifyMethod "email" — hotels + major airlines) routes to the Balance-review page, which checks it
+// against the user's inbox; bank/card ("manual") programmes just save as self-reported.
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../store/appStore";
-import {
-  addLoyaltyAccount,
-  apiErrorMessage,
-  getLoyaltyProviders,
-  syncLoyaltyNow,
-  startLoyaltyOAuth,
-} from "../../utils/api";
+import { addLoyaltyAccount, apiErrorMessage } from "../../utils/api";
 import { PROGRAMMES } from "../../data/programmes";
 import { formatUpdatedAt } from "../../utils/format";
 import ProgrammeSelect from "./ProgrammeSelect";
-import { XIcon, CheckIcon, InfoIcon } from "./icons";
-
-const PROVIDER_LABEL = { gmail: "Gmail", outlook: "Outlook" };
-
-const fmtGbp = (n) =>
-  `£${Number(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+import ProgrammeLogo from "../common/ProgrammeLogo";
+import { XIcon } from "./icons";
 
 export default function AddProgrammePanel({ open, onClose, onAdded, catalog, editAccount, accounts = [] }) {
+  const navigate = useNavigate();
   const user = useAppStore((s) => s.user);
   const [shown, setShown] = useState(false);
   const isEdit = Boolean(editAccount);
 
-  // Prefer the live backend catalog (all point-earning programmes, with brand colours + rates); fall
-  // back to the static list (no rate, so the confirm step hides the £ value).
+  // Prefer the live backend catalog (all point-earning programmes, with brand colours + verifyMethod);
+  // fall back to the static list.
   const items =
     catalog && catalog.length
       ? catalog
@@ -42,13 +33,9 @@ export default function AddProgrammePanel({ open, onClose, onAdded, catalog, edi
   const [number, setNumber] = useState("");
   const [points, setPoints] = useState("");
   const [email, setEmail] = useState("");
+  const [expireAt, setExpireAt] = useState(""); // optional YYYY-MM-DD points-expiry date
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-
-  // Verify-with-email state.
-  const [verifying, setVerifying] = useState(false);
-  const [verifyResult, setVerifyResult] = useState(null); // { found, balance?, provider, mock }
-  const [connectProvider, setConnectProvider] = useState(null); // provider configured but not connected
 
   const close = () => {
     setShown(false);
@@ -60,23 +47,22 @@ export default function AddProgrammePanel({ open, onClose, onAdded, catalog, edi
     if (!open) return undefined;
     setShown(false);
     if (editAccount) {
-      // Edit an existing programme: pre-fill its recorded details and open straight on the confirm step.
+      // Edit an existing membership: pre-fill its recorded details and open straight on the confirm step.
       setStep("confirm");
       setProgramme(editAccount.programme);
       setNumber(editAccount.accountNumber || "");
       setPoints(String(editAccount.balance ?? ""));
       setEmail(editAccount.loyaltyEmailAddress || "");
+      setExpireAt(editAccount.expiresAt ? String(editAccount.expiresAt).slice(0, 10) : "");
     } else {
       setStep("form");
       setProgramme(firstProgramme);
       setNumber("");
       setPoints("");
       setEmail("");
+      setExpireAt("");
     }
     setError(null);
-    setVerifying(false);
-    setVerifyResult(null);
-    setConnectProvider(null);
     const raf = requestAnimationFrame(() => setShown(true));
     const onKey = (e) => e.key === "Escape" && close();
     window.addEventListener("keydown", onKey);
@@ -90,38 +76,50 @@ export default function AddProgrammePanel({ open, onClose, onAdded, catalog, edi
   if (!open) return null;
 
   const selected = items.find((i) => i.programme === programme) || {};
-  const cpp = selected.centsPerPoint || 0;
   const typedPoints = Number(points || 0);
-  const typedValue = cpp ? (typedPoints * cpp) / 100 : null;
-  // Only programmes flagged email-verifiable (hotels + major airlines) offer "Verify with email".
+  // Email-eligible programmes (hotels + major airlines) route to the review page to be verified.
   const canEmailVerify = (selected.verifyMethod || "manual") === "email";
 
-  // Current balance already on file for this programme (for the before → after validation).
-  const existingAccount = editAccount || accounts.find((a) => a.programme === programme) || null;
+  // The membership this add/edit resolves to: the edited row, else an existing account for the same
+  // programme AND membership number (number = identity — a new number is a separate membership).
+  const numberKey = number.trim();
+  const existingAccount =
+    editAccount ||
+    accounts.find((a) => a.programme === programme && (a.accountNumber || "") === numberKey) ||
+    null;
   const existingBalance =
     existingAccount && existingAccount.balance != null ? Number(existingAccount.balance) : null;
   const delta = existingBalance != null ? typedPoints - existingBalance : null;
   const lastUpdated = existingAccount ? formatUpdatedAt(existingAccount.lastSynced, { withTime: true }) : null;
-
-  const goConfirm = () => {
-    setError(null);
-    setVerifyResult(null);
-    setConnectProvider(null);
-    setStep("confirm");
-  };
+  // Adding a fresh membership number to a programme the user already holds → a second membership.
+  const sameProgramme = accounts.filter((a) => a.programme === programme);
+  const isNewMembership = !isEdit && !existingAccount && sameProgramme.length > 0;
+  const existingLabel =
+    sameProgramme.length === 1
+      ? sameProgramme[0].accountNumber
+        ? `one (number ${sameProgramme[0].accountNumber})`
+        : "one"
+      : `${sameProgramme.length} memberships`;
 
   const commitTyped = async () => {
     setSaving(true);
     setError(null);
     try {
       await addLoyaltyAccount({
+        accountId: editAccount?.id, // edit updates this exact membership; add resolves by number
         programme,
         balance: typedPoints,
         accountNumber: number.trim() || null,
         loyaltyEmailAddress: email.trim() || null,
+        pointsExpireAt: expireAt || null,
       });
-      onAdded?.();
-      close();
+      // Email-eligible → review page verifies it against the inbox; otherwise just refresh + close.
+      if (canEmailVerify) {
+        navigate(`/points/review?updated=${encodeURIComponent(programme)}`);
+      } else {
+        onAdded?.();
+        close();
+      }
     } catch (err) {
       setError(apiErrorMessage(err));
     } finally {
@@ -129,62 +127,23 @@ export default function AddProgrammePanel({ open, onClose, onAdded, catalog, edi
     }
   };
 
-  // A verified sync already upserted the LoyaltyAccount rows, so "Done" just reloads + closes.
-  const done = () => {
-    onAdded?.();
-    close();
-  };
-
-  const runVerify = async () => {
-    setVerifying(true);
-    setError(null);
-    setVerifyResult(null);
-    setConnectProvider(null);
-    try {
-      const providers = await getLoyaltyProviders();
-      const order = ["gmail", "outlook"];
-      const connected = order.find((p) => providers[p]?.connected);
-      const configurable = order.find((p) => providers[p]?.configured && !providers[p]?.connected);
-
-      if (connected) {
-        // Only a genuinely connected inbox does anything real — a live parse (syncMethod: email_parse).
-        const result = await syncLoyaltyNow(connected);
-        const list = result?.accounts || result?.updatedAccounts || [];
-        const match = list.find((a) => a.programme === programme);
-        setVerifyResult(
-          match ? { found: true, balance: match.balance, provider: connected } : { found: false, provider: connected }
-        );
-      } else if (configurable) {
-        // Real OAuth available but not connected yet → offer the connect handoff.
-        setConnectProvider(configurable);
-      } else {
-        // No inbox connected (offline/dev default): be honest — never run the mock, never fabricate a
-        // balance, write nothing. The user connects email or self-reports.
-        setVerifyResult({ unavailable: true });
-      }
-    } catch (err) {
-      setError(apiErrorMessage(err));
-    } finally {
-      setVerifying(false);
-    }
-  };
-
-  const connect = async () => {
-    setError(null);
-    try {
-      const url = await startLoyaltyOAuth(connectProvider, "settings");
-      window.location.href = url;
-    } catch (err) {
-      setError(apiErrorMessage(err));
-    }
-  };
+  const saveLabel = saving
+    ? "Saving…"
+    : canEmailVerify
+      ? "Save & verify"
+      : isEdit
+        ? "Save changes"
+        : `Save ${typedPoints ? typedPoints.toLocaleString() + " " : ""}(self-reported)`;
 
   // Edit mode opens on confirm with a fixed programme — no form step, so no Back.
   const headerAction = isEdit ? (
     <span className="w-[52px]" aria-hidden="true" />
   ) : step === "form" ? (
     <button
-      onClick={goConfirm}
+      onClick={() => {
+        setError(null);
+        setStep("confirm");
+      }}
       className="px-4 py-2 rounded-lg bg-bonza text-white text-[13px] font-semibold hover:bg-bonza-dark"
     >
       Review
@@ -268,12 +227,22 @@ export default function AddProgrammePanel({ open, onClose, onAdded, catalog, edi
             {/* Editable summary — points is the priority field; email + number are the recorded details */}
             <div className="rounded-2xl bg-white shadow-sm border border-ink-900/[0.06] p-5 space-y-4">
               <div className="flex items-center gap-3">
-                <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: selected.brandColor || "#9a9088" }} />
-                <p className="text-[15px] font-bold text-ink-900">{selected.displayName || programme}</p>
+                <ProgrammeLogo programme={selected} size={36} radius={11} />
+                <p className="text-[15px] font-bold" style={{ color: selected.brandColor || "#2a2420" }}>
+                  {selected.displayName || programme}
+                </p>
                 {lastUpdated && (
                   <span className="ml-auto text-[11px] text-ink-300">Last updated {lastUpdated}</span>
                 )}
               </div>
+
+              {isNewMembership && (
+                <p className="text-[12px] text-ink-600 bg-bonza/[0.07] rounded-lg px-3 py-2 leading-relaxed">
+                  This will be saved as a <span className="font-semibold">separate</span>{" "}
+                  {selected.displayName || programme} membership — you already have {existingLabel} on file. To
+                  update that one instead, enter its number.
+                </p>
+              )}
 
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-300 mb-1.5">Points</p>
@@ -302,12 +271,6 @@ export default function AddProgrammePanel({ open, onClose, onAdded, catalog, edi
                 </Row>
               )}
 
-              {typedValue !== null && (
-                <Row label="Estimated value">
-                  <span className="tabular-nums font-semibold text-ink-900">{fmtGbp(typedValue)}</span>
-                </Row>
-              )}
-
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-300 mb-1.5">Membership email</p>
                 <input
@@ -326,103 +289,42 @@ export default function AddProgrammePanel({ open, onClose, onAdded, catalog, edi
                   className="w-full rounded-xl border border-ink-900/[0.14] bg-white px-3.5 py-2.5 text-[13.5px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-bonza"
                 />
               </div>
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-300 mb-1.5">
+                  Points expire <span className="font-medium normal-case tracking-normal text-ink-300/80">(optional)</span>
+                </p>
+                <input
+                  type="date"
+                  value={expireAt}
+                  onChange={(e) => setExpireAt(e.target.value)}
+                  className="w-full rounded-xl border border-ink-900/[0.14] bg-white px-3.5 py-2.5 text-[13.5px] text-ink-900 focus:outline-none focus:border-bonza"
+                />
+                <p className="mt-1.5 text-[11.5px] text-ink-300 leading-relaxed">
+                  We'll warn you (and email you) as the date approaches. Leave blank if they don't expire.
+                </p>
+              </div>
             </div>
 
-            {/* Verify result / connect prompt */}
-            {connectProvider ? (
-              <div className="rounded-xl bg-white border border-ink-900/[0.08] p-4">
-                <p className="text-[13px] text-ink-900 font-semibold mb-1">
-                  Connect {PROVIDER_LABEL[connectProvider]} to verify
-                </p>
-                <p className="text-[12.5px] text-ink-600 leading-relaxed mb-3">
-                  We'll read your loyalty statement emails to pull the real balance. You'll come back here
-                  afterwards to finish adding.
-                </p>
-                <button
-                  onClick={connect}
-                  className="px-4 py-2 rounded-lg bg-bonza text-white text-[13px] font-semibold hover:bg-bonza-dark"
-                >
-                  Connect {PROVIDER_LABEL[connectProvider]}
-                </button>
-              </div>
-            ) : verifyResult?.found ? (
-              <div className="rounded-xl bg-[#E4F0E7] border border-[#186334]/20 p-4">
-                <p className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#186334] mb-1">
-                  <CheckIcon width="14" height="14" /> Verified balance
-                </p>
-                <p className="text-[13px] text-ink-900 leading-relaxed">
-                  Found <span className="font-bold tabular-nums">{verifyResult.balance.toLocaleString()}</span> pts
-                  {cpp ? ` (${fmtGbp((verifyResult.balance * cpp) / 100)})` : ""} in your{" "}
-                  {PROVIDER_LABEL[verifyResult.provider]} inbox. This is saved and used instead of your typed
-                  balance.
-                </p>
-              </div>
-            ) : verifyResult?.unavailable ? (
-              <div className="rounded-xl bg-white border border-ink-900/[0.08] p-4">
-                <p className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-ink-900 mb-1">
-                  <InfoIcon width="14" height="14" /> Email verification isn't set up
-                </p>
-                <p className="text-[12.5px] text-ink-600 leading-relaxed">
-                  Connect Gmail or Outlook to pull your real {selected.displayName || programme} balance from your
-                  statement emails. For now, add your balance manually below.
-                </p>
-              </div>
-            ) : verifyResult && !verifyResult.found ? (
-              <div className="rounded-xl bg-white border border-ink-900/[0.08] p-4">
-                <p className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-ink-900 mb-1">
-                  <InfoIcon width="14" height="14" /> No balance found
-                </p>
-                <p className="text-[12.5px] text-ink-600 leading-relaxed">
-                  We couldn't find a {selected.displayName || programme} balance in your{" "}
-                  {PROVIDER_LABEL[verifyResult.provider]} inbox. You can still add your typed balance as
-                  self-reported.
-                </p>
-              </div>
-            ) : canEmailVerify ? (
+            {canEmailVerify && (
               <p className="text-[12.5px] text-ink-600 leading-relaxed px-1">
-                Add the balance you typed as <span className="font-semibold">self-reported</span>, or verify it
-                against your inbox first — the verified balance becomes the source of truth.
+                {selected.displayName || programme} statements list a balance, so after saving we'll check it
+                against your inbox on the next screen.
               </p>
-            ) : null}
+            )}
 
             {error && <p className="text-[12.5px] text-red-600 px-1">{error}</p>}
 
-            {/* Actions */}
+            {/* Action */}
             <div className="space-y-2.5 pt-1">
-              {verifyResult?.found ? (
-                <>
-                  <PrimaryButton onClick={done}>Done</PrimaryButton>
-                  <SecondaryButton onClick={commitTyped} disabled={saving || !typedPoints}>
-                    {saving ? "Adding…" : `Add my typed ${typedPoints ? typedPoints.toLocaleString() : ""} instead`}
-                  </SecondaryButton>
-                </>
-              ) : (
-                (() => {
-                  // Show the Verify button only for email-verifiable programmes, before any terminal
-                  // verify state, and outside the connect handoff. When it's shown, Add is the secondary
-                  // action; otherwise (manual programme, unavailable, not-found, connecting) Add is primary.
-                  const showVerify = canEmailVerify && !connectProvider && !verifyResult;
-                  const AddButton = showVerify ? SecondaryButton : PrimaryButton;
-                  return (
-                    <>
-                      {showVerify && (
-                        <PrimaryButton onClick={runVerify} disabled={verifying}>
-                          {verifying ? "Checking your inbox…" : "Verify with email"}
-                        </PrimaryButton>
-                      )}
-                      <AddButton onClick={commitTyped} disabled={saving || !typedPoints}>
-                        {saving
-                          ? "Saving…"
-                          : isEdit
-                            ? "Save changes"
-                            : `Add ${typedPoints ? typedPoints.toLocaleString() + " " : ""}(self-reported)`}
-                      </AddButton>
-                      {!typedPoints && (
-                        <p className="text-[11.5px] text-ink-300 text-center">Enter a balance to save it.</p>
-                      )}
-                    </>
-                  );
-                })()
+              <button
+                onClick={commitTyped}
+                disabled={saving || !typedPoints}
+                className="w-full px-4 py-3 rounded-xl bg-bonza text-white text-[13.5px] font-semibold hover:bg-bonza-dark disabled:opacity-50"
+              >
+                {saveLabel}
+              </button>
+              {!typedPoints && (
+                <p className="text-[11.5px] text-ink-300 text-center">Enter a balance to save it.</p>
               )}
             </div>
           </div>
@@ -447,29 +349,5 @@ function Row({ label, children }) {
       <span className="text-ink-600">{label}</span>
       {children}
     </div>
-  );
-}
-
-function PrimaryButton({ onClick, disabled, children }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="w-full px-4 py-3 rounded-xl bg-bonza text-white text-[13.5px] font-semibold hover:bg-bonza-dark disabled:opacity-50"
-    >
-      {children}
-    </button>
-  );
-}
-
-function SecondaryButton({ onClick, disabled, children }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="w-full px-4 py-3 rounded-xl bg-white shadow-sm border border-ink-900/[0.1] text-ink-900 text-[13.5px] font-semibold hover:bg-ink-900/[0.03] disabled:opacity-50"
-    >
-      {children}
-    </button>
   );
 }

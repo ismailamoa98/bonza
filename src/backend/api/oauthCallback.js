@@ -2,7 +2,6 @@
 const env = require("../config/env");
 const prisma = require("../config/database");
 const oauth = require("../services/loyaltyOAuth");
-const { parseEmailsForUser } = require("../services/emailLoyaltySync");
 const { logger } = require("../utils/logger");
 
 const CONN_FLAG = { gmail: "gmailConnected", outlook: "outlookConnected" };
@@ -33,23 +32,16 @@ async function oauthCallback(req, res) {
     from = claims.from || "settings";
     if (claims.provider !== provider) return redirectApp(res, from, { loyaltyError: "provider_mismatch" });
 
-    const { refreshToken, accessToken } = await oauth.exchangeCode(provider, code);
+    const { refreshToken } = await oauth.exchangeCode(provider, code);
 
     const data = { [CONN_FLAG[provider]]: true };
     if (refreshToken) data[REFRESH_COL[provider]] = refreshToken;
     await prisma.user.update({ where: { id: claims.userId }, data });
 
-    let synced = 0;
-    try {
-      if (accessToken) {
-        const { updatedAccounts } = await parseEmailsForUser(claims.userId, accessToken, provider);
-        synced = updatedAccounts.length;
-      }
-    } catch (err) {
-      logger.error(`[oauthCallback] initial parse failed (${provider})`, err);
-    }
-
-    return redirectApp(res, from, { synced: String(synced), provider });
+    // Hand off to the "Gathering your points" loading page — it runs the deep sync with live progress and
+    // continues once the parse is complete (rather than blocking the redirect on an inline parse).
+    const q = new URLSearchParams({ from, provider }).toString();
+    return res.redirect(`${env.FRONTEND_URL}/points/connecting?${q}`);
   } catch (err) {
     logger.error(`[oauthCallback] ${provider} failed`, err);
     return redirectApp(res, from, { loyaltyError: "oauth_failed" });

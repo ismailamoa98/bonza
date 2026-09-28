@@ -109,12 +109,33 @@ const TRANSFERS = [
   ["ba_avios", "finnair", 1, 1], ["iberia_plus", "ba_avios", 1, 1], ["aer_lingus", "ba_avios", 1, 1],
 ];
 
+// Phase 14: short brand marks for the logo-tile initials fallback (shown in each programme's brandColor
+// when no logo asset is present). Not globally unique — each mark only ever appears on its own tile.
+const INITIALS = {
+  amex_mr: "AX", chase_ur: "CH", capital_one: "C1", citi_typ: "CI", bilt: "B", wells_fargo: "WF",
+  marriott_bonvoy: "M", hilton_honors: "H", world_of_hyatt: "HY", ihg_one: "IHG", accor: "AL",
+  wyndham: "WY", choice: "CP", best_western: "BW", radisson: "RR", gha_discovery: "GHA",
+  ba_avios: "BA", united_mp: "UA", virgin_flying_club: "VS", aeroplan: "AP", flying_blue: "FB",
+  krisflyer: "KF", emirates_skywards: "EK", aer_lingus: "EI", iberia_plus: "IB", aa_advantage: "AA",
+  delta_skymiles: "DL", southwest: "SW", jetblue: "JB", alaska: "AS", miles_and_more: "MM",
+  qatar_privilege: "QR", etihad: "EY", asia_miles: "CX", qantas: "QF", ana: "NH", jal: "JL",
+  turkish: "TK", lifemiles: "LM", finnair: "AY", tap: "TP",
+  hertz_gold: "HZ", avis_preferred: "AV", national_emerald: "NE",
+};
+
+// Fallback: first letters of the first two significant words (e.g. "Choice Privileges" → "CP").
+function deriveInitials(displayName) {
+  const words = String(displayName || "?").replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean);
+  return (words.slice(0, 2).map((w) => w[0]).join("") || "?").toUpperCase();
+}
+
 async function seedProgrammes() {
   for (const p of PROGRAMMES) {
+    const data = { ...p, initials: INITIALS[p.programme] || deriveInitials(p.displayName) };
     await prisma.programmeValuation.upsert({
       where: { programme: p.programme },
-      update: { ...p },
-      create: { ...p },
+      update: data,
+      create: data,
     });
   }
 

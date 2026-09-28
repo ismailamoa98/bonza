@@ -169,14 +169,14 @@ function extractGmailBody(message) {
 
 // ── Provider fetchers ────────────────────────────────────────────────────────
 
-async function fetchGmailLatestBody(accessToken, patterns) {
+async function fetchGmailLatestBody(accessToken, patterns, lookbackDays = 60) {
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
   const gmail = google.gmail({ version: "v1", auth });
 
   const query =
     `from:(${patterns.senderDomains.join(" OR ")}) ` +
-    `subject:(${patterns.subjectPatterns.join(" OR ")}) newer_than:60d`;
+    `subject:(${patterns.subjectPatterns.join(" OR ")}) newer_than:${lookbackDays}d`;
   const list = await gmail.users.messages.list({ userId: "me", q: query, maxResults: 3 });
   if (!list.data.messages || !list.data.messages.length) return null;
 
@@ -188,7 +188,7 @@ async function fetchGmailLatestBody(accessToken, patterns) {
   return extractGmailBody(msg.data);
 }
 
-async function fetchOutlookLatestBody(accessToken, patterns) {
+async function fetchOutlookLatestBody(accessToken, patterns, _lookbackDays = 60) {
   const client = Client.init({ authProvider: (done) => done(null, accessToken) });
 
   // Graph $search uses KQL: (from:… OR …) AND (subject:"…" OR …). Returns by
@@ -265,9 +265,9 @@ async function parseEmailsForUser(userId, accessToken, provider = "gmail") {
       // Overwrite guardrail: a parsed 0, or a sharp drop to <10% of a positive existing balance, is
       // almost certainly a mis-scrape — skip it rather than clobber a good balance and mislabel it
       // "Verified". The programme then falls back to the user's typed/self-reported value.
-      const existing = await prisma.loyaltyAccount.findUnique({
-        where: { userId_programme: { userId, programme } },
-      });
+      // Email sync maintains the primary membership per programme (statements rarely distinguish
+      // multiple memberships); findFirst since (userId, programme) is no longer unique on its own.
+      const existing = await prisma.loyaltyAccount.findFirst({ where: { userId, programme } });
       if (balance === 0 || (existing && existing.balance > 0 && balance < existing.balance * 0.1)) {
         logger.warn(
           `[emailLoyaltySync] suspicious ${programme} balance ${balance}` +
@@ -308,11 +308,11 @@ async function parseEmailsForUser(userId, accessToken, provider = "gmail") {
         lastSynced: new Date(),
         syncMethod: "email_parse",
       };
-      await prisma.loyaltyAccount.upsert({
-        where: { userId_programme: { userId, programme } },
-        update: fields,
-        create: { userId, programme, ...fields },
-      });
+      if (existing) {
+        await prisma.loyaltyAccount.update({ where: { id: existing.id }, data: fields });
+      } else {
+        await prisma.loyaltyAccount.create({ data: { userId, programme, ...fields } });
+      }
 
       updatedAccounts.push({ programme, balance, valueGbp, statusTier });
     } catch (err) {
@@ -348,11 +348,13 @@ async function mockSyncForUser(userId) {
   for (const [programme, info] of Object.entries(balances)) {
     const { balance, accountNumber, statusTier } = info;
     const valueGbp = Math.round(balance * PROGRAMME_VALUATIONS[programme] * 100) / 100;
-    await prisma.loyaltyAccount.upsert({
-      where: { userId_programme: { userId, programme } },
-      update: { balance, valueGbp, statusTier, accountNumber, lastSynced: new Date(), syncMethod: "manual" },
-      create: { userId, programme, balance, valueGbp, statusTier, accountNumber, lastSynced: new Date(), syncMethod: "manual" },
-    });
+    const fields = { balance, valueGbp, statusTier, accountNumber, lastSynced: new Date(), syncMethod: "manual" };
+    const existing = await prisma.loyaltyAccount.findFirst({ where: { userId, programme } });
+    if (existing) {
+      await prisma.loyaltyAccount.update({ where: { id: existing.id }, data: fields });
+    } else {
+      await prisma.loyaltyAccount.create({ data: { userId, programme, ...fields } });
+    }
     updatedAccounts.push({ programme, balance, valueGbp, statusTier });
   }
   return updatedAccounts;
@@ -362,6 +364,7 @@ module.exports = {
   parseEmailsForUser,
   extractBalance,
   EMAIL_VERIFIABLE,
+  mockBalances,
   mockSyncForUser,
   checkLoyaltyAccountConflict,
   formatProgramme,

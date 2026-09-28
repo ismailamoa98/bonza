@@ -7,6 +7,7 @@ const prisma = require("../config/database");
 const { ownedOr403 } = require("../utils/ownedOr403");
 const { getCreditBalance } = require("../services/creditsService");
 const { EMAIL_VERIFIABLE } = require("../services/emailLoyaltySync");
+const { findDuplicates, setManualBalance } = require("../services/balanceSync");
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -33,6 +34,8 @@ router.get("/portfolio", async (req, res, next) => {
         displayName: v.displayName || a.programme,
         category: v.category || "other",
         brandColor: v.brandColor || "#9a9088",
+        logoUrl: v.logoUrl || null,
+        initials: v.initials || "?",
         currency: v.currency || "pts",
         balance: a.balance,
         valueGbp: a.valueGbp,
@@ -53,6 +56,8 @@ router.get("/portfolio", async (req, res, next) => {
         hasPointsProgramme: v.hasPointsProgramme !== false, // false for car-rental status programmes
         lastSynced: a.lastSynced,
         syncMethod: a.syncMethod,
+        syncState: a.syncState || "not_checked", // Phase 15: row state pill
+        manualOverride: !!a.manualOverrideAt,
       };
     });
 
@@ -83,6 +88,8 @@ router.get("/portfolio", async (req, res, next) => {
         displayName: v.displayName,
         category: v.category,
         brandColor: v.brandColor,
+        logoUrl: v.logoUrl || null,
+        initials: v.initials || "?",
         centsPerPoint: v.centsPerPoint,
         currency: v.currency,
         // How this programme's balance can be checked: "email" (statement emails carry the balance —
@@ -180,6 +187,162 @@ router.get("/programme/:accountId", async (req, res, next) => {
       transferOptions: options,
       ratesLastRefreshed: valuation?.lastRefreshedAt || null,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/v1/points/activity — Phase 14 activity feed (read-only). Recent rows + monthly earn totals.
+router.get("/activity", async (req, res, next) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+    const offset = parseInt(req.query.offset, 10) || 0;
+    const where = { userId: req.userId, ...(req.query.programme ? { programme: req.query.programme } : {}) };
+
+    const [activity, total, valuations] = await Promise.all([
+      prisma.pointsActivity.findMany({ where, orderBy: { occurredAt: "desc" }, take: limit, skip: offset }),
+      prisma.pointsActivity.count({ where }),
+      prisma.programmeValuation.findMany(),
+    ]);
+    const valMap = Object.fromEntries(valuations.map((v) => [v.programme, v]));
+
+    // Monthly earn totals for the summary card — last 4 months, positive amounts only.
+    const since = new Date();
+    since.setMonth(since.getMonth() - 4);
+    const recent = await prisma.pointsActivity.findMany({
+      where: { userId: req.userId, amount: { gt: 0 }, occurredAt: { gte: since } },
+      select: { amount: true, occurredAt: true },
+    });
+    const monthly = {};
+    for (const r of recent) {
+      const key = r.occurredAt.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+      monthly[key] = (monthly[key] || 0) + r.amount;
+    }
+
+    res.json({
+      activity: activity.map((a) => ({
+        ...a,
+        programmeName: valMap[a.programme]?.displayName || a.programme,
+        brandColor: valMap[a.programme]?.brandColor || "#9a9088",
+        logoUrl: valMap[a.programme]?.logoUrl || null,
+        initials: valMap[a.programme]?.initials || "?",
+      })),
+      total,
+      hasMore: offset + activity.length < total,
+      monthlyEarned: monthly,
+      totalEarned: Object.values(monthly).reduce((s, v) => s + v, 0),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/v1/points/review — Phase 15 statement-authoritative outcome report.
+router.get("/review", async (req, res, next) => {
+  try {
+    const [accounts, valuations, duplicates, lastRun, user] = await Promise.all([
+      prisma.loyaltyAccount.findMany({ where: { userId: req.userId } }),
+      prisma.programmeValuation.findMany(),
+      findDuplicates(req.userId),
+      prisma.balanceSyncRun.findFirst({
+        where: { userId: req.userId, completedAt: { not: null } },
+        orderBy: { startedAt: "desc" },
+      }),
+      prisma.user.findUnique({ where: { id: req.userId }, select: { gmailConnected: true, outlookConnected: true } }),
+    ]);
+
+    const valMap = Object.fromEntries(valuations.map((v) => [v.programme, v]));
+    const dupIds = new Set(duplicates.map((d) => d.id));
+
+    const enrich = (a) => {
+      const v = valMap[a.programme] || {};
+      return {
+        id: a.id,
+        programme: a.programme,
+        displayName: v.displayName || a.programme,
+        brandColor: v.brandColor || "#8A8078",
+        logoUrl: v.logoUrl || null,
+        initials: v.initials || "?",
+        currency: v.currency || "pts",
+        balance: a.balance,
+        previousBalance: a.previousBalance,
+        statementDate: a.statementDate,
+        statementSource: a.statementSource,
+        manualOverride: !!a.manualOverrideAt,
+        state: dupIds.has(a.id) ? "duplicate" : a.syncState || "not_checked",
+      };
+    };
+    const all = accounts.map(enrich);
+
+    res.json({
+      grouped: {
+        updated: all.filter((a) => a.state === "updated"),
+        verified: all.filter((a) => a.state === "verified"),
+        duplicate: all.filter((a) => a.state === "duplicate"),
+        notChecked: all.filter((a) => a.state === "not_checked"),
+      },
+      lastRun: lastRun
+        ? {
+            id: lastRun.id,
+            completedAt: lastRun.completedAt,
+            mailbox: lastRun.mailbox,
+            statementsFound: lastRun.statementsFound,
+            balancesUpdated: lastRun.balancesUpdated,
+            modalPending: lastRun.modalPending,
+          }
+        : null,
+      emailConnected: { gmail: !!user?.gmailConnected, outlook: !!user?.outlookConnected },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/v1/points/review/acknowledge — user dismissed the discrepancy modal.
+router.post("/review/acknowledge", async (req, res, next) => {
+  try {
+    await prisma.balanceSyncRun.updateMany({
+      where: { userId: req.userId, modalPending: true },
+      data: { modalPending: false },
+    });
+    res.json({ acknowledged: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/v1/points/balance/:accountId — manual override (holds until the next statement).
+router.patch("/balance/:accountId", async (req, res, next) => {
+  try {
+    const account = await setManualBalance(req.userId, req.params.accountId, req.body.balance);
+    if (!account) return res.status(404).json({ error: { message: "Account not found" } });
+    res.json({ account });
+  } catch (err) {
+    if (/non-negative/.test(err.message)) return res.status(400).json({ error: { message: err.message } });
+    next(err);
+  }
+});
+
+// DELETE /api/v1/points/duplicate/:accountId — remove one duplicate row.
+router.delete("/duplicate/:accountId", async (req, res, next) => {
+  try {
+    const account = await prisma.loyaltyAccount.findFirst({ where: { id: req.params.accountId, userId: req.userId } });
+    if (!account) return res.status(404).json({ error: { message: "Account not found" } });
+    await prisma.loyaltyAccount.delete({ where: { id: account.id } });
+    res.json({ deleted: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/v1/points/account/:accountId — remove one owned loyalty account (e.g. a phantom balance
+// the user never entered, sitting under "Not checked").
+router.delete("/account/:accountId", async (req, res, next) => {
+  try {
+    const account = await prisma.loyaltyAccount.findFirst({ where: { id: req.params.accountId, userId: req.userId } });
+    if (!account) return res.status(404).json({ error: { message: "Account not found" } });
+    await prisma.loyaltyAccount.delete({ where: { id: account.id } });
+    res.json({ deleted: true });
   } catch (err) {
     next(err);
   }

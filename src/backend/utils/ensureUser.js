@@ -13,19 +13,35 @@ async function ensureUser(userId) {
   const existing = await prisma.user.findUnique({ where: { id: userId } });
   if (existing) return existing;
 
-  const clerkUser = await clerkClient.users.getUser(userId);
-  const email =
-    clerkUser.primaryEmailAddress?.emailAddress ||
-    clerkUser.emailAddresses?.[0]?.emailAddress ||
-    `${userId}@users.bonza.app`;
-  const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || null;
+  // Fetch the Clerk profile, but never let a hiccup there 500 the whole request.
+  let email = `${userId}@users.bonza.app`;
+  let name = null;
+  try {
+    const clerkUser = await clerkClient.users.getUser(userId);
+    email =
+      clerkUser.primaryEmailAddress?.emailAddress ||
+      clerkUser.emailAddresses?.[0]?.emailAddress ||
+      email;
+    name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || null;
+  } catch (err) {
+    // Keep the placeholder email; the row still gets created so the request can proceed.
+  }
 
-  // upsert (not create) to absorb a race with the webhook firing concurrently.
-  return prisma.user.upsert({
-    where: { id: userId },
-    update: {},
-    create: { id: userId, email, name },
-  });
+  try {
+    return await prisma.user.create({ data: { id: userId, email, name } });
+  } catch (err) {
+    // P2002 on the unique email: a stale row from a previous Clerk instance still owns this
+    // address (Clerk ids change when the instance is reset). Park that row's email to release
+    // the constraint, then create the current user — self-heals without deleting any data.
+    if (err.code === "P2002") {
+      await prisma.user.updateMany({
+        where: { email, id: { not: userId } },
+        data: { email: `stale.${Date.now()}.${userId}@users.bonza.app` },
+      });
+      return prisma.user.create({ data: { id: userId, email, name } });
+    }
+    throw err;
+  }
 }
 
 module.exports = { ensureUser };

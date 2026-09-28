@@ -13,7 +13,18 @@ const PROFILE_SELECT = {
   onboardingComplete: true,
   gmailConnected: true,
   outlookConnected: true,
+  // Traveller profile (pre-fills the booking guest form).
+  title: true,
+  firstName: true,
+  lastName: true,
+  dateOfBirth: true,
+  phone: true,
+  phoneCountryCode: true,
+  passportNumber: true,
 };
+
+// Traveller fields accepted on PATCH — trimmed strings, null to clear.
+const TRAVELLER_FIELDS = ["title", "firstName", "lastName", "dateOfBirth", "phone", "phoneCountryCode", "passportNumber"];
 
 router.get("/profile", async (req, res, next) => {
   try {
@@ -27,7 +38,8 @@ router.get("/profile", async (req, res, next) => {
 
 router.patch("/profile", async (req, res, next) => {
   try {
-    const { homeAirport, travelStyle, onboardingComplete } = req.body || {};
+    const body = req.body || {};
+    const { homeAirport, travelStyle, onboardingComplete } = body;
     const data = {};
 
     if (homeAirport !== undefined) {
@@ -38,6 +50,10 @@ router.patch("/profile", async (req, res, next) => {
     }
     if (travelStyle !== undefined) data.travelStyle = travelStyle ? String(travelStyle) : null;
     if (onboardingComplete === true) data.onboardingComplete = true;
+
+    for (const f of TRAVELLER_FIELDS) {
+      if (body[f] !== undefined) data[f] = body[f] ? String(body[f]).trim() || null : null;
+    }
 
     if (!Object.keys(data).length) {
       return res.status(400).json({ error: { message: "No updatable fields provided" } });

@@ -11,6 +11,7 @@ const {
   PROGRAMME_NAMES,
 } = require("../services/emailLoyaltySync");
 const oauth = require("../services/loyaltyOAuth");
+const balanceSync = require("../services/balanceSync");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
 
 const router = express.Router();
@@ -155,7 +156,8 @@ router.post("/disconnect", async (req, res, next) => {
 // Manual balance entry — the universal fallback when a user won't connect email.
 router.post("/accounts", async (req, res, next) => {
   try {
-    const { programme, balance, statusTier, accountNumber, loyaltyEmailAddress } = req.body || {};
+    const { accountId, programme, balance, statusTier, accountNumber, loyaltyEmailAddress, pointsExpireAt } =
+      req.body || {};
     if (!programme) {
       return res.status(400).json({ error: { message: "programme is required" } });
     }
@@ -169,20 +171,42 @@ router.post("/accounts", async (req, res, next) => {
       return res.status(400).json({ error: { message: "balance must be a non-negative number" } });
     }
     const valueGbp = round2(bal * (valuation.centsPerPoint / 100));
-    const account = await prisma.loyaltyAccount.upsert({
-      where: { userId_programme: { userId: req.userId, programme } },
-      update: {
-        balance: bal, valueGbp, statusTier: statusTier || null, lastSynced: new Date(), syncMethod: "manual",
-        accountNumber: accountNumber || null, loyaltyEmailAddress: loyaltyEmailAddress || null,
-      },
-      create: {
-        userId: req.userId, programme, balance: bal, valueGbp, statusTier: statusTier || null,
-        lastSynced: new Date(), syncMethod: "manual",
-        accountNumber: accountNumber || null, loyaltyEmailAddress: loyaltyEmailAddress || null,
-      },
-    });
+    const number = accountNumber?.trim() || null;
+    // Optional user-supplied expiry date — drives the "Expiring soon" tile and the expiry-warning emails.
+    let expireAt = null;
+    if (pointsExpireAt) {
+      const d = new Date(pointsExpireAt);
+      if (!Number.isNaN(d.getTime())) expireAt = d;
+    }
+    const fields = {
+      balance: bal, valueGbp, statusTier: statusTier || null, lastSynced: new Date(), syncMethod: "manual",
+      accountNumber: number, loyaltyEmailAddress: loyaltyEmailAddress?.trim() || null,
+      pointsExpireAt: expireAt,
+    };
+
+    // A user can hold several memberships in one programme, keyed by membership number:
+    //  · editing a specific account (accountId) updates that row — its number can be corrected;
+    //  · otherwise the number is the identity — a matching (programme, number) updates it, a new number
+    //    creates a separate membership.
+    let target = null;
+    if (accountId) {
+      target = await prisma.loyaltyAccount.findFirst({ where: { id: accountId, userId: req.userId } });
+      if (!target) return res.status(404).json({ error: { message: "Account not found" } });
+    } else {
+      target = await prisma.loyaltyAccount.findFirst({
+        where: { userId: req.userId, programme, accountNumber: number },
+      });
+    }
+
+    const account = target
+      ? await prisma.loyaltyAccount.update({ where: { id: target.id }, data: { programme, ...fields } })
+      : await prisma.loyaltyAccount.create({ data: { userId: req.userId, programme, ...fields } });
+
     recordEvent(req.userId, EVENT_TYPES.LOYALTY_SYNCED, { provider: "manual", synced: 1, programme });
-    res.status(201).json({ account, name: valuation.displayName || PROGRAMME_NAMES[programme] || programme });
+    res.status(target ? 200 : 201).json({
+      account,
+      name: valuation.displayName || PROGRAMME_NAMES[programme] || programme,
+    });
   } catch (err) {
     next(err);
   }
@@ -195,6 +219,91 @@ router.delete("/accounts/:programme", async (req, res, next) => {
     });
     if (!count) return res.status(404).json({ error: { message: "Account not found" } });
     res.json({ removed: true, programme: req.params.programme });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Phase 15+: deep sync ("Gathering your points") — client-driven stepping for real progress ──────────
+
+// Real when an inbox is connected + gated on; otherwise the deterministic offline mock.
+function realProvider(user, mailbox) {
+  const order = mailbox ? [mailbox] : ["gmail", "outlook"];
+  return order.find((p) => user?.[CONN_FLAG[p]] && user?.[REFRESH_COL[p]]) || null;
+}
+
+// POST /loyalty/deep-sync/start → create a run, return the programme list to step through.
+router.post("/deep-sync/start", async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    const provider = env.hasEmailSync ? realProvider(user, req.body.provider) : null;
+    const programmes = await balanceSync.emailVerifiableProgrammes();
+    const run = await prisma.balanceSyncRun.create({
+      data: { userId: req.userId, mailbox: provider || "gmail", modalPending: false },
+    });
+    res.json({ runId: run.id, programmes, total: programmes.length, mock: !provider });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /loyalty/deep-sync/step { runId, programme } → sync one programme, bump the run counts.
+router.post("/deep-sync/step", async (req, res, next) => {
+  try {
+    const { runId, programme } = req.body || {};
+    const run = await prisma.balanceSyncRun.findFirst({ where: { id: runId, userId: req.userId } });
+    if (!run) return res.status(404).json({ error: { message: "run not found" } });
+
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    let ctx;
+    if (env.hasEmailSync) {
+      // Real mode: parse the connected inbox only. If no inbox is connected (or the token is dead),
+      // check nothing and report not_checked — never fabricate a "verified" balance from demo data.
+      const provider = realProvider(user, run.mailbox);
+      const accessToken = provider
+        ? await oauth.accessFromRefresh(provider, user[REFRESH_COL[provider]]).catch(() => null)
+        : null;
+      ctx = { mock: false, provider: accessToken ? provider : null, accessToken };
+    } else {
+      // Offline demo only: deterministic mock balances so the flow stays demonstrable without creds.
+      ctx = { mock: true };
+    }
+
+    const outcome = await balanceSync.syncOneProgramme(req.userId, programme, ctx);
+
+    const data = { programmesChecked: { increment: 1 } };
+    if (outcome === "updated") Object.assign(data, { balancesUpdated: { increment: 1 }, statementsFound: { increment: 1 } });
+    else if (outcome === "verified" || outcome === "created") Object.assign(data, { balancesVerified: { increment: 1 }, statementsFound: { increment: 1 } });
+    else if (outcome === "override_held") data.statementsFound = { increment: 1 };
+    else if (outcome === "not_found") data.notChecked = { increment: 1 };
+    const updated = await prisma.balanceSyncRun.update({ where: { id: run.id }, data });
+
+    res.json({ outcome, processed: updated.programmesChecked });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /loyalty/deep-sync/finish { runId } → mark the unseen programmes not_checked, close the run.
+router.post("/deep-sync/finish", async (req, res, next) => {
+  try {
+    const run = await prisma.balanceSyncRun.findFirst({ where: { id: req.body.runId, userId: req.userId } });
+    if (!run) return res.status(404).json({ error: { message: "run not found" } });
+    const seen = (await balanceSync.emailVerifiableProgrammes()).map((p) => p.programme);
+    await balanceSync.markNotChecked(req.userId, seen);
+    const finished = await prisma.balanceSyncRun.update({
+      where: { id: run.id },
+      data: { completedAt: new Date(), modalPending: run.balancesUpdated > 0 },
+    });
+    recordEvent(req.userId, EVENT_TYPES.LOYALTY_SYNCED, { provider: run.mailbox, deep: true, updated: finished.balancesUpdated });
+    res.json({
+      counts: {
+        updated: finished.balancesUpdated,
+        verified: finished.balancesVerified,
+        notChecked: finished.notChecked,
+        statementsFound: finished.statementsFound,
+      },
+    });
   } catch (err) {
     next(err);
   }

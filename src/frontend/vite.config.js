@@ -9,6 +9,9 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   envDir: "../../",
+  // maplibre-gl loads a web worker; Vite's dep pre-bundling breaks its worker URL (404 →
+  // "Worker failed to load", blank basemap). Excluding it lets the worker resolve correctly.
+  optimizeDeps: { exclude: ["maplibre-gl"] },
   server: {
     port: 3000,
     proxy: {

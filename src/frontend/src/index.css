@@ -22,3 +22,45 @@ html.snap-page {
     scroll-snap-type: none;
   }
 }
+
+/* Phase 18 — Explore map price pins (MapLibre HTML markers live outside the React tree, so styled here). */
+.bonza-pin { cursor: pointer; background: none; border: none; padding: 0; position: relative; }
+.bonza-pin-body {
+  display: flex; align-items: center; gap: 6px; background: #fff; border-radius: 999px;
+  padding: 4px 10px 4px 5px; box-shadow: 0 2px 8px rgba(10, 16, 20, 0.16);
+  border: 1.5px solid transparent; transition: all 0.15s; white-space: nowrap;
+}
+.bonza-pin:hover .bonza-pin-body,
+.bonza-pin.is-hovered .bonza-pin-body {
+  transform: translateY(-3px) scale(1.06); box-shadow: 0 6px 16px rgba(10, 16, 20, 0.24); border-color: #da7756;
+}
+.bonza-pin.is-selected .bonza-pin-body {
+  background: #141210; border-color: #141210; transform: translateY(-3px) scale(1.06);
+}
+.bonza-pin.is-selected .bonza-pin-price { color: #fff; }
+.bonza-pin-flag { width: 17px; height: 17px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: #e6e6e6; }
+.bonza-pin-flag img { width: 100%; height: 100%; object-fit: cover; }
+.bonza-pin-price { font-size: 11.5px; font-weight: 700; color: #141210; font-variant-numeric: tabular-nums; }
+.bonza-pin-seats { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: #34b368; border: 1.5px solid #fff; }
+.bonza-pin-tail { position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #fff; }
+.bonza-pin.is-selected .bonza-pin-tail { border-top-color: #141210; }
+@media (prefers-reduced-motion: reduce) {
+  .bonza-pin-body { transition: none; }
+  .bonza-pin:hover .bonza-pin-body, .bonza-pin.is-hovered .bonza-pin-body { transform: none; }
+}
+
+/* Explore map cluster badge */
+.bonza-cluster {
+  cursor: pointer; border: 2px solid #fff; background: #141210; color: #fff;
+  min-width: 30px; height: 30px; padding: 0 8px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 10px rgba(10, 16, 20, 0.28); transition: transform 0.15s;
+}
+.bonza-cluster:hover { transform: scale(1.1); }
+@media (prefers-reduced-motion: reduce) { .bonza-cluster { transition: none; } .bonza-cluster:hover { transform: none; } }
+
+/* Explore "Find out more" panel slide-in */
+@keyframes slidein { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+/* Explore city drawer — bottom-sheet slide-up (mobile) */
+@keyframes slideup { from { transform: translateY(100%); } to { transform: translateY(0); } }

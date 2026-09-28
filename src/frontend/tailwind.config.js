@@ -37,6 +37,11 @@ export default {
           from: { opacity: "0", transform: "translateY(14px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        // Auth slideshow progress bar fills over one slide's duration.
+        slideProgress: { from: { width: "0%" }, to: { width: "100%" } },
+        // Slow shared "breathing" zoom for the hero backdrop — applied to the whole crossfading stack so
+        // overlapping slides are always at the same scale (a clean crossfade, no per-image ghosting).
+        heroZoom: { "0%, 100%": { transform: "scale(1)" }, "50%": { transform: "scale(1.06)" } },
       },
       animation: {
         fadein: "fadein 0.6s ease",
@@ -45,6 +50,8 @@ export default {
         shimmer: "shimmer 1.4s infinite",
         dropin: "dropin 0.4s cubic-bezier(0.22, 1, 0.36, 1)",
         slideup: "slideup 0.3s ease",
+        slideProgress: "slideProgress 5s linear forwards",
+        heroZoom: "heroZoom 40s ease-in-out infinite",
       },
       colors: {
         // Brand: terra cotta. The whole app themes through this scale, so every

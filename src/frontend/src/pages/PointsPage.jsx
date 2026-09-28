@@ -2,12 +2,14 @@
 // an expandable detail panel (balance, held value, best transfer, transfer table). Renders from the cached
 // ProgrammeValuation/TransferPartner data via GET /points/portfolio. Navigation is global (App.jsx).
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import PortfolioMetrics from "../components/points/PortfolioMetrics";
 import CategoryFilter from "../components/points/CategoryFilter";
 import ProgrammeGroup from "../components/points/ProgrammeGroup";
+import PointsActivitySection from "../components/points/PointsActivitySection";
 import AddProgrammePanel from "../components/points/AddProgrammePanel";
 import { RefreshIcon, LockIcon } from "../components/points/icons";
-import { getPointsPortfolio, syncLoyaltyNow } from "../utils/api";
+import { getPointsPortfolio, getPointsReview } from "../utils/api";
 
 const CATEGORY_ORDER = [
   { key: "card", label: "Credit cards", meta: "transferable" },
@@ -17,7 +19,9 @@ const CATEGORY_ORDER = [
 ];
 
 export default function PointsPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
+  const [review, setReview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
   const [openId, setOpenId] = useState(null);
@@ -32,7 +36,12 @@ export default function PointsPage() {
   async function load() {
     setLoading(true);
     try {
-      setData(await getPointsPortfolio());
+      const [portfolio, rev] = await Promise.all([
+        getPointsPortfolio(),
+        getPointsReview().catch(() => null),
+      ]);
+      setData(portfolio);
+      setReview(rev);
     } catch {
       /* leave data null — page shows empty groups */
     } finally {
@@ -40,15 +49,9 @@ export default function PointsPage() {
     }
   }
 
-  async function handleSync() {
-    setSyncing(true);
-    try {
-      await syncLoyaltyNow("gmail");
-    } catch {
-      /* offline / not connected — still reload from cache */
-    }
-    await load();
-    setSyncing(false);
+  // The "Gathering your points" loading screen runs the deep sync with live progress, then routes to review.
+  function handleSync() {
+    navigate("/points/connecting");
   }
 
   const toggle = (accountId) => setOpenId((prev) => (prev === accountId ? null : accountId));
@@ -77,6 +80,20 @@ export default function PointsPage() {
             </button>
           </div>
         </div>
+
+        {review?.lastRun?.balancesUpdated > 0 && (
+          <button
+            onClick={() => navigate("/points/review")}
+            className="w-full mb-4 flex items-center gap-2.5 rounded-xl bg-[#EAF0F7] text-[#2C5C8F] px-4 py-3 text-[13px] font-semibold hover:bg-[#E1EAF4]"
+          >
+            <span className="w-6 h-6 rounded-lg bg-white/70 flex items-center justify-center flex-shrink-0">
+              <RefreshIcon width="13" height="13" />
+            </span>
+            {review.lastRun.balancesUpdated} balance{review.lastRun.balancesUpdated === 1 ? "" : "s"} updated from your
+            statements
+            <span className="ml-auto text-[12.5px]">View →</span>
+          </button>
+        )}
 
         <PortfolioMetrics metrics={data?.metrics} loading={loading} />
 
@@ -123,6 +140,8 @@ export default function PointsPage() {
             />
           ))
         )}
+
+        {!loading && <PointsActivitySection />}
 
         <p className="flex items-center gap-2 mt-7 text-[11.5px] text-ink-300">
           <LockIcon width="13" height="13" />

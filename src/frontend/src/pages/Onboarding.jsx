@@ -1,4 +1,5 @@
-// pages/Onboarding.jsx — guided first-run: home airport, travel style, connect loyalty, poll recs.
+// pages/Onboarding.jsx — guided first-run: connect loyalty (skippable) → home airport → travel style →
+// your details → personalise. Progress + entered fields persist across the loyalty OAuth full-page redirect.
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AirportDropdown from "../components/AirportDropdown";
@@ -22,15 +23,45 @@ const TRAVEL_STYLES = [
   { id: "family_trips", label: "Family trips", desc: "Simple, flexible, everyone travels together." },
 ];
 
+const COUNTRY_CODES = ["+44", "+1", "+61", "+353", "+33", "+49", "+34", "+39", "+971"];
+const defaultDetails = () => ({ title: "mr", firstName: "", lastName: "", dob: "", email: "", countryCode: "+44", phone: "", passport: "" });
+
+// Persist onboarding across the loyalty OAuth redirect (a full page reload wipes React state).
+const LS_KEY = "bonza.onboarding";
+const readSaved = () => {
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEY)) || {};
+  } catch {
+    return {};
+  }
+};
+const writeSaved = (v) => {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(v));
+  } catch {
+    /* private mode etc. — best effort */
+  }
+};
+const clearSaved = () => {
+  try {
+    localStorage.removeItem(LS_KEY);
+  } catch {
+    /* ignore */
+  }
+};
+
 export default function Onboarding() {
   const navigate = useNavigate();
+  const user = useAppStore((s) => s.user);
   const setProfile = useAppStore((s) => s.setProfile);
   const setLoyaltyAccounts = useAppStore((s) => s.setLoyaltyAccounts);
   const loyaltyAccounts = useAppStore((s) => s.loyaltyAccounts);
 
-  const [step, setStep] = useState(1);
-  const [home, setHome] = useState(null); // { code, label }
-  const [travelStyle, setTravelStyle] = useState(null);
+  const saved = readSaved();
+  const [step, setStep] = useState(saved.step || 1); // 1 loyalty · 2 home · 3 travel · 4 details · 5 personalising
+  const [home, setHome] = useState(saved.home || null); // { code, label }
+  const [travelStyle, setTravelStyle] = useState(saved.travelStyle || null);
+  const [details, setDetails] = useState(saved.details || defaultDetails());
   const [providers, setProviders] = useState({ gmail: {}, outlook: {} });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -39,12 +70,35 @@ export default function Onboarding() {
     getLoyaltyProviders().then(setProviders).catch(() => {});
   }, []);
 
-  const saveProfile = async (extra = {}) => {
-    const patch = { onboardingComplete: true, ...extra };
+  // Prefill the email from the signed-in account if the user hasn't typed one.
+  useEffect(() => {
+    if (user?.email && !details.email) setDetails((d) => ({ ...d, email: user.email }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // Persist progress + entered fields (except the transient personalising step).
+  useEffect(() => {
+    if (step < 5) writeSaved({ step, home, travelStyle, details });
+  }, [step, home, travelStyle, details]);
+
+  const setDetail = (k) => (e) => setDetails((d) => ({ ...d, [k]: e.target.value }));
+
+  const saveProfile = async () => {
+    const patch = {
+      onboardingComplete: true,
+      travelStyle: travelStyle || null,
+      title: details.title,
+      firstName: details.firstName,
+      lastName: details.lastName,
+      dateOfBirth: details.dob,
+      phone: details.phone,
+      phoneCountryCode: details.countryCode,
+      passportNumber: details.passport,
+    };
     if (home?.code) patch.homeAirport = home.code;
-    if (travelStyle) patch.travelStyle = travelStyle;
     const profile = await updateProfile(patch);
     setProfile(profile);
+    clearSaved();
     return profile;
   };
 
@@ -64,6 +118,8 @@ export default function Onboarding() {
     setError(null);
     try {
       if (providers[provider]?.configured) {
+        // Full-page OAuth redirect — resume onboarding at Home airport (step 2) when it returns.
+        writeSaved({ step: 2, home, travelStyle, details });
         const url = await startLoyaltyOAuth(provider, "onboarding");
         window.location.href = url;
         return;
@@ -83,7 +139,7 @@ export default function Onboarding() {
     setError(null);
     try {
       await saveProfile();
-      setStep(4);
+      setStep(5);
     } catch (err) {
       setError(apiErrorMessage(err));
     } finally {
@@ -95,17 +151,33 @@ export default function Onboarding() {
     <div className="mx-auto max-w-2xl px-6 py-12 font-jakarta text-ink">
       <div className="mb-6 flex items-center justify-between">
         <span className="font-display text-[22px] font-semibold tracking-[-0.01em]">Bonza</span>
-        {step < 4 && (
+        {step < 5 && (
           <button type="button" onClick={skip} disabled={busy} className="text-[13px] font-medium text-ink-muted hover:text-ink disabled:opacity-50">
             Skip for now
           </button>
         )}
       </div>
 
-      {step < 4 && <Progress step={step} />}
+      {step < 5 && <Progress step={step} />}
 
       <div className="mt-6 rounded-2xl border border-[rgba(40,30,20,0.06)] bg-white p-6 sm:p-8">
         {step === 1 && (
+          <Step title="Connect your loyalty points" sub="Sync balances so Bonza can find your best redemptions — optional, and you can add them manually. Skip if you'd rather not connect an inbox.">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              <ConnectButton label="Connect Gmail" provider="gmail" providers={providers} busy={busy} onClick={() => connect("gmail")} />
+              <ConnectButton label="Connect Outlook" provider="outlook" providers={providers} busy={busy} onClick={() => connect("outlook")} />
+            </div>
+            <ManualAdd onAdded={async () => setLoyaltyAccounts(await getLoyaltyAccounts())} onError={setError} />
+            {loyaltyAccounts.length > 0 && (
+              <p className="mt-3 rounded-lg bg-[#EAF6EE] px-3 py-2 text-[12px] font-medium text-[#1E7E40]">
+                {loyaltyAccounts.length} loyalty account{loyaltyAccounts.length === 1 ? "" : "s"} connected.
+              </p>
+            )}
+            <Nav onNext={() => setStep(2)} nextLabel="Next" busy={busy} />
+          </Step>
+        )}
+
+        {step === 2 && (
           <Step title="Where do you usually fly from?" sub="Your home airport tailors every recommendation.">
             <AirportDropdown
               label="Home airport"
@@ -113,11 +185,11 @@ export default function Onboarding() {
               displayLabel={home?.label || ""}
               onSelect={(a) => setHome({ code: a.code, label: `${a.code} — ${a.city || a.name}` })}
             />
-            <Nav onNext={() => setStep(2)} nextDisabled={!home} />
+            <Nav onBack={() => setStep(1)} onNext={() => setStep(3)} nextDisabled={!home} />
           </Step>
         )}
 
-        {step === 2 && (
+        {step === 3 && (
           <Step title="How do you like to travel?" sub="This shapes which options Bonza puts first.">
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {TRAVEL_STYLES.map((s) => (
@@ -134,27 +206,51 @@ export default function Onboarding() {
                 </button>
               ))}
             </div>
-            <Nav onBack={() => setStep(1)} onNext={() => setStep(3)} nextDisabled={!travelStyle} />
+            <Nav onBack={() => setStep(2)} onNext={() => setStep(4)} nextDisabled={!travelStyle} />
           </Step>
         )}
 
-        {step === 3 && (
-          <Step title="Connect your loyalty points" sub="Sync balances so Bonza can find your best redemptions. You can also add them manually.">
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-              <ConnectButton label="Connect Gmail" provider="gmail" providers={providers} busy={busy} onClick={() => connect("gmail")} />
-              <ConnectButton label="Connect Outlook" provider="outlook" providers={providers} busy={busy} onClick={() => connect("outlook")} />
+        {step === 4 && (
+          <Step title="Your details" sub="We'll use these to pre-fill your bookings so checkout is quick. Card details are never stored here.">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FieldLabel label="Title">
+                <select value={details.title} onChange={setDetail("title")} className={inputCls}>
+                  {["mr", "ms", "mrs", "dr", "mx"].map((t) => (
+                    <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                  ))}
+                </select>
+              </FieldLabel>
+              <FieldLabel label="Date of birth">
+                <input type="date" value={details.dob} onChange={setDetail("dob")} className={inputCls} />
+              </FieldLabel>
+              <FieldLabel label="First name">
+                <input value={details.firstName} onChange={setDetail("firstName")} placeholder="Jordan" className={inputCls} />
+              </FieldLabel>
+              <FieldLabel label="Last name">
+                <input value={details.lastName} onChange={setDetail("lastName")} placeholder="Rivera" className={inputCls} />
+              </FieldLabel>
+              <FieldLabel label="Email" full>
+                <input type="email" value={details.email} onChange={setDetail("email")} placeholder="you@email.com" className={inputCls} />
+              </FieldLabel>
+              <FieldLabel label="Phone" full>
+                <div className="flex gap-2">
+                  <select value={details.countryCode} onChange={setDetail("countryCode")} className={`${inputCls} w-24 flex-shrink-0`}>
+                    {COUNTRY_CODES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                  <input value={details.phone} onChange={setDetail("phone")} placeholder="7700 900123" className={inputCls} />
+                </div>
+              </FieldLabel>
+              <FieldLabel label="Passport number (optional)" full>
+                <input value={details.passport} onChange={setDetail("passport")} placeholder="123456789" className={inputCls} />
+              </FieldLabel>
             </div>
-            <ManualAdd onAdded={async () => setLoyaltyAccounts(await getLoyaltyAccounts())} onError={setError} />
-            {loyaltyAccounts.length > 0 && (
-              <p className="mt-3 rounded-lg bg-[#EAF6EE] px-3 py-2 text-[12px] font-medium text-[#1E7E40]">
-                {loyaltyAccounts.length} loyalty account{loyaltyAccounts.length === 1 ? "" : "s"} connected.
-              </p>
-            )}
-            <Nav onBack={() => setStep(2)} onNext={finish} nextLabel="Finish" busy={busy} />
+            <Nav onBack={() => setStep(3)} onNext={finish} nextLabel="Finish" busy={busy} />
           </Step>
         )}
 
-        {step === 4 && <Personalising navigate={navigate} />}
+        {step === 5 && <Personalising navigate={navigate} />}
 
         {error && <p className="mt-3 text-[12px] font-medium text-bonza-dark">{error}</p>}
       </div>
@@ -162,8 +258,20 @@ export default function Onboarding() {
   );
 }
 
+const inputCls =
+  "w-full rounded-lg border border-[#e0d9cf] bg-white px-3 py-2.5 text-[13.5px] text-ink focus:outline-none focus:border-bonza";
+
+function FieldLabel({ label, full, children }) {
+  return (
+    <div className={full ? "sm:col-span-2" : ""}>
+      <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">{label}</p>
+      {children}
+    </div>
+  );
+}
+
 function Progress({ step }) {
-  const labels = ["Home airport", "Travel style", "Loyalty"];
+  const labels = ["Loyalty", "Home airport", "Travel style", "Your details"];
   return (
     <div className="flex items-center gap-2">
       {labels.map((l, i) => (

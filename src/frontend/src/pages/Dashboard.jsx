@@ -10,14 +10,12 @@ import { useTrip } from "../hooks/useTrip";
 import { useOpenPackage } from "../hooks/useOpenPackage";
 import { useRecommendations } from "../hooks/useRecommendations";
 import { recToPackage } from "../utils/recToPackage";
-import { buildSearchUrl } from "../utils/searchUrl";
+import { buildSearchUrl, openSearch, reserveTab, redirectTab } from "../utils/searchUrl";
 import { useAppStore } from "../store/appStore";
 import {
   getLoyaltyPoints,
   getTrips,
   optimizeTrip,
-  syncLoyalty,
-  getLoyaltyAccounts,
   apiErrorMessage,
 } from "../utils/api";
 import { shortDate, formatGbp } from "../utils/format";
@@ -46,10 +44,8 @@ export default function Dashboard() {
 
   const cardRef = useRef(null);
 
-  const { data: recs, status: recStatus, reload: reloadRecs } = useRecommendations();
+  const { data: recs, status: recStatus } = useRecommendations();
   const loyaltyAccounts = useAppStore((s) => s.loyaltyAccounts);
-  const setLoyaltyAccounts = useAppStore((s) => s.setLoyaltyAccounts);
-  const [connecting, setConnecting] = useState(false);
   const [mockDeck] = useState(() => shuffle(PACKAGES));
   const [seed] = useState(() => Math.floor(Math.random() * 100000));
   const personalising = recStatus === "loading" || recStatus === "generating";
@@ -97,18 +93,25 @@ export default function Dashboard() {
       navigate("/flexible");
       return;
     }
+    // Results open in a new tab (reserved in-gesture so it isn't popup-blocked); the dashboard stays put.
+    const tab = reserveTab();
     const ok = await createAndOptimize({ ...base, checkIn: form.checkIn, checkOut: form.checkOut });
-    if (ok)
-      navigate(
-        buildSearchUrl({
-          origin: form.origin,
-          destination: form.destination,
-          departureDate: form.checkIn,
-          returnDate: form.checkOut,
-          travelers: Number(form.numberOfTravelers) || 2,
-          style: form.style,
-        })
-      );
+    if (!ok) {
+      tab?.close();
+      return;
+    }
+    redirectTab(
+      tab,
+      buildSearchUrl({
+        origin: form.origin,
+        destination: form.destination,
+        departureDate: form.checkIn,
+        returnDate: form.checkOut,
+        travelers: Number(form.numberOfTravelers) || 2,
+        style: form.style,
+      }),
+      navigate
+    );
   };
 
   const resumeTrip = async (t) => {
@@ -128,7 +131,7 @@ export default function Dashboard() {
         preferences: {},
       });
       setTripId(t.id);
-      navigate(
+      openSearch(
         buildSearchUrl({
           origin: t.origin,
           destination: t.destination,
@@ -146,21 +149,6 @@ export default function Dashboard() {
   const focusSearch = () => {
     cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     cardRef.current?.querySelector("input")?.focus();
-  };
-
-  const connectLoyalty = async () => {
-    if (connecting) return;
-    setConnecting(true);
-    setError(null);
-    try {
-      await syncLoyalty();
-      setLoyaltyAccounts(await getLoyaltyAccounts());
-      reloadRecs();
-    } catch (err) {
-      setError(apiErrorMessage(err));
-    } finally {
-      setConnecting(false);
-    }
   };
 
   const firstName = user.name?.trim().split(/\s+/)[0] || "Traveller";
@@ -295,11 +283,10 @@ export default function Dashboard() {
           </p>
           <button
             type="button"
-            onClick={connectLoyalty}
-            disabled={connecting}
-            className="shrink-0 rounded-full bg-bonza px-4 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-bonza-dark disabled:opacity-60"
+            onClick={() => navigate("/settings?tab=loyalty")}
+            className="shrink-0 rounded-full bg-bonza px-4 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-bonza-dark"
           >
-            {connecting ? "Connecting…" : "Connect loyalty"}
+            Connect loyalty
           </button>
         </div>
       )}

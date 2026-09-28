@@ -1,13 +1,12 @@
 // components/points/ProgrammeDetailPanel.jsx — expanded panel: four summary stats + the transfer table
 // (or the terminal-currency message when a programme has no partners).
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { openSearch } from "../../utils/searchUrl";
 import { getProgrammeDetail } from "../../utils/api";
 import { formatUpdatedAt } from "../../utils/format";
 import { RefreshIcon, InfoIcon, AlertTriangleIcon, ArrowRightIcon } from "./icons";
 
 export default function ProgrammeDetailPanel({ accountId, rowAccount, onEdit }) {
-  const navigate = useNavigate();
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showAll, setShowAll] = useState(false);
@@ -41,7 +40,6 @@ export default function ProgrammeDetailPanel({ accountId, rowAccount, onEdit }) 
       {/* Four summary stats */}
       <div className="flex gap-10 pt-1 pb-4 border-b border-ink-900/[0.07] mb-3.5 tabular-nums">
         <Stat label="Balance" value={`${account.balance.toLocaleString()} ${account.currency}`} sub={account.displayName} />
-        <Stat label="Held value" value={`£${heldValueGbp.toFixed(0)}`} sub={`at ${detail.centsPerPoint.toFixed(1)}¢ base rate`} />
         <Stat
           label="Best transfer"
           value={bestTransfer ? `£${bestTransfer.valueGbp.toFixed(0)}` : "—"}
@@ -163,7 +161,7 @@ export default function ProgrammeDetailPanel({ accountId, rowAccount, onEdit }) 
                 </button>
               )}
               <button
-                onClick={() => navigate(`/search?programme=${bestTransfer && !holdIsBetter ? bestTransfer.programme : account.programme}`)}
+                onClick={() => openSearch(`/search?programme=${bestTransfer && !holdIsBetter ? bestTransfer.programme : account.programme}`)}
                 className="text-[11.5px] font-medium px-3 py-1.5 rounded-md bg-bonza text-white border border-bonza hover:bg-bonza-dark flex items-center gap-1.5"
               >
                 Find awards with{" "}
@@ -179,7 +177,7 @@ export default function ProgrammeDetailPanel({ accountId, rowAccount, onEdit }) 
             {account.displayName} has no transfer partners — points can only be redeemed within the programme.
           </span>
           <button
-            onClick={() => navigate(`/search?programme=${account.programme}`)}
+            onClick={() => openSearch(`/search?programme=${account.programme}`)}
             className="text-[11.5px] font-medium px-3 py-1.5 rounded-md bg-bonza text-white flex items-center gap-1.5"
           >
             Find awards <ArrowRightIcon width="12" height="12" />

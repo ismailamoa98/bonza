@@ -176,6 +176,62 @@ export const getPointsPortfolio = () =>
 export const getProgrammeDetail = (accountId) =>
   client.get(`/points/programme/${accountId}`).then((r) => r.data);
 
+// Phase 17 — hero destination award board (public; adds affordability when signed in).
+export const getHeroDestinations = () =>
+  client.get("/destinations/hero").then((r) => r.data);
+
+// Phase 18 — homepage discovery rails (public; origin-aware, session-aware). ?origin= overrides the city.
+export const getDiscover = (origin) =>
+  client.get("/destinations/discover", { params: origin ? { origin } : {} }).then((r) => r.data);
+
+// Phase 18 — country landing page (public): the country + its bookable cities.
+export const getCountry = (code) =>
+  client.get(`/destinations/country/${code}`).then((r) => r.data);
+
+// Phase 18 — Explore Everywhere (public): every priced country for an origin (map + list + grid data).
+export const getExplore = (origin) =>
+  client.get("/explore", { params: origin ? { origin } : {} }).then((r) => r.data);
+
+// Phase 18 §18i — city drawer: gallery, trip total, hotels on points, six-month availability.
+export const getExploreCity = (cityId, origin) =>
+  client.get(`/explore/city/${cityId}`, { params: origin ? { origin } : {} }).then((r) => r.data);
+
+// Phase 19 — country page: hero + stats + cities priced against origin/month/nights/party (prices recompute).
+export const getExploreCountry = (code, { origin, month, nights, adults } = {}) => {
+  const params = {};
+  if (origin) params.origin = origin;
+  if (month) params.month = month;
+  if (nights != null) params.nights = nights;
+  if (adults != null) params.adults = adults;
+  return client.get(`/explore/${code}`, { params }).then((r) => r.data);
+};
+
+export const getPointsActivity = (params = {}) =>
+  client.get("/points/activity", { params }).then((r) => r.data);
+
+export const getPointsReview = () =>
+  client.get("/points/review").then((r) => r.data);
+
+export const acknowledgeReview = () =>
+  client.post("/points/review/acknowledge").then((r) => r.data);
+
+export const setManualBalance = (accountId, balance) =>
+  client.patch(`/points/balance/${accountId}`, { balance }).then((r) => r.data);
+
+export const deleteDuplicate = (accountId) =>
+  client.delete(`/points/duplicate/${accountId}`).then((r) => r.data);
+
+export const removeAccount = (accountId) =>
+  client.delete(`/points/account/${accountId}`).then((r) => r.data);
+
+// Deep sync ("Gathering your points") — client-driven stepping for live progress.
+export const deepSyncStart = (provider) =>
+  client.post("/loyalty/deep-sync/start", { provider }).then((r) => r.data);
+export const deepSyncStep = (runId, programme) =>
+  client.post("/loyalty/deep-sync/step", { runId, programme }).then((r) => r.data);
+export const deepSyncFinish = (runId) =>
+  client.post("/loyalty/deep-sync/finish", { runId }).then((r) => r.data);
+
 export const getNotifications = () =>
   client.get("/notifications").then((r) => r.data);
 

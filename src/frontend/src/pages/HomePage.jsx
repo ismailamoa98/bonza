@@ -7,21 +7,21 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TripForm from "../components/TripForm";
-import PackageCarousel from "../components/PackageCarousel";
-import HeroLoyalty from "../components/HeroLoyalty";
+import DestinationBand from "../components/hero/DestinationBand";
+import WhyBonza from "../components/home/WhyBonza";
+import DiscoverRails from "../components/home/DiscoverRails";
+import HowItWorks from "../components/home/HowItWorks";
 import SnapSection from "../components/SnapSection";
-import { PACKAGES, shuffle } from "../data/packages";
+import { shuffle } from "../data/packages";
 import { useTrip } from "../hooks/useTrip";
-import { useOpenPackage } from "../hooks/useOpenPackage";
 import { useAppStore } from "../store/appStore";
-import { getLoyaltyPoints, apiErrorMessage } from "../utils/api";
-import { buildSearchUrl } from "../utils/searchUrl";
+import { getLoyaltyPoints, apiErrorMessage, getHeroDestinations } from "../utils/api";
+import { buildSearchUrl, reserveTab, redirectTab } from "../utils/searchUrl";
+import RotatingBackdrop from "../components/common/RotatingBackdrop";
+import { AUTH_DESTINATIONS } from "../data/authDestinations";
 
-// PLACEHOLDER — swap for a licensed hero photo, or a muted autoplay
-// <video autoplay muted loop playsinline> (like the reference site). The bg-[#1f5f6b]
-// base colour below always shows while this loads or if it fails, so the hero never
-// looks broken.
-const HERO_IMAGE = "https://loremflickr.com/1920/1080/maldives,resort,aerial?lock=5";
+// The hero crossfades through the same self-hosted destination photos as the auth pages (public/auth/*),
+// in a randomised order each visit. The bg-[#1f5f6b] base colour always shows while these load / if one fails.
 
 const PROGRESS_STEPS = [
   "Comparing 200+ flight options…",
@@ -34,7 +34,6 @@ const PROGRESS_STEPS = [
 export default function HomePage() {
   const navigate = useNavigate();
   const { createAndOptimize, loading, error } = useTrip();
-  const { openPackage, opening, openError } = useOpenPackage();
 
   const trip = useAppStore((s) => s.trip);
   const loyaltyPoints = useAppStore((s) => s.loyaltyPoints);
@@ -44,9 +43,9 @@ export default function HomePage() {
   const [pointsError, setPointsError] = useState(null);
   const [progressIndex, setProgressIndex] = useState(0);
 
-  // Shuffled deck for the carousel.
-  const [deck] = useState(() => shuffle(PACKAGES));
-  const [seed] = useState(() => Math.floor(Math.random() * 100000));
+  const [heroIdx, setHeroIdx] = useState(0); // active slide — shared by the hero backdrop and the band
+  const [order] = useState(() => shuffle(AUTH_DESTINATIONS)); // randomised slideshow order each visit
+  const [heroData, setHeroData] = useState(null); // award-board data (public /destinations/hero)
 
   // Scope full-screen "slide" snapping to the homepage only.
   useEffect(() => {
@@ -62,14 +61,26 @@ export default function HomePage() {
       .catch((err) => setPointsError(apiErrorMessage(err)));
   }, [loyaltyPoints, setLoyaltyPoints]);
 
-  // Stand-in Plaid "connect" for the logged-out hero button — re-runs the same fetch
-  // (real Plaid Link is post-launch).
-  const connectPlaid = () => {
-    setPointsError(null);
-    getLoyaltyPoints()
-      .then(setLoyaltyPoints)
-      .catch((err) => setPointsError(apiErrorMessage(err)));
-  };
+  // Hero award board — public endpoint; adds affordability markers when a session is present.
+  useEffect(() => {
+    getHeroDestinations()
+      .then(setHeroData)
+      .catch(() => {});
+  }, []);
+
+  // Auto-advance the shared slide — HomePage owns the index so the band's arrows/bars can drive the hero
+  // photo too. 8s (longer than the auth page's 5s: the band carries reading material). Paused for reduced
+  // motion and below 768px (a stacked band mid-rotation is disorienting).
+  useEffect(() => {
+    const n = order.length;
+    if (n < 2) return undefined;
+    const paused =
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      window.matchMedia("(max-width: 767px)").matches;
+    if (paused) return undefined;
+    const t = setTimeout(() => setHeroIdx((i) => (i + 1) % n), 8000);
+    return () => clearTimeout(t);
+  }, [heroIdx, order.length]);
 
   // Rotate progress copy while optimizing.
   useEffect(() => {
@@ -101,35 +112,65 @@ export default function HomePage() {
       navigate("/flexible");
       return;
     }
+    // Results open in a new tab. Reserve it now (in the click gesture) so it isn't popup-blocked, then
+    // point it at the search once the trip is created; the homepage stays where it is.
+    const tab = reserveTab();
     const ok = await createAndOptimize({ ...base, checkIn: form.checkIn, checkOut: form.checkOut });
-    if (ok)
-      navigate(
-        buildSearchUrl({
-          origin: form.origin,
-          destination: form.destination,
-          departureDate: form.checkIn,
-          returnDate: form.checkOut,
-          travelers: Number(form.numberOfTravelers) || 2,
-          style: form.style,
-        })
-      );
+    if (!ok) {
+      tab?.close();
+      return;
+    }
+    redirectTab(
+      tab,
+      buildSearchUrl({
+        origin: form.origin,
+        destination: form.destination,
+        departureDate: form.checkIn,
+        returnDate: form.checkOut,
+        travelers: Number(form.numberOfTravelers) || 2,
+        style: form.style,
+      }),
+      navigate
+    );
   };
 
+  // Derived hero state — shuffled image list + the award destination matching the current slide (by slug).
+  const heroImages = order.map((d) => d.image);
+  const bandDestination =
+    heroData?.destinations?.find((d) => d.slug === order[heroIdx]?.slug) || null;
+
+  const goTo = (i) => setHeroIdx(i);
+  const step = (dir) => setHeroIdx((s) => (s + dir + order.length) % order.length);
 
   return (
     <div className="text-ink">
+      {/* HERO + BAND share one viewport: the image flexes to fill the space above the band so the band's
+          "See your best option" CTA lands at the bottom edge on load (no scroll needed to reach it). */}
+      <div className="flex min-h-[100dvh] snap-start flex-col">
       {/* 1. CINEMATIC HERO — full-bleed image under the overlay nav. */}
       <section
         id="plan"
-        className="relative flex min-h-[90dvh] snap-start items-center overflow-hidden"
+        className="relative flex flex-1 items-center overflow-hidden"
       >
-        {/* Base colour (always visible) -> photo -> dark gradient for legibility. */}
+        {/* Base colour (always visible) -> crossfading photos -> dark gradient for legibility. */}
         <div className="absolute inset-0 bg-[#1f5f6b]" />
-        <img src={HERO_IMAGE} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        <RotatingBackdrop images={heroImages} activeIndex={heroIdx} />
         <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/10 to-black/70" />
 
+        {/* On-image location caption — bottom-right, fades on each slide change. */}
+        <div
+          key={heroIdx}
+          className="animate-fadein absolute bottom-6 right-6 z-10 flex items-center gap-1.5 text-white/90 drop-shadow-[0_1px_6px_rgba(0,0,0,0.5)]"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 21s-7-5.2-7-11a7 7 0 0 1 14 0c0 5.8-7 11-7 11Z" />
+            <circle cx="12" cy="10" r="2.5" />
+          </svg>
+          <span className="text-[13.5px] font-medium tracking-[-0.01em]">{order[heroIdx]?.name}</span>
+        </div>
+
         {/* Centred content */}
-        <div className="relative z-10 mx-auto w-full max-w-5xl px-6 pb-28 pt-28 text-center">
+        <div className="relative z-10 mx-auto w-full max-w-5xl px-6 pb-20 pt-24 text-center">
           <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-white/85 drop-shadow">
             Your AI Vacation Agent
           </p>
@@ -149,85 +190,44 @@ export default function HomePage() {
                 Couldn’t load your points: {pointsError}
               </p>
             )}
-            {(error || openError) && (
-              <p className="mt-2 text-center text-[12px] text-red-200">{error || openError}</p>
-            )}
+            {error && <p className="mt-2 text-center text-[12px] text-red-200">{error}</p>}
           </div>
         </div>
 
-        {/* Cinematic story strip pinned to the bottom */}
+        {/* Value props pinned to the bottom edge (progress + destination name now live in the band below). */}
         <div className="absolute inset-x-0 bottom-0 z-10 px-6 pb-6">
           <div className="mx-auto max-w-7xl">
-            <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/25">
-              <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-bonza to-bonza-light" />
-            </div>
-            <div className="mt-3 flex items-center justify-between">
-              <div className="flex flex-wrap gap-x-8 gap-y-1 text-[13px]">
-                <span className="font-bold text-white">Best-value packages</span>
-                <span className="hidden text-white/60 sm:inline">Points + cash, optimised</span>
-                <span className="hidden text-white/60 sm:inline">Book in one click</span>
-              </div>
-              <HeroLoyalty loyaltyPoints={loyaltyPoints} onConnect={connectPlaid} />
+            <div className="flex flex-wrap gap-x-8 gap-y-1 text-[13px]">
+              <span className="font-bold text-white">Best-value packages</span>
+              <span className="hidden text-white/60 sm:inline">Points + cash, optimised</span>
+              <span className="hidden text-white/60 sm:inline">Book in one click</span>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 2. PACKAGES CAROUSEL */}
-      <SnapSection id="packages" wide>
-        <PackageCarousel packages={deck} seed={seed} onOpen={openPackage} />
-      </SnapSection>
+      {/* Phase 17 — award-price band. Full-width white section directly beneath the hero; shares the slide
+          index so its arrows/bars also drive the hero photo. Does the proof the hero no longer carries. */}
+      {bandDestination && (
+        <DestinationBand
+          destination={bandDestination}
+          index={heroIdx}
+          total={order.length}
+          isAuthenticated={heroData?.isAuthenticated}
+          onGoTo={goTo}
+          onStep={step}
+        />
+      )}
+      </div>
 
-      {/* 3. STATS */}
-      <SnapSection>
-        <div className="grid grid-cols-2 gap-6 text-center sm:grid-cols-4">
-          {[
-            ["2 min", "to build a package"],
-            ["50+", "airline & hotel APIs"],
-            ["$25M", "saved by travelers"],
-            ["50K+", "active users"],
-          ].map(([num, label]) => (
-            <div key={label}>
-              <p className="text-[2rem] font-medium tabular-nums tracking-[-0.01em] text-bonza">{num}</p>
-              <p className="mt-1 text-[12px] text-ink-muted">{label}</p>
-            </div>
-          ))}
-        </div>
-      </SnapSection>
+      {/* 2. WHY BONZA — statement + borderless capability row (Phase 18 §18d) */}
+      <WhyBonza />
 
-      {/* 4. HOW IT WORKS */}
-      <SnapSection id="walkthrough">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-bonza">
-          How it works
-        </p>
-        <h2 className="mt-2 text-[2rem] font-medium tracking-[-0.02em] text-ink">
-          Your best trip in three steps.
-        </h2>
-        <div className="mt-8 grid gap-5 md:grid-cols-3">
-          {[
-            [
-              "Connect via Plaid",
-              "Securely link your loyalty accounts. Bonza reads your balances automatically — no manual entry, ever.",
-            ],
-            [
-              "Enter your trip",
-              "Where, when, who. Bonza’s AI scans 50+ airlines and 200+ hotels, mixing points and cash for the best value.",
-            ],
-            [
-              "Get your packages",
-              "Complete flight + hotel + car bundles with a clear recommendation and deal rating. Book in one click.",
-            ],
-          ].map(([title, body], i) => (
-            <div key={title}>
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-bonza text-[15px] font-semibold text-white">
-                {i + 1}
-              </span>
-              <h3 className="mt-4 text-[16px] font-medium text-ink">{title}</h3>
-              <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">{body}</p>
-            </div>
-          ))}
-        </div>
-      </SnapSection>
+      {/* 3. DISCOVER — explore-by-country + origin-aware popular-trips rails (Phase 18 §18e) */}
+      <DiscoverRails />
+
+      {/* 4. HOW IT WORKS — corrected copy, three cards (Phase 18 §18j) */}
+      <HowItWorks />
 
       {/* 5. COMMUNITY */}
       <SnapSection id="community">
@@ -303,27 +303,21 @@ export default function HomePage() {
         </div>
       </footer>
 
-      {/* Optimizing / booking overlay */}
-      {(loading || opening) && (
+      {/* Optimizing overlay */}
+      {loading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40">
           <div className="w-80 rounded-2xl bg-white p-6 text-center shadow-xl">
             <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-cream border-t-bonza" />
-            <p className="font-semibold text-ink">
-              {opening ? "Preparing your booking" : "Optimizing your trip"}
+            <p className="font-semibold text-ink">Optimizing your trip</p>
+            <p className="mt-1 h-5 text-[13px] text-ink-soft transition-all">
+              {PROGRESS_STEPS[progressIndex]}
             </p>
-            {!opening && (
-              <>
-                <p className="mt-1 h-5 text-[13px] text-ink-soft transition-all">
-                  {PROGRESS_STEPS[progressIndex]}
-                </p>
-                <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-cream">
-                  <div
-                    className="h-full rounded-full bg-bonza transition-all duration-700"
-                    style={{ width: `${((progressIndex + 1) / PROGRESS_STEPS.length) * 100}%` }}
-                  />
-                </div>
-              </>
-            )}
+            <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-cream">
+              <div
+                className="h-full rounded-full bg-bonza transition-all duration-700"
+                style={{ width: `${((progressIndex + 1) / PROGRESS_STEPS.length) * 100}%` }}
+              />
+            </div>
           </div>
         </div>
       )}

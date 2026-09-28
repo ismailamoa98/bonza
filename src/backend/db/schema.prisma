@@ -23,6 +23,15 @@ model User {
 
   onboardingComplete  Boolean @default(false)
   travelStyle         String?
+
+  // Traveller profile — collected in onboarding to pre-fill the booking guest form (no card data stored).
+  title           String?
+  firstName       String?
+  lastName        String?
+  dateOfBirth     String? // "YYYY-MM-DD"
+  phone           String?
+  phoneCountryCode String? @default("+44")
+  passportNumber  String?
   gmailConnected      Boolean @default(false)
   gmailRefreshToken   String?
   outlookConnected    Boolean @default(false)
@@ -45,6 +54,8 @@ model User {
   notificationPreference NotificationPreference?
 
   propertyReviews PropertyReview[]
+  pointsActivity  PointsActivity[]
+  syncRuns        BalanceSyncRun[]
 }
 
 model Trip {
@@ -217,12 +228,42 @@ model LoyaltyAccount {
   lastSynced DateTime
   syncMethod String // 'email_parse' | 'manual' | 'awardwallet'
 
+  // Phase 15: statement-authoritative sync state (presentation — seeded in dev).
+  syncState        String    @default("not_checked") // 'verified' | 'updated' | 'not_checked'
+  previousBalance  Int? // value before the last statement update (only when it changed)
+  statementDate    DateTime? // date of the statement the balance came from
+  statementSource  String? // mailbox address the statement was sent to
+  manualOverrideAt DateTime? // user edited by hand; holds until a newer statement arrives
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([userId, programme])
+  // A user may hold multiple memberships in one programme, distinguished by membership number.
+  @@unique([userId, programme, accountNumber])
   @@unique([programme, programmeAccountId]) // same loyalty account can't link to two Bonza users
   @@unique([programme, loyaltyEmailAddress]) // same statement email per programme can't link twice
+}
+
+// Phase 15: a record of one statement-sync run so the review page can report on it (presentation —
+// seeded in dev). modalPending gates the one-time discrepancy modal.
+model BalanceSyncRun {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  mailbox     String // 'gmail' | 'outlook'
+
+  programmesChecked Int @default(0)
+  statementsFound   Int @default(0)
+  balancesUpdated   Int @default(0)
+  balancesVerified  Int @default(0)
+  notChecked        Int @default(0)
+
+  modalPending Boolean @default(true) // false once the user has seen the modal for this run
+
+  @@index([userId, startedAt])
 }
 
 model AffiliateClick {
@@ -483,7 +524,10 @@ model ProgrammeValuation {
 
   displayName String
   category    String // 'hotel' | 'airline' | 'card' | 'car'
-  brandColor  String // hex for the row dot
+  brandColor  String // hex for the row dot / logo-tile initials
+
+  logoUrl  String? // Phase 14: CloudFront path, e.g. "/logos/ba.svg"; null → initials fallback
+  initials String  @default("?") // Phase 14: fallback mark — "BA", "AX", "M", "IHG"
 
   centsPerPoint Float // current valuation, e.g. 0.8
   benchmarkCpp  Float // programme's typical rate for comparison
@@ -497,6 +541,35 @@ model ProgrammeValuation {
 
   transfersFrom TransferPartner[] @relation("FromProgramme")
   transfersTo   TransferPartner[] @relation("ToProgramme")
+}
+
+// Phase 14: points activity feed. Read-only surface for now — rows are seeded (dev) or would be written by
+// a future derivation/booking pipeline. See FULL_CLAUDE.md §14e/§14h.
+model PointsActivity {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  programme String
+  accountId String? // links to LoyaltyAccount when known
+
+  kind        String // 'earn' | 'spend' | 'transfer_in' | 'transfer_out' | 'expiry' | 'adjustment'
+  description String // "Marriott Lisbon · 4 nights" | "Points earned"
+  detail      String? // secondary line: "stay credit" | "1:1 ratio" | "statement Feb"
+
+  amount     Int // signed — positive for earn/transfer_in, negative for spend/transfer_out
+  occurredAt DateTime
+
+  source     String // 'confirmation_email' | 'balance_delta' | 'bonza_booking' | 'user_entered'
+  confidence String // 'confirmed' | 'inferred'
+
+  relatedProgramme  String?
+  relatedActivityId String?
+  bookingId         String?
+  createdAt         DateTime @default(now())
+
+  @@index([userId, occurredAt])
+  @@index([userId, programme, occurredAt])
 }
 
 model TransferPartner {
@@ -520,4 +593,200 @@ model TransferPartner {
 
   @@unique([fromProgramme, toProgramme])
   @@index([fromProgramme, isActive])
+}
+
+// ── Phase 17: Hero Destination Board ────────────────────────────────────────
+// Factual award-price board shown on the marketing hero, tied to the destination slideshow. Seeded
+// reference data (seedHeroDestinations.js), refreshed monthly (jobs/heroDestinationJob.js).
+model HeroDestination {
+  id       String @id @default(cuid())
+  slug     String @unique // 'capetown'
+  name     String // 'Cape Town, South Africa'
+  tagline  String @default("") // editorial title — theme · season · place, e.g. 'Bali Summer Getaway'
+  imageUrl String // '/auth/capetown.jpg'
+  gradient String // fallback backdrop
+  sortOrder Int    @default(0)
+  isActive  Boolean @default(true)
+
+  // Board context — what the quoted prices assume
+  nights      Int     @default(5)
+  adults      Int     @default(2)
+  travelMonth String? // 'March 2026' — display only
+
+  // The whole trip flown in cash (points are the hotel's job here). Seeded now; a Duffel pull later.
+  // Defaults keep `db push` safe on the existing rows; the seed upsert overwrites with real values.
+  originCode String  @default("LHR")
+  destCode   String  @default("") // 'DPS'
+  routeLabel String  @default("") // 'London → Denpasar'
+  carrier    String? // 'Qatar Airways'
+  flightCash Int     @default(0) // £, return, total for `adults` — whole pounds
+
+  awards      DestinationAward[]
+  refreshedAt DateTime @default(now())
+}
+
+model DestinationAward {
+  id String @id @default(cuid())
+
+  destinationSlug String
+  destination     HeroDestination @relation(fields: [destinationSlug], references: [slug], onDelete: Cascade)
+
+  programme    String // 'world_of_hyatt' | 'marriott_bonvoy' | 'hilton_honors' | 'ihg_one'
+  propertyName String // 'The Silo Hotel'
+  propertyCode String? // programme's own hotel code, for the deep-link
+  pointsTotal  Int // total for the destination's `nights` (whole stay, never per-night)
+  hotelCash    Int     @default(0) // £, whole-stay cash rate for the same property — whole pounds
+  starRating   Int?
+
+  sortOrder   Int      @default(0) // ascending points — cheapest first
+  refreshedAt DateTime @default(now())
+
+  @@unique([destinationSlug, programme])
+  @@index([destinationSlug, sortOrder])
+}
+
+// Phase 18 — homepage discovery rails. Standalone reference data (no relations), seeded and refreshed
+// monthly alongside the hero destinations. All cash figures are whole-pound totals; the frontend only adds.
+model ExploreCountry {
+  id       String   @id @default(cuid())
+  code     String   @unique // ISO 3166-1 alpha-2, e.g. 'es'
+  name     String // 'Spain'
+  continent String  @default("") // grouping label (reuses the 6 discovery regions) — for the map + grid
+  latitude  Float? // pin anchor — country centroid
+  longitude Float?
+  imageUrl String? // '/explore/es.jpg' — null for directory-only countries
+  heroImageUrl String? // Phase 19 — wide 1400×500 country hero; null → falls back to imageUrl then gradient
+  blurb        String? // Phase 19 — one-line country blurb for the meta description (optional)
+  gradient String // fallback backdrop
+  sortOrder Int    @default(0)
+  isActive  Boolean @default(true)
+
+  // Cheapest award entry point into the country (discovery-rail "from X pts"). Refreshed monthly.
+  fromPoints    Int? // 26000
+  fromCurrency  String? // 'Avios' | 'pts'
+  fromProgramme String? // 'ba_avios'
+
+  cities  ExploreCity[]
+  routes  ExploreRoute[]
+
+  refreshedAt DateTime @default(now())
+}
+
+// Phase 18 (Explore Everywhere) — bookable cities per country, and cached origin→country/city prices.
+model ExploreCity {
+  id          String @id @default(cuid())
+  countryCode String
+  country     ExploreCountry @relation(fields: [countryCode], references: [code], onDelete: Cascade)
+
+  name           String // 'Lisbon'
+  iataCode       String // 'LIS'
+  imageUrl       String?
+  hotelsOnPoints Int     @default(0) // count of award properties (mock now; Rooms.aero later)
+
+  // City drawer — holiday type (drawer tagline) + typical hotel cost + flight metadata (mock).
+  holidayType     String? // 'Beach' | 'City break' | 'Culture' | 'Adventure'
+  hotelCashFrom   Int? // £, whole-stay cheapest award property
+  hotelPointsFrom Int? // cheapest award for the stay
+  hotelProgramme  String? // 'world_of_hyatt'
+  carrier         String? // 'British Airways'
+  flightMinutes   Int? // one-way duration
+  isDirect        Boolean @default(true)
+
+  routes       ExploreRoute[]
+  hotels       ExploreHotel[]
+  availability ExploreAvailability[]
+
+  @@unique([countryCode, iataCode])
+}
+
+// Phase 18 §18i — named award properties per city (drawer "Hotels on points"), + a rolling six-month
+// award-availability window per origin.
+model ExploreHotel {
+  id     String @id @default(cuid())
+  cityId String
+  city   ExploreCity @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  programme    String // 'world_of_hyatt'
+  propertyName String // 'Andaz Munich Schwabinger Tor'
+  propertyCode String?
+  starRating   Int?
+  pointsTotal  Int // whole stay
+  sortOrder    Int      @default(0) // ascending points
+  refreshedAt  DateTime @default(now())
+
+  @@unique([cityId, programme])
+  @@index([cityId, sortOrder])
+}
+
+model ExploreAvailability {
+  id     String @id @default(cuid())
+  cityId String
+  city   ExploreCity @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  originCode     String // 'LON'
+  month          String // '2026-06'
+  seatsFound     Int     @default(0)
+  cheapestPoints Int?
+  programme      String?
+  refreshedAt    DateTime @default(now())
+
+  @@unique([cityId, originCode, month])
+  @@index([cityId, originCode, month])
+}
+
+model ExploreRoute {
+  id String @id @default(cuid())
+
+  originCode  String // 'LON' — city code, not airport
+  countryCode String
+  country     ExploreCountry @relation(fields: [countryCode], references: [code], onDelete: Cascade)
+
+  cityId String? // null = country-level aggregate row (cheapest across its cities)
+  city   ExploreCity? @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  cashFrom        Int // £, cheapest return, whole pounds
+  pointsFrom      Int // cheapest award, in the programme below
+  pointsProgramme String // 'ba_avios'
+  awardSeatsOpen  Boolean @default(false)
+
+  refreshedAt DateTime @default(now())
+
+  @@unique([originCode, countryCode, cityId])
+  @@index([originCode, cashFrom])
+}
+
+model PopularTrip {
+  id String @id @default(cuid())
+
+  originCode String // 'LHR' — the city this trip is offered from
+  originCity String // 'London'
+  destCode   String // 'LIS'
+  destCity   String // 'Lisbon'
+  routeLabel String // 'London to Lisbon'
+
+  imageUrl String
+  gradient String
+
+  departDate DateTime
+  returnDate DateTime
+  nights     Int      @default(5)
+  adults     Int      @default(2)
+
+  // Cash route — flight + hotel (whole-pound total)
+  cashTotal Int
+
+  // Points route — flight award + hotel award, or a mix
+  flightPoints   Int?
+  flightCurrency String? // 'Avios'
+  hotelPoints    Int?
+  hotelProgramme String? // 'world_of_hyatt'
+  residualCash   Int     @default(0) // £ still payable on the points route
+
+  awardAvailable Boolean @default(false) // drives the green tag
+  sortOrder      Int     @default(0)
+  isActive       Boolean @default(true)
+  refreshedAt    DateTime @default(now())
+
+  @@unique([originCode, destCode])
+  @@index([originCode, isActive, sortOrder])
 }

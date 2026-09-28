@@ -2,6 +2,8 @@
 const { runNightlyJobs } = require("../jobs/personalisationJob");
 const { runMonthlySummaries } = require("../jobs/monthlySummaryJob");
 const { refreshValuations } = require("../jobs/valuationRefreshJob");
+const { refreshHeroDestinations } = require("../jobs/heroDestinationJob");
+const { refreshExplore } = require("../jobs/exploreRefreshJob");
 
 exports.handler = async (event) => {
   const { jobType } = event || {};
@@ -17,6 +19,12 @@ exports.handler = async (event) => {
       break;
     case "valuation_refresh":
       await refreshValuations();
+      break;
+    case "hero_destinations":
+      await refreshHeroDestinations();
+      break;
+    case "explore_refresh":
+      await refreshExplore({ continent: event.continent });
       break;
     default:
       throw new Error(`Unknown job type: ${jobType}`);

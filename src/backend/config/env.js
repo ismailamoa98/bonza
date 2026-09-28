@@ -23,6 +23,7 @@ const env = {
 
   GOOGLE_PLACES_API_KEY: (process.env.GOOGLE_PLACES_API_KEY || "").trim(),
   hasGooglePlaces: Boolean((process.env.GOOGLE_PLACES_API_KEY || "").trim()),
+  hasUnsplash: Boolean((process.env.UNSPLASH_ACCESS_KEY || "").trim()),
 
   GONDOLA_MCP_URL,
   hasGondola: Boolean(GONDOLA_MCP_URL),

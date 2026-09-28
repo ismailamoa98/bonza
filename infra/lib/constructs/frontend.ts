@@ -46,6 +46,22 @@ export class Frontend extends Construct {
 
     const additionalBehaviors: Record<string, cloudfront.BehaviorOptions> = {};
     if (apiLoadBalancer) {
+      // Phase 18 — forward all viewer headers (auth etc.) PLUS the CloudFront-generated geo headers the
+      // origin resolver reads (services/originResolver.js). allViewerAndWhitelistCloudFront keeps the
+      // existing all-viewer behaviour and adds the geo headers; they are NOT in the cache key (caching is
+      // disabled on /api/*), so they never fragment the cache.
+      const apiOriginRequestPolicy = new cloudfront.OriginRequestPolicy(this, "ApiGeoHeadersPolicy", {
+        originRequestPolicyName: "bonza-api-geo-headers",
+        headerBehavior: cloudfront.OriginRequestHeaderBehavior.allViewerAndWhitelistCloudFront(
+          "CloudFront-Viewer-Latitude",
+          "CloudFront-Viewer-Longitude",
+          "CloudFront-Viewer-Country",
+          "CloudFront-Viewer-City"
+        ),
+        queryStringBehavior: cloudfront.OriginRequestQueryStringBehavior.all(),
+        cookieBehavior: cloudfront.OriginRequestCookieBehavior.all(),
+      });
+
       additionalBehaviors["/api/*"] = {
         origin: new origins.LoadBalancerV2Origin(apiLoadBalancer, {
           protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
@@ -53,7 +69,7 @@ export class Frontend extends Construct {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
         cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
-        originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        originRequestPolicy: apiOriginRequestPolicy,
       };
     }
 

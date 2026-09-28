@@ -35,6 +35,8 @@ const journeysRouter = require("./api/journeys");
 const recommendationsRouter = require("./api/recommendations");
 const searchRouter = require("./api/search");
 const pointsRouter = require("./api/points");
+const destinationsRouter = require("./api/destinations");
+const exploreRouter = require("./api/explore");
 const reviewsRouter = require("./api/reviews");
 const { router: notificationsRouter, unsubscribe } = require("./api/notifications");
 const { affiliateWebhook } = require("./api/webhooks");
@@ -122,6 +124,8 @@ const bookingsLimiter = rateLimit({
 
 app.use("/api/v1/airports", airportsRouter); // GET /api/v1/airports?q=
 app.use("/api/v1/fx", fxRouter); // GET /api/v1/fx → GBP display rates (public)
+app.use("/api/v1/destinations", destinationsRouter); // GET /hero → hero board (public; affordability if signed in)
+app.use("/api/v1/explore", exploreRouter); // GET / → Explore Everywhere map/list/grid data (public)
 app.use("/api/v1/hotels", hotelsRouter); // GET /api/v1/hotels?destination=&…
 app.use("/api/v1/flights", flightsRouter); // GET /api/v1/flights?from=&to=&…
 app.use("/api/v1/cars", carsRouter); // GET /api/v1/cars?location=&…

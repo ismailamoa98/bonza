@@ -12,6 +12,7 @@ import {
   getCars,
   getSearchHotel,
   createBookingLink,
+  getProfile,
 } from "../utils/api";
 import { formatMoney, formatPoints, shortDate } from "../utils/format";
 import { imageUrl } from "../data/packages";
@@ -140,6 +141,31 @@ export default function BookingPage() {
     title: "mr", firstName: "", lastName: "", dob: "", email: "", countryCode: "+44", phone: "", passport: "",
     cardName: "", cardNumber: "", expiry: "", cvc: "", billing: "",
   });
+
+  // Pre-fill the guest form from the saved traveller profile (onboarding). Only fills empty fields, so it
+  // never overwrites what the user has already typed. Card fields are never pre-filled.
+  useEffect(() => {
+    let cancelled = false;
+    getProfile()
+      .then((p) => {
+        if (cancelled || !p) return;
+        setForm((f) => ({
+          ...f,
+          title: p.title || f.title,
+          firstName: f.firstName || p.firstName || "",
+          lastName: f.lastName || p.lastName || "",
+          dob: f.dob || p.dateOfBirth || "",
+          email: f.email || p.email || "",
+          countryCode: p.phoneCountryCode || f.countryCode,
+          phone: f.phone || p.phone || "",
+          passport: f.passport || p.passportNumber || "",
+        }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [errors, setErrors] = useState({});
   const [booked, setBooked] = useState(false);
   const [submitting, setSubmitting] = useState(false);

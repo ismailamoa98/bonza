@@ -13,8 +13,13 @@ import Navigation from "./components/Navigation";
 import HomePage from "./pages/HomePage";
 import Dashboard from "./pages/Dashboard";
 import Destinations from "./pages/Destinations";
+import CountryPage from "./pages/CountryPage";
+import ExplorePage from "./pages/ExplorePage";
 import PointsPage from "./pages/PointsPage";
-import Login from "./pages/Login";
+import PointsReviewPage from "./pages/PointsReviewPage";
+import PointsConnectingPage from "./pages/PointsConnectingPage";
+import SignInPage from "./pages/SignInPage";
+import SignUpPage from "./pages/SignUpPage";
 import FlexibleDates from "./pages/FlexibleDates";
 import SearchPage from "./pages/SearchPage";
 import BookingPage from "./pages/BookingPage";
@@ -113,7 +118,14 @@ function OnboardingGate() {
   useEffect(() => {
     if (!isSignedIn || !profile) return;
     if (profile.onboardingComplete) return;
-    if (pathname === "/onboarding" || pathname === "/login") return;
+    // Allow the auth pages and the loyalty "Gathering your points" page mid-onboarding.
+    if (
+      pathname === "/onboarding" ||
+      pathname.startsWith("/sign-in") ||
+      pathname.startsWith("/sign-up") ||
+      pathname === "/points/connecting"
+    )
+      return;
     navigate("/onboarding", { replace: true });
   }, [isSignedIn, profile, pathname, navigate]);
 
@@ -137,9 +149,10 @@ export default function App() {
   return (
     <ClerkProvider
       publishableKey={PUBLISHABLE_KEY}
-      signInUrl="/login"
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
       signInFallbackRedirectUrl="/dashboard"
-      signUpFallbackRedirectUrl="/dashboard"
+      signUpFallbackRedirectUrl="/onboarding"
     >
       <BrowserRouter>
         <AuthSync />
@@ -150,7 +163,9 @@ export default function App() {
             {/* Each page owns its own vertical rhythm. */}
             <Routes>
               <Route path="/" element={<HomePage />} />
-              <Route path="/login" element={<Login />} />
+              <Route path="/sign-in/*" element={<SignInPage />} />
+              <Route path="/sign-up/*" element={<SignUpPage />} />
+              <Route path="/login" element={<Navigate to="/sign-in" replace />} />
               <Route
                 path="/dashboard"
                 element={
@@ -175,6 +190,25 @@ export default function App() {
                   </RequireAuth>
                 }
               />
+              <Route
+                path="/points/review"
+                element={
+                  <RequireAuth>
+                    <PointsReviewPage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/points/connecting"
+                element={
+                  <RequireAuth>
+                    <PointsConnectingPage />
+                  </RequireAuth>
+                }
+              />
+              {/* Phase 18 — Explore Everywhere map + country landing pages (public) */}
+              <Route path="/explore" element={<ExplorePage />} />
+              <Route path="/explore/:code" element={<CountryPage />} />
               <Route path="/flexible" element={<FlexibleDates />} />
               {/* Old optimize route now folds into the search results page. */}
               <Route path="/optimize" element={<Navigate to="/search" replace />} />

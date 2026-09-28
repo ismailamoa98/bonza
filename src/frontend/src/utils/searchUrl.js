@@ -1,5 +1,49 @@
 // utils/searchUrl.js — build/read the /search query-string. All search state lives in the URL so a
 // results page is shareable and reloadable; dates travel as a single `dep_ret` pair.
+
+// Searches open in a NEW tab, leaving the launching tab (home, dashboard, points…) exactly where it was.
+// openSearch — for handlers that build the URL synchronously inside the click gesture.
+export function openSearch(url) {
+  window.open(url, "_blank", "noopener");
+}
+
+// reserveTab — for handlers that must `await` before the URL is known. Call it synchronously in the click
+// gesture to reserve the tab (browsers only allow a popup opened straight from a gesture), then hand the
+// handle to redirectTab once the URL is ready. Returns null if the browser blocked it (fall back to same-tab).
+export function reserveTab() {
+  return window.open("about:blank", "_blank");
+}
+
+// redirectTab — point a reserved tab at the finished URL (absolute, since about:blank has no base). If the
+// tab was blocked (null), navigate the current tab instead so the search still happens.
+export function redirectTab(tab, url, navigate) {
+  if (tab) tab.location.href = new URL(url, window.location.origin).href;
+  else navigate?.(url);
+}
+
+// Concrete check-in/out dates for a discovery search that has no explicit dates. Anchors ~6 months out and
+// (for a display month like "May 2026") mid-month, so the range never lands in the past or spills months.
+function rangeFrom(start, nights) {
+  const end = new Date(start);
+  end.setDate(end.getDate() + nights);
+  const fmt = (d) => d.toISOString().split("T")[0];
+  return { departureDate: fmt(start), returnDate: fmt(end) };
+}
+
+export function defaultTripDates(nights = 5) {
+  const start = new Date();
+  start.setDate(start.getDate() + 180);
+  return rangeFrom(start, nights);
+}
+
+export function tripDatesFromMonth(travelMonth, nights = 5) {
+  if (!travelMonth) return defaultTripDates(nights);
+  const [monthName, year] = String(travelMonth).split(" ");
+  const start = new Date(`${monthName} 12, ${year}`);
+  if (Number.isNaN(start.getTime())) return defaultTripDates(nights);
+  return rangeFrom(start, nights);
+}
+
 export function buildSearchUrl({
   origin,
   destination,

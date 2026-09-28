@@ -113,8 +113,15 @@ export default function TripForm({
     </div>
   );
 
+  // The bar variant sits over the hero photo, so its toggle uses light text + a shadow for legibility;
+  // the panel variant sits on a cream card and keeps the muted ink colour.
+  const onImage = variant === "bar";
   const flexibleToggle = (
-    <label className="flex items-center gap-2 text-[13px] text-ink-soft">
+    <label
+      className={`flex items-center gap-2 text-[13px] font-medium ${
+        onImage ? "text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.55)]" : "text-ink-soft"
+      }`}
+    >
       <input
         type="checkbox"
         checked={form.flexibility}
@@ -123,7 +130,9 @@ export default function TripForm({
       />
       My dates are flexible
       {form.flexibility && (
-        <span className="text-[12px] text-ink-muted">— Bonza finds the best month</span>
+        <span className={`text-[12px] ${onImage ? "text-white/80" : "text-ink-muted"}`}>
+          — Bonza finds the best month
+        </span>
       )}
     </label>
   );

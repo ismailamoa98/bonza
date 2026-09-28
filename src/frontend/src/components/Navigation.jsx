@@ -5,7 +5,7 @@ import { SignedIn, SignedOut, UserButton } from "@clerk/clerk-react";
 import NotificationBell from "./NotificationBell";
 
 // Primary nav — internal routes (react-router). "Destinations for you" and "Trips" are auth-gated
-// (RequireAuth), so a signed-out click routes through /login and returns the user afterwards.
+// (RequireAuth), so a signed-out click routes through /sign-in and returns the user afterwards.
 const LINKS = [
   { label: "Home", to: "/" },
   { label: "Destinations for you", to: "/destinations" },
@@ -16,7 +16,7 @@ const LINKS = [
 export default function Navigation({ overlay: overlayProp }) {
   const { pathname } = useLocation();
   const onHome = pathname === "/";
-  const onLogin = pathname === "/login";
+  const onAuth = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -27,15 +27,13 @@ export default function Navigation({ overlay: overlayProp }) {
     return () => window.removeEventListener("scroll", onScroll);
   }, [onHome]);
 
-  if (onLogin) return null;
+  if (onAuth) return null;
 
   const overlay = (overlayProp ?? onHome) && !scrolled;
 
-  const headerClass = overlay
-    ? "fixed inset-x-0 top-0 z-30 bg-[#3a8a9c]/35 backdrop-blur-md"
-    : onHome
-      ? "fixed inset-x-0 top-0 z-30 bg-cream/95 shadow-[0_1px_0_rgba(40,30,20,0.06)] backdrop-blur"
-      : "sticky top-0 z-20 bg-cream/95 backdrop-blur";
+  // Position only — the background is two cross-fading layers (below) so the overlay↔solid switch on
+  // scroll transitions smoothly instead of snapping (a gradient can't transition-color into a solid).
+  const positionClass = onHome ? "fixed inset-x-0 top-0 z-30" : "sticky top-0 z-20";
 
   const wordmark = overlay ? "text-white" : "text-ink";
   const linkClass = overlay
@@ -46,15 +44,28 @@ export default function Navigation({ overlay: overlayProp }) {
     : "border-[#e3ded6] bg-white text-ink hover:border-bonza hover:text-bonza";
 
   return (
-    <header className={headerClass}>
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-8 py-6">
+    <header className={positionClass}>
+      {/* Cross-fading background layers: dark scrim over the hero, cream when scrolled/off-home. */}
+      <div
+        aria-hidden="true"
+        className={`absolute inset-0 bg-gradient-to-b from-black/65 via-black/30 to-transparent transition-opacity duration-300 ${
+          overlay ? "opacity-100" : "opacity-0"
+        }`}
+      />
+      <div
+        aria-hidden="true"
+        className={`absolute inset-0 bg-cream/95 backdrop-blur transition-opacity duration-300 ${
+          onHome ? "shadow-[0_1px_0_rgba(40,30,20,0.06)]" : ""
+        } ${overlay ? "opacity-0" : "opacity-100"}`}
+      />
+      <div className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-8 py-6">
         {/* Left: wordmark + links */}
         <div className="flex items-center gap-12">
           <Link to="/" className="flex items-center gap-3">
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-bonza text-[20px] font-semibold text-white">
               B
             </span>
-            <span className={`font-display text-[27px] font-semibold tracking-[-0.01em] ${wordmark}`}>
+            <span className={`font-display text-[27px] font-semibold tracking-[-0.01em] transition-colors duration-300 ${wordmark}`}>
               Bonza
             </span>
           </Link>
@@ -66,7 +77,7 @@ export default function Navigation({ overlay: overlayProp }) {
                 <Link
                   key={l.label}
                   to={l.to}
-                  className={`text-[16px] font-medium transition-colors ${active ? activeClass : linkClass}`}
+                  className={`text-[16px] font-medium transition-colors duration-300 ${active ? activeClass : linkClass}`}
                 >
                   {l.label}
                 </Link>
@@ -107,13 +118,13 @@ export default function Navigation({ overlay: overlayProp }) {
           </SignedIn>
           <SignedOut>
             <Link
-              to="/login"
+              to="/sign-in"
               className={`hidden rounded-full border px-4 py-2.5 text-[14px] font-medium transition-colors sm:block ${pillClass}`}
             >
               Sign in
             </Link>
             <Link
-              to="/login"
+              to="/sign-up"
               className="rounded-full bg-bonza px-5 py-2.5 text-[14px] font-semibold text-white hover:bg-bonza-dark"
             >
               Get started

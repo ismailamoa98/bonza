@@ -12,11 +12,10 @@ import WhyBonza from "../components/home/WhyBonza";
 import DiscoverRails from "../components/home/DiscoverRails";
 import HowItWorks from "../components/home/HowItWorks";
 import SnapSection from "../components/SnapSection";
-import { shuffle } from "../data/packages";
 import { useTrip } from "../hooks/useTrip";
 import { useAppStore } from "../store/appStore";
 import { getLoyaltyPoints, apiErrorMessage, getHeroDestinations } from "../utils/api";
-import { buildSearchUrl, reserveTab, redirectTab } from "../utils/searchUrl";
+import { buildSearchUrl, reserveTab, redirectTab, exploreOriginFor } from "../utils/searchUrl";
 import RotatingBackdrop from "../components/common/RotatingBackdrop";
 import { AUTH_DESTINATIONS } from "../data/authDestinations";
 
@@ -38,13 +37,13 @@ export default function HomePage() {
   const trip = useAppStore((s) => s.trip);
   const loyaltyPoints = useAppStore((s) => s.loyaltyPoints);
   const setLoyaltyPoints = useAppStore((s) => s.setLoyaltyPoints);
-  const setTrip = useAppStore((s) => s.setTrip);
 
   const [pointsError, setPointsError] = useState(null);
   const [progressIndex, setProgressIndex] = useState(0);
 
   const [heroIdx, setHeroIdx] = useState(0); // active slide — shared by the hero backdrop and the band
-  const [order] = useState(() => shuffle(AUTH_DESTINATIONS)); // randomised slideshow order each visit
+  // Hero slideshow — Cape Town only for now (the shared AUTH_DESTINATIONS still drives the auth pages).
+  const [order] = useState(() => AUTH_DESTINATIONS.filter((d) => d.slug === "capetown"));
   const [heroData, setHeroData] = useState(null); // award-board data (public /destinations/hero)
 
   // Scope full-screen "slide" snapping to the homepage only.
@@ -95,7 +94,7 @@ export default function HomePage() {
     return () => clearInterval(id);
   }, [loading]);
 
-  // Wire the form to the real flow: flexible -> month chooser, else optimize.
+  // Wire the form to the real flow: Whole-month -> Explore from that origin, else optimize + search.
   const handleSubmit = async (form) => {
     const base = {
       origin: form.origin,
@@ -105,17 +104,19 @@ export default function HomePage() {
       budget: Number(form.budget),
       numberOfTravelers: Number(form.numberOfTravelers),
       flexibility: form.flexibility,
+      nearbyAirports: form.nearbyAirports,
+      awardAvailability: form.awardAvailability,
       preferences: { style: form.style },
     };
-    if (form.flexibility) {
-      setTrip({ ...base, checkIn: "", checkOut: "" });
-      navigate("/flexible");
+    if (form.dateMode === "month") {
+      // Whole month → browse Explore Everywhere from the chosen origin (availability drives the trip).
+      navigate(`/explore?origin=${exploreOriginFor(form.origin)}`);
       return;
     }
     // Results open in a new tab. Reserve it now (in the click gesture) so it isn't popup-blocked, then
     // point it at the search once the trip is created; the homepage stays where it is.
     const tab = reserveTab();
-    const ok = await createAndOptimize({ ...base, checkIn: form.checkIn, checkOut: form.checkOut });
+    const ok = await createAndOptimize({ ...base, checkIn: form.checkIn, checkOut: form.dateMode === "oneway" ? "" : form.checkOut });
     if (!ok) {
       tab?.close();
       return;
@@ -129,6 +130,10 @@ export default function HomePage() {
         returnDate: form.checkOut,
         travelers: Number(form.numberOfTravelers) || 2,
         style: form.style,
+        nearby: form.nearbyAirports,
+        award: form.awardAvailability,
+        oneway: form.dateMode === "oneway",
+        flex: form.flexDays,
       }),
       navigate
     );
@@ -155,7 +160,7 @@ export default function HomePage() {
         {/* Base colour (always visible) -> crossfading photos -> dark gradient for legibility. */}
         <div className="absolute inset-0 bg-[#1f5f6b]" />
         <RotatingBackdrop images={heroImages} activeIndex={heroIdx} />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/10 to-black/70" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/[0.14] to-black/55" />
 
         {/* On-image location caption — bottom-right, fades on each slide change. */}
         <div
@@ -170,7 +175,7 @@ export default function HomePage() {
         </div>
 
         {/* Centred content */}
-        <div className="relative z-10 mx-auto w-full max-w-5xl px-6 pb-20 pt-24 text-center">
+        <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-20 pt-24 text-center">
           <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-white/85 drop-shadow">
             Your AI Vacation Agent
           </p>
@@ -182,9 +187,9 @@ export default function HomePage() {
             via Plaid, and builds your best-value package — flights, hotel and car together.
           </p>
 
-          {/* Floating search bar + glassy loyalty strip */}
-          <div className="mx-auto mt-9 max-w-3xl text-left">
-            <TripForm variant="bar" onSubmit={handleSubmit} loading={loading} initial={trip} />
+          {/* Search form on a solid panel — identical legibility over every hero photo. */}
+          <div className="mx-auto mt-9 w-full text-left">
+            <TripForm variant="hero" onSubmit={handleSubmit} loading={loading} initial={trip} />
             {pointsError && (
               <p className="mt-2 text-center text-[12px] text-amber-200">
                 Couldn’t load your points: {pointsError}
@@ -289,19 +294,6 @@ export default function HomePage() {
       </SnapSection>
 
       {/* 7. FOOTER */}
-      <footer className="mt-10 border-t border-[#e6e1d8]">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-5 py-6 sm:flex-row">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-bonza text-[13px] font-semibold text-white">
-              B
-            </span>
-            <span className="font-display text-[17px] font-semibold text-ink">Bonza</span>
-          </div>
-          <p className="text-[12px] text-ink-muted">
-            Powered by Claude, Plaid &amp; 50+ partner APIs · Privacy · Terms · Cookies
-          </p>
-        </div>
-      </footer>
 
       {/* Optimizing overlay */}
       {loading && (

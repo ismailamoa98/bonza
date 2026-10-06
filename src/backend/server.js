@@ -37,6 +37,11 @@ const searchRouter = require("./api/search");
 const pointsRouter = require("./api/points");
 const destinationsRouter = require("./api/destinations");
 const exploreRouter = require("./api/explore");
+const priceCalendarRouter = require("./api/priceCalendar");
+const helpRouter = require("./api/help");
+const supportRouter = require("./api/support");
+const statusRouter = require("./api/status");
+const adminRouter = require("./api/admin");
 const reviewsRouter = require("./api/reviews");
 const { router: notificationsRouter, unsubscribe } = require("./api/notifications");
 const { affiliateWebhook } = require("./api/webhooks");
@@ -122,10 +127,21 @@ const bookingsLimiter = rateLimit({
   message: { error: { message: "Too many booking requests — please wait a moment" } },
 });
 
+// Phase 22 — support assistant: 20 messages per hour per user (the escalation path is a separate ticket flow).
+const assistantLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  keyGenerator: userKey,
+  message: { error: { message: "You've reached the assistant limit for this hour — email a human and we'll help." } },
+});
+
 app.use("/api/v1/airports", airportsRouter); // GET /api/v1/airports?q=
 app.use("/api/v1/fx", fxRouter); // GET /api/v1/fx → GBP display rates (public)
 app.use("/api/v1/destinations", destinationsRouter); // GET /hero → hero board (public; affordability if signed in)
 app.use("/api/v1/explore", exploreRouter); // GET / → Explore Everywhere map/list/grid data (public)
+app.use("/api/v1/price-calendar", priceCalendarRouter); // GET / → per-day fares + award flags for the date picker (public)
+app.use("/api/v1/help", helpRouter); // Phase 22 — help centre: categories/search/articles (public)
+app.use("/api/v1/status", statusRouter); // Phase 22 — service status (public, cached 30s)
 app.use("/api/v1/hotels", hotelsRouter); // GET /api/v1/hotels?destination=&…
 app.use("/api/v1/flights", flightsRouter); // GET /api/v1/flights?from=&to=&…
 app.use("/api/v1/cars", carsRouter); // GET /api/v1/cars?location=&…
@@ -150,6 +166,12 @@ app.use("/api/v1/search", auth, searchLimiter, searchRouter); // POST / — unif
 app.use("/api/v1/points", auth, pointsRouter); // GET /portfolio · /programme/:accountId (Phase 14)
 app.use("/api/v1/reviews", auth, reviewsRouter); // GET / — genuine property reviews (Google Places)
 app.use("/api/v1/notifications", auth, notificationsRouter); // GET / · read-all · dismiss · preferences
+// Phase 22 — support: rate-limit the assistant (auth so the limit keys per user), then the self-authorising
+// support router (tickets optionalAuth, assistant/own-tickets auth, programme-contact public) and admin.
+app.post("/api/v1/support/assistant", auth, assistantLimiter);
+app.use("/api/v1/support", supportRouter);
+app.use("/api/v1/admin", adminRouter); // requireAdmin inside the router
+
 app.use("/api/v1", auth, inventoryRouter); // POST /flights/search · /flights/confirm-price · /hotels/search
 app.use("/api/v1", auth, bookingRouter); // POST /api/v1/create-booking-link
 app.use("/api/v1", auth, conversionRouter); // POST /api/v1/conversion

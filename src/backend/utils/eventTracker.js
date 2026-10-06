@@ -17,6 +17,7 @@ const EVENT_TYPES = {
   PRO_UPGRADED: "pro_upgraded",
   PRO_CANCELLED: "pro_cancelled",
   RECOMMENDATIONS_GENERATED: "recommendations_generated", // personalisation job produced cards (8n)
+  ADMIN_VIEWED_ACCOUNT: "admin_viewed_account", // Phase 22 — an admin opened a user's inspector
 };
 
 async function recordEvent(userId, type, metadata = {}, sessionId = null) {

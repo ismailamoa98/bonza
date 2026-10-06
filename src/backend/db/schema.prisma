@@ -56,6 +56,7 @@ model User {
   propertyReviews PropertyReview[]
   pointsActivity  PointsActivity[]
   syncRuns        BalanceSyncRun[]
+  supportTickets  SupportTicket[]
 }
 
 model Trip {
@@ -321,6 +322,7 @@ model Booking {
 
   creditsAwarded Float? // Bonza Credits issued for this booking
   credits        BonzaCredit[]
+  supportTickets SupportTicket[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -789,4 +791,97 @@ model PopularTrip {
 
   @@unique([originCode, destCode])
   @@index([originCode, isActive, sortOrder])
+}
+
+// ── Phase 22 — Support ───────────────────────────────────────────────────────
+model HelpArticle {
+  id        String  @id @default(cuid())
+  slug      String  @unique
+  category  String // see HELP_CATEGORIES (db/seedHelp.js)
+  topic     String  @default("") // §22l — same six slugs as category (rename for clarity)
+  isTopPick Boolean @default(false) // §22l — surfaces as a quick-link pill on /help/contact
+  title    String
+  summary  String // one line — search results + meta description
+  body     String // markdown
+  keywords String[] // extra search terms
+
+  relatedSlugs String[]
+  order        Int     @default(0)
+  isPublished  Boolean @default(true)
+
+  viewCount  Int @default(0)
+  helpfulYes Int @default(0)
+  helpfulNo  Int @default(0)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([category, order])
+}
+
+model SupportTicket {
+  id        String  @id @default(cuid())
+  reference String  @unique // 'BZ-4K2M9'
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id])
+
+  email String
+  name  String?
+
+  urgency  String // 'travelling_now' | 'booking_issue' | 'general'
+  category String
+  subject  String
+  message  String
+
+  bookingId   String?
+  booking     Booking? @relation(fields: [bookingId], references: [id])
+  contextJson Json? // snapshot at creation — never edited
+
+  status     String  @default("open") // 'open' | 'awaiting_user' | 'resolved' | 'closed'
+  assignedTo String?
+
+  firstReplyAt DateTime?
+  resolvedAt   DateTime?
+  slaTarget    DateTime // set from urgency at creation
+
+  messages  SupportMessage[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, slaTarget])
+  @@index([userId, createdAt])
+}
+
+model SupportMessage {
+  id       String        @id @default(cuid())
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  author     String // 'user' | 'agent' | 'assistant'
+  authorName String?
+  body       String
+  isInternal Boolean @default(false) // agent notes — never shown to the user
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+model ProgrammeContact {
+  programme   String  @id // 'marriott_bonvoy'
+  displayName String
+  phoneUk     String?
+  phoneIntl   String?
+  contactUrl  String
+  manageUrl   String // deep link to "my bookings" on their site
+  hoursNote   String? // '24/7' | 'Mon–Fri 09:00–17:00 GMT'
+}
+
+model ServiceStatus {
+  id          String   @id @default(cuid())
+  service     String   @unique // 'flight_search' | 'hotel_search' | 'award_search' | 'booking' | 'balance_sync'
+  displayName String
+  state       String   @default("operational") // 'operational' | 'degraded' | 'outage' | 'maintenance'
+  message     String?
+  updatedAt   DateTime @updatedAt
 }

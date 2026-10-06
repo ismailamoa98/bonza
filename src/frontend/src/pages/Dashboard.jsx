@@ -10,7 +10,7 @@ import { useTrip } from "../hooks/useTrip";
 import { useOpenPackage } from "../hooks/useOpenPackage";
 import { useRecommendations } from "../hooks/useRecommendations";
 import { recToPackage } from "../utils/recToPackage";
-import { buildSearchUrl, openSearch, reserveTab, redirectTab } from "../utils/searchUrl";
+import { buildSearchUrl, openSearch, reserveTab, redirectTab, exploreOriginFor } from "../utils/searchUrl";
 import { useAppStore } from "../store/appStore";
 import {
   getLoyaltyPoints,
@@ -88,14 +88,13 @@ export default function Dashboard() {
       flexibility: form.flexibility,
       preferences: { style: form.style },
     };
-    if (form.flexibility) {
-      setTrip({ ...base, checkIn: "", checkOut: "" });
-      navigate("/flexible");
+    if (form.dateMode === "month") {
+      navigate(`/explore?origin=${exploreOriginFor(form.origin)}`);
       return;
     }
     // Results open in a new tab (reserved in-gesture so it isn't popup-blocked); the dashboard stays put.
     const tab = reserveTab();
-    const ok = await createAndOptimize({ ...base, checkIn: form.checkIn, checkOut: form.checkOut });
+    const ok = await createAndOptimize({ ...base, checkIn: form.checkIn, checkOut: form.dateMode === "oneway" ? "" : form.checkOut });
     if (!ok) {
       tab?.close();
       return;
@@ -109,6 +108,8 @@ export default function Dashboard() {
         returnDate: form.checkOut,
         travelers: Number(form.numberOfTravelers) || 2,
         style: form.style,
+        oneway: form.dateMode === "oneway",
+        flex: form.flexDays,
       }),
       navigate
     );

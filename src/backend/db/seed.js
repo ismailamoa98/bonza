@@ -8,6 +8,9 @@ const { seedProgrammes } = require("./seedProgrammes");
 const { seedHeroDestinations } = require("./seedHeroDestinations");
 const { seedDiscovery } = require("./seedDiscovery");
 const { seedExplore } = require("./seedExplore");
+const { seedHelp } = require("./seedHelp");
+const { seedProgrammeContacts } = require("./seedProgrammeContacts");
+const { seedServiceStatus } = require("./seedServiceStatus");
 
 async function main() {
   const user = await prisma.user.upsert({
@@ -41,6 +44,11 @@ async function main() {
 
   // Phase 15 — demo loyalty accounts + a sync run so the balance-review states + modal are demonstrable.
   await seedBalanceReview(user.id);
+
+  // Phase 22 — support: help articles, programme contacts (for the third-party boundary), service status.
+  await seedHelp();
+  await seedProgrammeContacts();
+  await seedServiceStatus();
 }
 
 // Resets the dev user's loyalty accounts to a curated demo set spanning every Phase 15 sync state, plus a

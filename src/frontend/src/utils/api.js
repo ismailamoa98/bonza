@@ -196,6 +196,10 @@ export const getExplore = (origin) =>
 export const getExploreCity = (cityId, origin) =>
   client.get(`/explore/city/${cityId}`, { params: origin ? { origin } : {} }).then((r) => r.data);
 
+// Phase 20 — per-day cash fares + award flags for the date picker (public; empty days when From/To not both set).
+export const getPriceCalendar = (from, to, month, nights) =>
+  client.get("/price-calendar", { params: { from, to, month, ...(nights ? { nights } : {}) } }).then((r) => r.data);
+
 // Phase 19 — country page: hero + stats + cities priced against origin/month/nights/party (prices recompute).
 export const getExploreCountry = (code, { origin, month, nights, adults } = {}) => {
   const params = {};
@@ -272,6 +276,26 @@ export const removeLoyaltyAccount = (programme) =>
 
 export const getBookings = () =>
   client.get("/bookings").then((r) => r.data.bookings || []);
+
+// Phase 22 — Support. Help centre (public), tickets, assistant, programme contacts, status, admin.
+export const getHelpTopics = () => client.get("/help/topics").then((r) => r.data.topics || []);
+export const getHelpTopPicks = () => client.get("/help/top-picks").then((r) => r.data.picks || []);
+export const getOpenTickets = () => client.get("/support/tickets/open").then((r) => r.data.tickets || []);
+export const getHelpCategories = () => client.get("/help/categories").then((r) => r.data);
+export const searchHelp = (q) => client.get("/help/search", { params: { q } }).then((r) => r.data.results || []);
+export const getPopularHelp = () => client.get("/help/popular").then((r) => r.data.articles || []);
+export const getHelpCategory = (slug) => client.get(`/help/category/${slug}`).then((r) => r.data);
+export const getHelpArticle = (slug) => client.get(`/help/articles/${slug}`).then((r) => r.data);
+export const voteHelpful = (slug, helpful) => client.post(`/help/articles/${slug}/helpful`, { helpful }).then((r) => r.data);
+
+export const createTicket = (payload) => client.post("/support/tickets", payload).then((r) => r.data);
+export const getTickets = () => client.get("/support/tickets").then((r) => r.data.tickets || []);
+export const getTicket = (ref, email) => client.get(`/support/tickets/${ref}`, { params: email ? { email } : {} }).then((r) => r.data.ticket);
+export const postTicketMessage = (id, body) => client.post(`/support/tickets/${id}/messages`, { body }).then((r) => r.data);
+export const askAssistant = (message, history) => client.post("/support/assistant", { message, history }).then((r) => r.data);
+export const getProgrammeContact = (prog) => client.get(`/support/programme-contact/${prog}`).then((r) => r.data.contact);
+export const getStatus = () => client.get("/status").then((r) => r.data);
+export const getAdminUser = (userId) => client.get(`/admin/user/${userId}`).then((r) => r.data);
 
 export const apiErrorMessage = (err) =>
   err?.response?.data?.error ||

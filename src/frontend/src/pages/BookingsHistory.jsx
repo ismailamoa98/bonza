@@ -54,6 +54,9 @@ export default function BookingsHistory() {
                   {b.confirmedAt ? ` · ${shortDate(b.confirmedAt)}` : ""}
                   {b.status && b.status !== "confirmed" ? ` · ${b.status}` : ""}
                 </p>
+                <Link to={`/help/contact?booking=${b.id}`} className="mt-1 inline-block text-[12px] font-semibold text-bonza hover:text-bonza-dark">
+                  Get help with this booking
+                </Link>
               </div>
               <div className="shrink-0 text-right tabular-nums">
                 <p className="text-[14px] font-bold text-ink">

@@ -44,6 +44,24 @@ export function tripDatesFromMonth(travelMonth, nights = 5) {
   return rangeFrom(start, nights);
 }
 
+// Airport IATA → its metropolitan-area code, so "Add nearby airports" widens the origin to all of a city's
+// airports (Duffel honours metro codes natively). Mirrors the metro member sets in AirportDropdown.
+const AIRPORT_METRO = {
+  LHR: "LON", LGW: "LON", LTN: "LON", STN: "LON", LCY: "LON", SEN: "LON",
+  JFK: "NYC", EWR: "NYC", LGA: "NYC",
+  CDG: "PAR", ORY: "PAR", BVA: "PAR",
+  HND: "TYO", NRT: "TYO",
+  MXP: "MIL", LIN: "MIL", BGY: "MIL",
+  FCO: "ROM", CIA: "ROM",
+  GRU: "SAO", CGH: "SAO", VCP: "SAO",
+};
+
+// Airport code → the Explore page's origin (its four seeded UK/IE origins); London airports fold into LON.
+const EXPLORE_ORIGIN = { LON: "LON", LHR: "LON", LGW: "LON", LTN: "LON", STN: "LON", LCY: "LON", SEN: "LON", MAN: "MAN", EDI: "EDI", DUB: "DUB" };
+export function exploreOriginFor(code) {
+  return EXPLORE_ORIGIN[String(code || "").toUpperCase()] || "LON";
+}
+
 export function buildSearchUrl({
   origin,
   destination,
@@ -54,16 +72,25 @@ export function buildSearchUrl({
   style = "points_max",
   packageId = null,
   cabin,
+  nearby = false, // widen origin to its metro area (all nearby airports)
+  award = false, // surface award availability on the results page
+  oneway = false, // one-way trip (no return date)
+  flex = 0, // date flexibility window in days (0 | 3 | 7)
 }) {
   const params = new URLSearchParams();
-  if (origin) params.set("from", origin);
+  const from = nearby && origin ? AIRPORT_METRO[origin] || origin : origin;
+  if (from) params.set("from", from);
   if (destination) params.set("to", destination);
-  const range = dates || [departureDate, returnDate].filter(Boolean).join("_");
+  const range = dates || [departureDate, oneway ? null : returnDate].filter(Boolean).join("_");
   if (range) params.set("dates", range);
   params.set("travelers", String(travelers));
   if (style) params.set("style", style);
   if (cabin && cabin !== "economy") params.set("cabin", cabin);
   if (packageId) params.set("packageId", packageId);
+  if (nearby) params.set("nearby", "1");
+  if (award) params.set("award", "1");
+  if (oneway) params.set("oneway", "1");
+  if (flex) params.set("flex", String(flex));
   return `/search?${params.toString()}`;
 }
 

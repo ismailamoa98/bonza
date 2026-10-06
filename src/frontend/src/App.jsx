@@ -10,6 +10,20 @@ import {
   RedirectToSignIn,
 } from "@clerk/clerk-react";
 import Navigation from "./components/Navigation";
+import Footer from "./components/Footer";
+import CookieConsent from "./components/CookieConsent";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import TermsOfService from "./pages/TermsOfService";
+import CookiePolicy from "./pages/CookiePolicy";
+import IncidentBanner from "./components/IncidentBanner";
+import HelpHome from "./pages/HelpHome";
+import HelpCategory from "./pages/HelpCategory";
+import HelpArticlePage from "./pages/HelpArticlePage";
+import ContactPage from "./pages/ContactPage";
+import Complaints from "./pages/Complaints";
+import TicketView from "./pages/TicketView";
+import StatusPage from "./pages/StatusPage";
+import AdminUserPage from "./pages/AdminUserPage";
 import HomePage from "./pages/HomePage";
 import Dashboard from "./pages/Dashboard";
 import Destinations from "./pages/Destinations";
@@ -157,9 +171,10 @@ export default function App() {
       <BrowserRouter>
         <AuthSync />
         <OnboardingGate />
-        <div className="min-h-screen bg-cream text-ink">
+        <div className="flex min-h-screen flex-col bg-cream text-ink">
+          <IncidentBanner />
           <Navigation />
-          <main>
+          <main className="flex-1">
             {/* Each page owns its own vertical rhythm. */}
             <Routes>
               <Route path="/" element={<HomePage />} />
@@ -222,6 +237,26 @@ export default function App() {
               />
               <Route path="/booking" element={<BookingPage />} />
               <Route path="/upgrade" element={<UpgradePage />} />
+              {/* Public legal pages (footer). */}
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/terms" element={<TermsOfService />} />
+              <Route path="/cookies" element={<CookiePolicy />} />
+              {/* Phase 22 — Support (public). Specific /help/* routes before /help/:category so they don't shadow. */}
+              <Route path="/help" element={<HelpHome />} />
+              <Route path="/help/contact" element={<ContactPage />} />
+              <Route path="/help/complaints" element={<Complaints />} />
+              <Route path="/help/ticket/:ref" element={<TicketView />} />
+              <Route path="/help/:category" element={<HelpCategory />} />
+              <Route path="/help/:category/:slug" element={<HelpArticlePage />} />
+              <Route path="/status" element={<StatusPage />} />
+              <Route
+                path="/admin/user/:userId"
+                element={
+                  <RequireAuth>
+                    <AdminUserPage />
+                  </RequireAuth>
+                }
+              />
               <Route
                 path="/onboarding"
                 element={
@@ -249,6 +284,8 @@ export default function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>
+          <Footer />
+          <CookieConsent />
         </div>
       </BrowserRouter>
     </ClerkProvider>

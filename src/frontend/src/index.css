@@ -64,3 +64,60 @@ html.snap-page {
 
 /* Explore city drawer — bottom-sheet slide-up (mobile) */
 @keyframes slideup { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+/* ── RangeDatePicker (react-day-picker) — token theming + price cells ────────── */
+.bonza-rdp .rdp-root {
+  --rdp-accent-color: #da7756;         /* terra selection */
+  --rdp-accent-background-color: #f6e9e2;
+  --rdp-day-width: 3rem;
+  --rdp-day-height: 3rem;
+  --rdp-day_button-width: 3rem;
+  --rdp-day_button-height: 3rem;
+  --rdp-day_button-border-radius: 10px;
+  --rdp-outside-opacity: 0;
+  font-family: inherit;
+}
+.bonza-rdp .rdp-months { gap: 1.25rem; }
+.bonza-rdp .rdp-month_caption { font-size: 13.5px; font-weight: 700; color: #141210; padding: 2px 6px 8px; }
+.bonza-rdp .rdp-weekday { font-size: 10.5px; font-weight: 700; color: #b8afa3; text-transform: uppercase; }
+/* Each day is a small stacked cell: number, price, dot. */
+.bonza-daycell {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  width: 100%; height: 100%; border-radius: 10px; line-height: 1;
+  color: #141210; transition: background-color .12s;
+}
+.bonza-daycell:hover { background: #faf5f1; }
+.bonza-daynum { font-size: 13px; font-weight: 600; }
+.bonza-dayprice { font-size: 10px; font-weight: 600; color: #8a8078; }
+.bonza-dayprice.is-cheap { color: #1e7e40; }
+.bonza-dayaward { width: 4px; height: 4px; border-radius: 999px; background: #34b368; margin-top: 1px; }
+/* Selected range: terra ends, tinted middle — keep the price legible. */
+.bonza-rdp .rdp-selected .bonza-daycell,
+.bonza-rdp .rdp-range_start .bonza-daycell,
+.bonza-rdp .rdp-range_end .bonza-daycell { background: #da7756; color: #fff; }
+.bonza-rdp .rdp-range_start .bonza-dayprice,
+.bonza-rdp .rdp-range_end .bonza-dayprice,
+.bonza-rdp .rdp-selected .bonza-dayprice { color: rgba(255,255,255,0.9); }
+.bonza-rdp .rdp-range_start .bonza-dayaward,
+.bonza-rdp .rdp-range_end .bonza-dayaward { background: #fff; }
+.bonza-rdp .rdp-range_middle .bonza-daycell { background: #f6e9e2; color: #141210; border-radius: 0; }
+.bonza-rdp .rdp-disabled .bonza-daycell { opacity: .32; }
+
+/* Help-article markdown (react-markdown) — scoped prose to Bonza tokens */
+.prose-bonza h2 { font-size: 18px; font-weight: 700; color: #2a2420; margin: 1.6em 0 0.5em; }
+.prose-bonza h3 { font-size: 15.5px; font-weight: 700; color: #2a2420; margin: 1.3em 0 0.4em; }
+.prose-bonza p { margin: 0 0 0.9em; }
+.prose-bonza a { color: #da7756; font-weight: 600; }
+.prose-bonza a:hover { color: #c46644; }
+.prose-bonza strong { color: #2a2420; font-weight: 700; }
+.prose-bonza ul { margin: 0 0 1em; padding-left: 0; list-style: none; }
+.prose-bonza ul li { position: relative; padding-left: 1.1em; margin: 0.35em 0; }
+.prose-bonza ul li::before { content: ""; position: absolute; left: 0; top: 0.65em; width: 5px; height: 5px; border-radius: 999px; background: #da7756; }
+.prose-bonza ol { margin: 0 0 1em; padding-left: 1.3em; }
+.prose-bonza ol li { margin: 0.35em 0; }
+.prose-bonza code { background: #F4F2ED; padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.9em; }
+
+/* Help callouts — markdown blockquotes rendered as terra-bordered callouts (§22l) */
+.prose-bonza blockquote { background: #FDF6F2; border-left: 3px solid #da7756; border-radius: 0 9px 9px 0; padding: 0.85rem 1rem; margin: 1em 0; color: #8A4526; font-size: 13.5px; }
+.prose-bonza blockquote p { margin: 0; }
+.prose-bonza blockquote strong { color: #7A3A1E; }

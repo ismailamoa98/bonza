@@ -39,17 +39,75 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
+      - run: npm run lint # Phase 23 — ESLint (backend CommonJS + frontend JSX)
       - run: npx prisma generate
-      - run: npm run test:coverage # unit + integration (Phase 23)
+      - run: npm run test:coverage # unit + integration + frontend (Phase 23)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: coverage
           path: coverage/
 
+  e2e:
+    name: E2E
+    needs: test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: bonza
+          POSTGRES_PASSWORD: bonza_dev
+          POSTGRES_DB: bonza_test
+        options: >-
+          --health-cmd "pg_isready -U bonza"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+        ports: ["5432:5432"]
+    env:
+      DATABASE_URL: postgresql://bonza:bonza_dev@localhost:5432/bonza_test
+      NODE_ENV: test
+      # Full suite runs only when the environment's Clerk test secrets are configured (the app needs them to
+      # boot); otherwise it self-skips and this job passes, so it never falsely blocks a release.
+      HAS_E2E_SECRETS: ${{ secrets.PRODUCTION_CLERK_PUBLISHABLE_KEY != '' && secrets.PRODUCTION_CLERK_SECRET_KEY != '' }}
+      VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.PRODUCTION_CLERK_PUBLISHABLE_KEY }}
+      CLERK_PUBLISHABLE_KEY: ${{ secrets.PRODUCTION_CLERK_PUBLISHABLE_KEY }}
+      CLERK_SECRET_KEY: ${{ secrets.PRODUCTION_CLERK_SECRET_KEY }}
+      VITE_API_URL: http://localhost:5000
+      E2E_CLERK_EMAIL: ${{ secrets.E2E_CLERK_EMAIL }}
+      E2E_CLERK_PASSWORD: ${{ secrets.E2E_CLERK_PASSWORD }}
+      STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Skip notice
+        if: env.HAS_E2E_SECRETS != 'true'
+        run: echo "E2E skipped — Clerk test secrets not configured. Configure PRODUCTION_CLERK_* (+ E2E_CLERK_*, STRIPE_TEST_SECRET_KEY) to enable."
+      - run: npm ci
+        if: env.HAS_E2E_SECRETS == 'true'
+      - run: npm ci --prefix src/frontend
+        if: env.HAS_E2E_SECRETS == 'true'
+      - run: npx prisma generate
+        if: env.HAS_E2E_SECRETS == 'true'
+      - run: npx prisma db push --skip-generate --accept-data-loss
+        if: env.HAS_E2E_SECRETS == 'true'
+      - run: npm run db:seed:e2e
+        if: env.HAS_E2E_SECRETS == 'true'
+      - run: npx playwright install --with-deps chromium
+        if: env.HAS_E2E_SECRETS == 'true'
+      - run: npm run test:e2e
+        if: env.HAS_E2E_SECRETS == 'true'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+
   deploy-production:
     name: Deploy to production
-    needs: test
+    needs: [test, e2e]
     runs-on: ubuntu-latest
     environment: production # requires manual approval in GitHub
     permissions:

@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import request from "supertest";
 import { asUser, asGuest } from "../helpers/auth.js";
-import { makeUser, makeProUser, makeBooking, makeLoyaltyAccount, prisma } from "../factories/index.js";
+import { makeUser, makeBooking, makeLoyaltyAccount, prisma } from "../factories/index.js";
 
 const app = require("../../src/backend/server");
 
@@ -47,6 +47,40 @@ describe("IDOR — another user's resource is refused", () => {
   it("does not expose Alice's booking data in the 403 body", async () => {
     const res = await request(app).get(`/api/v1/bookings/${aliceBooking.id}`);
     expect(JSON.stringify(res.body)).not.toContain(aliceBooking.supplierReference);
+  });
+});
+
+describe("IDOR — support tickets", () => {
+  let aliceTicket;
+  beforeEach(async () => {
+    aliceTicket = await prisma.supportTicket.create({
+      data: {
+        reference: "BZ-ALICE1",
+        userId: alice.id,
+        email: alice.email,
+        urgency: "general",
+        category: "booking",
+        subject: "My booking",
+        message: "Help please",
+        slaTarget: new Date(Date.now() + 86400000),
+      },
+    });
+  });
+
+  it("GET /support/tickets/:ref → 403 for a non-owner with no matching email", async () => {
+    const res = await request(app).get(`/api/v1/support/tickets/${aliceTicket.reference}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("GET /support/tickets/:ref → 200 when the raising email is supplied", async () => {
+    const res = await request(app).get(`/api/v1/support/tickets/${aliceTicket.reference}`).query({ email: alice.email });
+    expect(res.status).toBe(200);
+    expect(res.body.ticket.reference).toBe("BZ-ALICE1");
+  });
+
+  it("GET /support/tickets/:ref → 404 for an unknown reference", async () => {
+    const res = await request(app).get(`/api/v1/support/tickets/BZ-NOPE`);
+    expect(res.status).toBe(404);
   });
 });
 

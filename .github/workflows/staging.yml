@@ -144,6 +144,7 @@ jobs:
           VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           VITE_GIT_COMMIT_SHA: ${{ github.sha }}
           VITE_API_URL: https://api.staging.bonza.app
+          VITE_SITE_URL: https://bonza.app # canonicals point at production, so staging never self-canonicalises
         run: |
           cd src/frontend
           npm ci

@@ -35,6 +35,8 @@ export default function CookiePolicy() {
     <LegalPage
       title="Cookie Policy"
       updated="2 October 2026"
+      path="/cookies"
+      description="How Bonza uses cookies and similar technologies — strictly necessary, functional, analytics and third-party — and how to manage them."
       intro="This Cookie Policy explains how Bonza uses cookies and similar technologies on our website."
       sections={SECTIONS}
     />

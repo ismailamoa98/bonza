@@ -45,7 +45,7 @@ const DEFAULT_FILTERS = {
 };
 
 export default function SearchPage() {
-  const { results, meta, selectedResult, loading, setSelected, hasQuery } = useSearch();
+  const { results, meta, selectedResult, loading, error, setSelected, hasQuery } = useSearch();
   const [activeTab, setActiveTab] = useState("hotels");
   const [chatOpen, setChatOpen] = useState(false);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
@@ -94,6 +94,20 @@ export default function SearchPage() {
           <div>
             <p className="font-semibold text-ink-900 mb-1">Start a search</p>
             <p className="text-sm text-ink-300">Enter where you&apos;re going above to see cash and points deals.</p>
+          </div>
+        </div>
+      ) : error && !loading ? (
+        <div className="flex-1 flex items-center justify-center text-center px-6">
+          <div className="max-w-sm">
+            <p className="font-semibold text-ink-900 mb-1">We couldn&apos;t load your search</p>
+            <p className="text-sm text-ink-300 mb-4">{error || "Something went wrong reaching our travel partners. Please try again."}</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-xl bg-bonza px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-bonza-dark"
+            >
+              Try again
+            </button>
           </div>
         </div>
       ) : (

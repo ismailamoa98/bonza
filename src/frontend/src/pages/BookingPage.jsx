@@ -408,7 +408,7 @@ export default function BookingPage() {
                         <Icon name="check" className="h-3.5 w-3.5" /> Connected
                       </span>
                     ) : (
-                      <button type="button" onClick={() => console.log("connect loyalty")} className="shrink-0 rounded-lg border border-bonza px-3.5 py-1.5 text-[12px] font-semibold text-bonza hover:bg-bonza-50">
+                      <button type="button" onClick={() => navigate("/settings?tab=loyalty")} className="shrink-0 rounded-lg border border-bonza px-3.5 py-1.5 text-[12px] font-semibold text-bonza hover:bg-bonza-50">
                         Connect
                       </button>
                     )}

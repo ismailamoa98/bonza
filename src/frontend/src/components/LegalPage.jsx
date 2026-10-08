@@ -2,12 +2,19 @@
 // column with a title, "Last updated" line, a template banner (these are DRAFTS, not legal advice), and a
 // `sections` array rendered as headings + paragraphs/lists. Content is Bonza-specific but needs legal review.
 // Section shape: { heading, body?: string | string[], list?: string[] }.
+import { useHead } from "../utils/useHead";
+import { canonicalUrl } from "../utils/siteUrl";
 
 function Block({ text }) {
   return <p className="mt-3 text-[14.5px] leading-relaxed text-ink-soft">{text}</p>;
 }
 
-export default function LegalPage({ title, updated, intro, sections = [] }) {
+export default function LegalPage({ title, updated, intro, sections = [], description, path }) {
+  useHead({
+    title: `${title} | Bonza`,
+    description: description || intro || `${title} for Bonza — how we operate and handle your data.`,
+    canonical: path ? canonicalUrl(path) : undefined,
+  });
   return (
     <div className="mx-auto max-w-3xl px-6 py-14">
       <h1 className="font-display text-[32px] font-bold tracking-[-0.01em] text-ink">{title}</h1>

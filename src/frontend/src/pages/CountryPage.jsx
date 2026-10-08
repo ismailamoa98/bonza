@@ -7,6 +7,7 @@ import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { getExploreCountry, apiErrorMessage } from "../utils/api";
 import { applyFilters } from "../utils/exploreFilters";
 import { useHead } from "../utils/useHead";
+import { SITE_URL } from "../utils/siteUrl";
 import CityDrawer from "../components/explore/CityDrawer";
 import CountryHero from "../components/explore/country/CountryHero";
 import ControlsBar from "../components/explore/country/ControlsBar";
@@ -104,8 +105,9 @@ export default function CountryPage() {
   const originCity = ORIGIN_CITY[controls.origin] || controls.origin;
   const visible = useMemo(() => applyFilters(data?.cities ?? [], filters, sort), [data, filters, sort]);
 
-  // SEO — the app's only head-managed page. Canonical drops origin/dates; JSON-LD deep-links each city.
-  const canonicalBase = typeof window !== "undefined" ? window.location.origin : "";
+  // SEO — canonical drops origin/dates; JSON-LD deep-links each city. Pinned to the production host
+  // (not window.location.origin) so preview/staging deploys don't self-canonicalise to their own URL.
+  const canonicalBase = SITE_URL;
   useHead(
     data?.country
       ? {

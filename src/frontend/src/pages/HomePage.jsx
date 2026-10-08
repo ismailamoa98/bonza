@@ -18,6 +18,8 @@ import { getLoyaltyPoints, apiErrorMessage, getHeroDestinations } from "../utils
 import { buildSearchUrl, reserveTab, redirectTab, exploreOriginFor } from "../utils/searchUrl";
 import RotatingBackdrop from "../components/common/RotatingBackdrop";
 import { AUTH_DESTINATIONS } from "../data/authDestinations";
+import { useHead } from "../utils/useHead";
+import { canonicalUrl } from "../utils/siteUrl";
 
 // The hero crossfades through the same self-hosted destination photos as the auth pages (public/auth/*),
 // in a randomised order each visit. The bg-[#1f5f6b] base colour always shows while these load / if one fails.
@@ -32,6 +34,12 @@ const PROGRESS_STEPS = [
 
 export default function HomePage() {
   const navigate = useNavigate();
+  useHead({
+    title: "Bonza — book flights & hotels with the best mix of cash and points",
+    description:
+      "Bonza finds the best-value way to book your trip across cash and loyalty points (Amex, Chase, Marriott, Hyatt, United and more), and explains the strategy in plain English.",
+    canonical: canonicalUrl("/"),
+  });
   const { createAndOptimize, loading, error } = useTrip();
 
   const trip = useAppStore((s) => s.trip);

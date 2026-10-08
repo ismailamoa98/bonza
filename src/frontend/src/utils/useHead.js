@@ -28,7 +28,7 @@ function upsertLink(rel, href) {
 }
 
 // useHead({ title, description, canonical, ogImage, jsonLd }) — any field may be undefined/null and is skipped.
-export function useHead({ title, description, canonical, ogImage, ogTitle, jsonLd } = {}) {
+export function useHead({ title, description, canonical, ogImage, ogTitle, robots, jsonLd } = {}) {
   useEffect(() => {
     const prevTitle = document.title;
     const cleanups = [];
@@ -37,6 +37,7 @@ export function useHead({ title, description, canonical, ogImage, ogTitle, jsonL
 
     const metas = [];
     if (description) metas.push(['meta[name="description"]', { name: "description", content: description }]);
+    if (robots) metas.push(['meta[name="robots"]', { name: "robots", content: robots }]);
     if (ogTitle || title) metas.push(['meta[property="og:title"]', { property: "og:title", content: ogTitle || title }]);
     if (description) metas.push(['meta[property="og:description"]', { property: "og:description", content: description }]);
     if (ogImage) metas.push(['meta[property="og:image"]', { property: "og:image", content: ogImage }]);
@@ -51,6 +52,10 @@ export function useHead({ title, description, canonical, ogImage, ogTitle, jsonL
     if (canonical) {
       const { el, created, prev } = upsertLink("canonical", canonical);
       cleanups.push(() => (created ? el.remove() : prev != null && el.setAttribute("href", prev)));
+      // Keep og:url in step with the canonical so social scrapers resolve the same absolute URL.
+      const { el: ogu, created: oguCreated } = upsertMeta('meta[property="og:url"]', { property: "og:url", content: canonical });
+      const prevOgu = oguCreated ? null : ogu.getAttribute("content");
+      cleanups.push(() => (oguCreated ? ogu.remove() : prevOgu != null && ogu.setAttribute("content", prevOgu)));
     }
 
     let scriptEl;
@@ -67,5 +72,5 @@ export function useHead({ title, description, canonical, ogImage, ogTitle, jsonL
       cleanups.forEach((fn) => fn());
       scriptEl?.remove();
     };
-  }, [title, description, canonical, ogImage, ogTitle, JSON.stringify(jsonLd)]);
+  }, [title, description, canonical, ogImage, ogTitle, robots, JSON.stringify(jsonLd)]);
 }

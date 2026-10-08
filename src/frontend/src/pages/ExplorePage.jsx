@@ -8,11 +8,19 @@ import ExploreHeader from "../components/explore/ExploreHeader";
 import ExploreMap from "../components/explore/ExploreMap";
 import ExplorePanel from "../components/explore/ExplorePanel";
 import ExploreGrid from "../components/explore/ExploreGrid";
+import { useHead } from "../utils/useHead";
+import { canonicalUrl } from "../utils/siteUrl";
 
 const isNarrow = () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
 
 export default function ExplorePage() {
   const navigate = useNavigate();
+  useHead({
+    title: "Explore destinations — cheapest cash & points trips | Bonza",
+    description:
+      "Browse every destination by price from your home airport, see which trips are bookable on points, and open any country for cities, hotels and award availability.",
+    canonical: canonicalUrl("/explore"),
+  });
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [view, setView] = useState("map"); // 'map' | 'grid'

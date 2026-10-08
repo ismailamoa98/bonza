@@ -1,5 +1,5 @@
 // App.jsx — routes + Clerk RequireAuth + OnboardingGate.
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import {
   ClerkProvider,
@@ -12,35 +12,39 @@ import {
 import Navigation from "./components/Navigation";
 import Footer from "./components/Footer";
 import CookieConsent from "./components/CookieConsent";
-import PrivacyPolicy from "./pages/PrivacyPolicy";
-import TermsOfService from "./pages/TermsOfService";
-import CookiePolicy from "./pages/CookiePolicy";
 import IncidentBanner from "./components/IncidentBanner";
-import HelpHome from "./pages/HelpHome";
-import HelpCategory from "./pages/HelpCategory";
-import HelpArticlePage from "./pages/HelpArticlePage";
-import ContactPage from "./pages/ContactPage";
-import Complaints from "./pages/Complaints";
-import TicketView from "./pages/TicketView";
-import StatusPage from "./pages/StatusPage";
-import AdminUserPage from "./pages/AdminUserPage";
-import HomePage from "./pages/HomePage";
-import Dashboard from "./pages/Dashboard";
-import Destinations from "./pages/Destinations";
-import CountryPage from "./pages/CountryPage";
-import ExplorePage from "./pages/ExplorePage";
-import PointsPage from "./pages/PointsPage";
-import PointsReviewPage from "./pages/PointsReviewPage";
-import PointsConnectingPage from "./pages/PointsConnectingPage";
-import SignInPage from "./pages/SignInPage";
-import SignUpPage from "./pages/SignUpPage";
-import FlexibleDates from "./pages/FlexibleDates";
-import SearchPage from "./pages/SearchPage";
-import BookingPage from "./pages/BookingPage";
-import UpgradePage from "./pages/UpgradePage";
-import Onboarding from "./pages/Onboarding";
-import Settings from "./pages/Settings";
-import BookingsHistory from "./pages/BookingsHistory";
+import HomePage from "./pages/HomePage"; // eager — the landing/LCP route
+
+// Route-level code-splitting: secondary/heavy pages load on demand, so maplibre-gl (/explore),
+// react-markdown (/help), react-day-picker and Stripe JS stay out of the initial bundle.
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Destinations = lazy(() => import("./pages/Destinations"));
+const CountryPage = lazy(() => import("./pages/CountryPage"));
+const ExplorePage = lazy(() => import("./pages/ExplorePage"));
+const PointsPage = lazy(() => import("./pages/PointsPage"));
+const PointsReviewPage = lazy(() => import("./pages/PointsReviewPage"));
+const PointsConnectingPage = lazy(() => import("./pages/PointsConnectingPage"));
+const SignInPage = lazy(() => import("./pages/SignInPage"));
+const SignUpPage = lazy(() => import("./pages/SignUpPage"));
+const FlexibleDates = lazy(() => import("./pages/FlexibleDates"));
+const SearchPage = lazy(() => import("./pages/SearchPage"));
+const BookingPage = lazy(() => import("./pages/BookingPage"));
+const UpgradePage = lazy(() => import("./pages/UpgradePage"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
+const Settings = lazy(() => import("./pages/Settings"));
+const BookingsHistory = lazy(() => import("./pages/BookingsHistory"));
+const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
+const TermsOfService = lazy(() => import("./pages/TermsOfService"));
+const CookiePolicy = lazy(() => import("./pages/CookiePolicy"));
+const HelpHome = lazy(() => import("./pages/HelpHome"));
+const HelpCategory = lazy(() => import("./pages/HelpCategory"));
+const HelpArticlePage = lazy(() => import("./pages/HelpArticlePage"));
+const ContactPage = lazy(() => import("./pages/ContactPage"));
+const Complaints = lazy(() => import("./pages/Complaints"));
+const TicketView = lazy(() => import("./pages/TicketView"));
+const StatusPage = lazy(() => import("./pages/StatusPage"));
+const AdminUserPage = lazy(() => import("./pages/AdminUserPage"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 import { useAppStore } from "./store/appStore";
 import {
   setAuthTokenGetter,
@@ -176,6 +180,7 @@ export default function App() {
           <Navigation />
           <main className="flex-1">
             {/* Each page owns its own vertical rhythm. */}
+            <Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center" aria-busy="true"><div className="h-8 w-8 animate-spin rounded-full border-2 border-bonza border-t-transparent" /></div>}>
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/sign-in/*" element={<SignInPage />} />
@@ -281,8 +286,9 @@ export default function App() {
                   </RequireAuth>
                 }
               />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
           </main>
           <Footer />
           <CookieConsent />

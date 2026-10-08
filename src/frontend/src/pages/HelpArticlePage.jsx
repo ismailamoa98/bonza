@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getHelpArticle, voteHelpful, apiErrorMessage } from "../utils/api";
 import { useHead } from "../utils/useHead";
+import { canonicalUrl } from "../utils/siteUrl";
 import Icon from "../components/support/icons";
 
 export default function HelpArticlePage() {
@@ -21,7 +22,7 @@ export default function HelpArticlePage() {
     getHelpArticle(slug).then(setData).catch((e) => setError(apiErrorMessage(e)));
   }, [slug]);
 
-  const canonical = typeof window !== "undefined" ? `${window.location.origin}/help/${category}/${slug}` : undefined;
+  const canonical = canonicalUrl(`/help/${category}/${slug}`);
   useHead(data ? { title: `${data.article.title} | Bonza Help`, description: data.article.summary, canonical } : { title: "Help | Bonza" });
 
   const castVote = (helpful) => {

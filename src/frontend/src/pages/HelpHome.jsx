@@ -5,6 +5,8 @@ import { Link, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getHelpTopics, searchHelp, voteHelpful } from "../utils/api";
+import { useHead } from "../utils/useHead";
+import { canonicalUrl } from "../utils/siteUrl";
 import Icon from "../components/support/icons";
 
 function useDebounced(value, ms) {
@@ -54,6 +56,11 @@ function QuestionRow({ article, open, onToggle, topic }) {
 }
 
 export default function HelpHome() {
+  useHead({
+    title: "Help Centre | Bonza",
+    description: "Answers about bookings, points, payments and your account — search the Bonza help centre or contact support.",
+    canonical: canonicalUrl("/help"),
+  });
   const [params, setParams] = useSearchParams();
   const [topics, setTopics] = useState([]);
   const [query, setQuery] = useState("");

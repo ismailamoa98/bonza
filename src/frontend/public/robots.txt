@@ -1,0 +1,16 @@
+# Bonza robots.txt — production. Public marketing/discovery pages are crawlable;
+# signed-in, per-user and transactional routes are not useful to index.
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /onboarding
+Disallow: /settings
+Disallow: /bookings
+Disallow: /booking
+Disallow: /points
+Disallow: /points/review
+Disallow: /admin
+Disallow: /sign-in
+Disallow: /sign-up
+
+Sitemap: https://bonza.app/sitemap.xml

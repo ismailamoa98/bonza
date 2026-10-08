@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { getHelpCategory, apiErrorMessage } from "../utils/api";
+import { useHead } from "../utils/useHead";
+import { canonicalUrl } from "../utils/siteUrl";
 import Icon from "../components/support/icons";
 
 export default function HelpCategory() {
@@ -14,6 +16,12 @@ export default function HelpCategory() {
     setError(null);
     getHelpCategory(category).then(setData).catch((e) => setError(apiErrorMessage(e)));
   }, [category]);
+
+  useHead({
+    title: data ? `${data.category.name} — Help | Bonza` : "Help | Bonza",
+    description: data?.category.blurb || undefined,
+    canonical: canonicalUrl(`/help/${category}`),
+  });
 
   if (error) return <div className="mx-auto max-w-3xl px-6 py-16 text-center text-[14px] text-ink-soft">We couldn&rsquo;t find that category. <Link to="/help" className="font-semibold text-bonza">Back to Help</Link></div>;
   if (!data) return <div className="mx-auto max-w-3xl px-6 py-16" aria-hidden="true"><div className="h-8 w-48 rounded bg-[#EFEBE4]" /><div className="mt-6 space-y-3">{[0, 1, 2, 3].map((i) => <div key={i} className="h-16 rounded-xl bg-[#EFEBE4]" />)}</div></div>;

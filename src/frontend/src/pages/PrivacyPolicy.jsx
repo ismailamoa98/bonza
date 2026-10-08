@@ -75,6 +75,8 @@ export default function PrivacyPolicy() {
     <LegalPage
       title="Privacy Policy"
       updated="2 October 2026"
+      path="/privacy"
+      description="How Bonza collects, uses and protects your personal data, including the read-only loyalty-email parsing that powers points optimisation."
       intro="This Privacy Policy explains how Bonza collects, uses and protects your personal data when you use our website and services."
       sections={SECTIONS}
     />

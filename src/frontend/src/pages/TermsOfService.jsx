@@ -60,6 +60,8 @@ export default function TermsOfService() {
     <LegalPage
       title="Terms of Service"
       updated="2 October 2026"
+      path="/terms"
+      description="The terms governing your use of Bonza — what the service is, points and award estimates, bookings and payments, Bonza Pro, and affiliate relationships."
       intro="These terms govern your use of Bonza’s website and services."
       sections={SECTIONS}
     />

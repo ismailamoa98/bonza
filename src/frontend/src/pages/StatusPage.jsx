@@ -1,12 +1,19 @@
 // pages/StatusPage.jsx — Phase 22 §22h. Public service status — one source of truth when Duffel/Seats.aero is down.
 import { useEffect, useState } from "react";
 import { getStatus } from "../utils/api";
+import { useHead } from "../utils/useHead";
+import { canonicalUrl } from "../utils/siteUrl";
 
 const DOT = { operational: "#1E7E40", degraded: "#da7756", outage: "#c0392b", maintenance: "#8A8078" };
 const LABEL = { operational: "Operational", degraded: "Degraded", outage: "Outage", maintenance: "Maintenance" };
 
 export default function StatusPage() {
   const [data, setData] = useState(null);
+  useHead({
+    title: "Service status | Bonza",
+    description: "Live status of Bonza's services (flights, hotels, award search, payments, email sync) and any ongoing incidents.",
+    canonical: canonicalUrl("/status"),
+  });
   useEffect(() => {
     getStatus().then(setData).catch(() => setData({ services: [] }));
   }, []);

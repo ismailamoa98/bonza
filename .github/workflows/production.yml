@@ -143,6 +143,7 @@ jobs:
           VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           VITE_GIT_COMMIT_SHA: ${{ github.sha }}
           VITE_API_URL: https://api.bonza.app
+          VITE_SITE_URL: https://bonza.app # canonical origin for SEO (utils/siteUrl.js)
         run: |
           cd src/frontend
           npm ci

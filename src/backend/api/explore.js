@@ -2,6 +2,7 @@
 // origin (cheapest aggregate route) with its cities, plus continent counts — the data for the /explore map,
 // list and grid. Prices are read from cached ExploreRoute rows (seeded mock now; weekly job later).
 const express = require("express");
+const { sendError } = require("../utils/AppError");
 const router = express.Router();
 const prisma = require("../config/database");
 const env = require("../config/env");
@@ -119,7 +120,7 @@ router.get("/city/:cityId", optionalAuth, async (req, res, next) => {
         availability: { where: { originCode: origin }, orderBy: { month: "asc" } },
       },
     });
-    if (!city) return res.status(404).json({ error: { message: "Not found" } });
+    if (!city) return sendError(res, "NOT_FOUND", { message: "Not found" });
 
     const [route, valuations] = await Promise.all([
       prisma.exploreRoute.findUnique({
@@ -238,7 +239,7 @@ router.get("/:code", optionalAuth, async (req, res, next) => {
         },
       },
     });
-    if (!country) return res.status(404).json({ error: { message: "Not found" } });
+    if (!country) return sendError(res, "NOT_FOUND", { message: "Not found" });
 
     const [routes, valuations] = await Promise.all([
       prisma.exploreRoute.findMany({ where: { originCode: origin, countryCode: code, cityId: { not: null } } }),

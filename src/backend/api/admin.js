@@ -2,6 +2,7 @@
 // Gated by requireAdmin (Clerk role claim). NO mutations in this phase. Every view logs an admin_viewed_account
 // UserEvent — looking at a user's data is itself an auditable act.
 const express = require("express");
+const { sendError } = require("../utils/AppError");
 const router = express.Router();
 const prisma = require("../config/database");
 const requireAdmin = require("../middleware/requireAdmin");
@@ -14,7 +15,7 @@ router.get("/user/:userId", async (req, res, next) => {
   try {
     const { userId } = req.params;
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return res.status(404).json({ error: { message: "User not found" } });
+    if (!user) return sendError(res, "NOT_FOUND", { message: "User not found" });
 
     const [bookings, balances, syncRuns, credits, tickets, events] = await Promise.all([
       prisma.booking.findMany({ where: { userId }, orderBy: { createdAt: "desc" } }),

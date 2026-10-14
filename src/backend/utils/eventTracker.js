@@ -18,6 +18,7 @@ const EVENT_TYPES = {
   PRO_CANCELLED: "pro_cancelled",
   RECOMMENDATIONS_GENERATED: "recommendations_generated", // personalisation job produced cards (8n)
   ADMIN_VIEWED_ACCOUNT: "admin_viewed_account", // Phase 22 — an admin opened a user's inspector
+  SERVICE_DEGRADED: "service_degraded", // Phase 24 §24f — serviceHealth flipped a dependency to degraded
 };
 
 async function recordEvent(userId, type, metadata = {}, sessionId = null) {

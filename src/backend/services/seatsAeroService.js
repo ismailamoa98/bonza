@@ -2,6 +2,8 @@
 const axios = require("axios");
 const env = require("../config/env");
 const { buildAffiliateUrl } = require("./affiliateService");
+const { withRetry, withTimeout, TIMEOUTS } = require("../utils/withRetry");
+const health = require("./serviceHealth");
 
 const SEATS_AERO_BASE = "https://seats.aero/partnerapi";
 
@@ -20,19 +22,29 @@ function wrapWithAffiliate(programme, url) {
 }
 
 async function seatsAeroSearch({ origin, destination, cabin = "business", programmes }) {
-  const response = await axios.get(`${SEATS_AERO_BASE}/search`, {
-    params: {
-      origin_airport: origin,
-      destination_airport: destination,
-      cabin,
-      start_date: new Date().toISOString().split("T")[0],
-      end_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-    },
-    headers: {
-      "Partner-Authorization": process.env.SEATS_AERO_API_KEY,
-      Accept: "application/json",
-    },
-  });
+  // §24g/f — timeout (AbortController) + retry transient failures + feed the health machine.
+  const response = await health.tracked("seats_aero", () =>
+    withRetry(
+      () =>
+        withTimeout(
+          (signal) =>
+            axios.get(`${SEATS_AERO_BASE}/search`, {
+              params: {
+                origin_airport: origin,
+                destination_airport: destination,
+                cabin,
+                start_date: new Date().toISOString().split("T")[0],
+                end_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+              },
+              headers: { "Partner-Authorization": process.env.SEATS_AERO_API_KEY, Accept: "application/json" },
+              signal,
+            }),
+          TIMEOUTS.seats_aero,
+          "seats_aero"
+        ),
+      { label: "seats_aero" }
+    )
+  );
 
   const availableSeats = response.data.data || [];
   return availableSeats

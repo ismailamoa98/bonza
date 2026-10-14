@@ -2,6 +2,7 @@
 // duffelService returns real or mock data based on env.hasDuffel, so these endpoints
 // work offline; the `mock` flag marks which path ran.
 const express = require("express");
+const { sendError } = require("../utils/AppError");
 const env = require("../config/env");
 const prisma = require("../config/database");
 const requirePro = require("../middleware/requirePro");
@@ -29,7 +30,7 @@ router.post("/flights/search", async (req, res, next) => {
   try {
     const { origin, destination, departureDate, returnDate, adults } = req.body;
     if (!origin || !destination || !departureDate) {
-      return res.status(400).json({ error: { message: "origin, destination and departureDate are required" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "origin, destination and departureDate are required" });
     }
     const flights = await searchFlights({ origin, destination, departureDate, returnDate, adults });
     res.json({ flights, mock: !env.hasDuffel });
@@ -41,7 +42,7 @@ router.post("/flights/search", async (req, res, next) => {
 router.post("/flights/confirm-price", async (req, res, next) => {
   try {
     const { offerId } = req.body;
-    if (!offerId) return res.status(400).json({ error: { message: "offerId is required" } });
+    if (!offerId) return sendError(res, "VALIDATION_FAILED", { message: "offerId is required" });
     const confirmed = await confirmFlightPrice(offerId);
     res.json({ ...confirmed, mock: !env.hasDuffel });
   } catch (err) {
@@ -62,7 +63,7 @@ router.post("/flights/book", async (req, res, next) => {
       journeyId, tripId, origin, destination, checkIn, checkOut, travelers, cashValueGbp, description,
     } = req.body || {};
     if (!offerId || !passengers) {
-      return res.status(400).json({ error: { message: "offerId and passengers are required" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "offerId and passengers are required" });
     }
 
     const order = await bookFlight({ offerId, passengers, paymentIntentId });
@@ -89,7 +90,7 @@ router.post("/hotels/search", async (req, res, next) => {
   try {
     const { location, checkIn, checkOut, adults, rooms } = req.body;
     if (!location || !checkIn || !checkOut) {
-      return res.status(400).json({ error: { message: "location, checkIn and checkOut are required" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "location, checkIn and checkOut are required" });
     }
     const hotels = await searchHotels({ location, checkIn, checkOut, adults, rooms });
     res.json({ hotels, mock: !env.hasDuffel });
@@ -104,7 +105,7 @@ router.post("/flights/award-search", requirePro, async (req, res, next) => {
   try {
     const { origin, destination, cabin } = req.body;
     if (!origin || !destination) {
-      return res.status(400).json({ error: { message: "origin and destination are required" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "origin and destination are required" });
     }
     const accounts = await prisma.loyaltyAccount.findMany({ where: { userId: req.userId } });
     const programmes = accounts.map((a) => a.programme);
@@ -129,7 +130,7 @@ router.post("/hotels/award-search", requirePro, async (req, res, next) => {
   try {
     const { location, checkIn, checkOut } = req.body;
     if (!location || !checkIn || !checkOut) {
-      return res.status(400).json({ error: { message: "location, checkIn and checkOut are required" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "location, checkIn and checkOut are required" });
     }
     const accounts = await prisma.loyaltyAccount.findMany({ where: { userId: req.userId } });
     const programmes = accounts.map((a) => a.programme);

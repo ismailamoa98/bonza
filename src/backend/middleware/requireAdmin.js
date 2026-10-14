@@ -5,6 +5,7 @@
 const { getAuth } = require("@clerk/express");
 const env = require("../config/env");
 const { DEV_USER } = require("../config/constants");
+const { sendError } = require("../utils/AppError");
 
 module.exports = function requireAdmin(req, res, next) {
   try {
@@ -28,7 +29,7 @@ module.exports = function requireAdmin(req, res, next) {
       return next();
     }
 
-    return res.status(403).json({ error: { message: "Admin access required" } });
+    return sendError(res, "FORBIDDEN", { message: "Admin access required" });
   } catch (err) {
     next(err);
   }

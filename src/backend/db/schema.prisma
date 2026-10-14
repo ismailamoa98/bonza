@@ -305,6 +305,7 @@ model Booking {
   propertyName      String?
   propertyPlaceId   String? // Google Places place_id (resolved at booking time)
   supplierReference String? // Duffel booking reference / loyalty confirmation number
+  idempotencyKey    String? @unique // Phase 24 §24g — hash of {userId,offerId,quotedTotal}; set before the order call so a user-triggered retry replays instead of double-booking
   description       String? // e.g. "LHR → NCE · British Airways · Economy"
 
   cashValueGbp    Float?

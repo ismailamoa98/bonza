@@ -2,6 +2,7 @@
 // Real email parsing runs only when env.hasEmailSync + an access token are present;
 // otherwise a deterministic mock sync keeps the flow working offline.
 const express = require("express");
+const { sendError } = require("../utils/AppError");
 const env = require("../config/env");
 const prisma = require("../config/database");
 const {
@@ -37,7 +38,7 @@ router.post("/sync-email", async (req, res, next) => {
     // Real path requires the gate ON and a token. Gate on but no token = client
     // error; gate off (dev) = fall back to the deterministic mock sync.
     if (env.hasEmailSync && !accessToken) {
-      return res.status(400).json({ error: { message: "Email access token required" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "Email access token required" });
     }
     const useReal = env.hasEmailSync && Boolean(accessToken);
 
@@ -101,7 +102,7 @@ router.get("/oauth/:provider/start", async (req, res, next) => {
   try {
     const { provider } = req.params;
     if (!SUPPORTED_PROVIDERS.includes(provider)) {
-      return res.status(400).json({ error: { message: `Unsupported provider '${provider}'` } });
+      return sendError(res, "VALIDATION_FAILED", { message: `Unsupported provider '${provider}'` });
     }
     if (!oauth.isConfigured(provider)) {
       return res.status(400).json({
@@ -121,12 +122,12 @@ router.post("/sync-now", async (req, res, next) => {
   try {
     const provider = req.body.provider;
     if (!SUPPORTED_PROVIDERS.includes(provider)) {
-      return res.status(400).json({ error: { message: `Unsupported provider '${provider}'` } });
+      return sendError(res, "VALIDATION_FAILED", { message: `Unsupported provider '${provider}'` });
     }
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     const refreshToken = user?.[REFRESH_COL[provider]];
     if (!user?.[CONN_FLAG[provider]] || !refreshToken) {
-      return res.status(400).json({ error: { message: `${provider} is not connected` } });
+      return sendError(res, "VALIDATION_FAILED", { message: `${provider} is not connected` });
     }
     const accessToken = await oauth.accessFromRefresh(provider, refreshToken);
     const { updatedAccounts, conflicts } = await parseEmailsForUser(req.userId, accessToken, provider);
@@ -141,7 +142,7 @@ router.post("/disconnect", async (req, res, next) => {
   try {
     const provider = req.body.provider;
     if (!SUPPORTED_PROVIDERS.includes(provider)) {
-      return res.status(400).json({ error: { message: `Unsupported provider '${provider}'` } });
+      return sendError(res, "VALIDATION_FAILED", { message: `Unsupported provider '${provider}'` });
     }
     await prisma.user.update({
       where: { id: req.userId },
@@ -159,16 +160,16 @@ router.post("/accounts", async (req, res, next) => {
     const { accountId, programme, balance, statusTier, accountNumber, loyaltyEmailAddress, pointsExpireAt } =
       req.body || {};
     if (!programme) {
-      return res.status(400).json({ error: { message: "programme is required" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "programme is required" });
     }
     // Validate against the full Phase 14 programme catalog (18 programmes), pricing from its cents/pt.
     const valuation = await prisma.programmeValuation.findUnique({ where: { programme } });
     if (!valuation) {
-      return res.status(400).json({ error: { message: `Unknown programme '${programme}'` } });
+      return sendError(res, "VALIDATION_FAILED", { message: `Unknown programme '${programme}'` });
     }
     const bal = parseInt(balance, 10);
     if (!Number.isFinite(bal) || bal < 0) {
-      return res.status(400).json({ error: { message: "balance must be a non-negative number" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "balance must be a non-negative number" });
     }
     const valueGbp = round2(bal * (valuation.centsPerPoint / 100));
     const number = accountNumber?.trim() || null;
@@ -191,7 +192,7 @@ router.post("/accounts", async (req, res, next) => {
     let target = null;
     if (accountId) {
       target = await prisma.loyaltyAccount.findFirst({ where: { id: accountId, userId: req.userId } });
-      if (!target) return res.status(404).json({ error: { message: "Account not found" } });
+      if (!target) return sendError(res, "NOT_FOUND", { message: "Account not found" });
     } else {
       target = await prisma.loyaltyAccount.findFirst({
         where: { userId: req.userId, programme, accountNumber: number },
@@ -217,7 +218,7 @@ router.delete("/accounts/:programme", async (req, res, next) => {
     const { count } = await prisma.loyaltyAccount.deleteMany({
       where: { userId: req.userId, programme: req.params.programme },
     });
-    if (!count) return res.status(404).json({ error: { message: "Account not found" } });
+    if (!count) return sendError(res, "NOT_FOUND", { message: "Account not found" });
     res.json({ removed: true, programme: req.params.programme });
   } catch (err) {
     next(err);
@@ -252,7 +253,7 @@ router.post("/deep-sync/step", async (req, res, next) => {
   try {
     const { runId, programme } = req.body || {};
     const run = await prisma.balanceSyncRun.findFirst({ where: { id: runId, userId: req.userId } });
-    if (!run) return res.status(404).json({ error: { message: "run not found" } });
+    if (!run) return sendError(res, "NOT_FOUND", { message: "run not found" });
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     let ctx;
@@ -288,7 +289,7 @@ router.post("/deep-sync/step", async (req, res, next) => {
 router.post("/deep-sync/finish", async (req, res, next) => {
   try {
     const run = await prisma.balanceSyncRun.findFirst({ where: { id: req.body.runId, userId: req.userId } });
-    if (!run) return res.status(404).json({ error: { message: "run not found" } });
+    if (!run) return sendError(res, "NOT_FOUND", { message: "run not found" });
     const seen = (await balanceSync.emailVerifiableProgrammes()).map((p) => p.programme);
     await balanceSync.markNotChecked(req.userId, seen);
     const finished = await prisma.balanceSyncRun.update({

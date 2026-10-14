@@ -2,13 +2,14 @@
 const { Webhook } = require("svix");
 const prisma = require("../config/database");
 const env = require("../config/env");
+const { sendError } = require("../utils/AppError");
 const { writeBooking } = require("../utils/bookingWriter");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
 const { logger } = require("../utils/logger");
 
 async function clerkWebhook(req, res) {
   if (!env.CLERK_WEBHOOK_SECRET) {
-    return res.status(500).json({ error: "Webhook secret not configured" });
+    return sendError(res, "INTERNAL", { message: "Webhook secret not configured" });
   }
 
   let evt;
@@ -21,7 +22,7 @@ async function clerkWebhook(req, res) {
       "svix-signature": req.headers["svix-signature"],
     });
   } catch {
-    return res.status(400).json({ error: "Invalid webhook signature" });
+    return sendError(res, "VALIDATION_FAILED", { message: "Invalid webhook signature" });
   }
 
   try {

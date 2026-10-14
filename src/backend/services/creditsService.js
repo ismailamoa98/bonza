@@ -39,7 +39,7 @@ async function awardCashback({ userId, bookingId, cashValueGbp, leg }) {
         },
       });
       if (priorClaim) {
-        recordEvent(userId, EVENT_TYPES.CREDIT_FLAGGED, {
+        await recordEvent(userId, EVENT_TYPES.CREDIT_FLAGGED, {
           reason: "duplicate_device_first_booking",
           bookingId,
         });

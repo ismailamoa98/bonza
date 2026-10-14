@@ -11,7 +11,7 @@ export default function PortfolioMetrics({ metrics, loading }) {
 
   return (
     <div className="rounded-2xl bg-white/60 border border-ink-900/[0.06] shadow-[0_10px_40px_rgba(120,80,50,0.06)] px-2 py-7 md:py-8">
-      <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-ink-900/[0.09]">
+      <div data-private className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-ink-900/[0.09]">
         <Metric
           icon={<WalletIcon width="17" height="17" />}
           label="Bonza Credits"

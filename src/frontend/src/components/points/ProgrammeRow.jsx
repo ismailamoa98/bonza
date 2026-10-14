@@ -4,6 +4,8 @@
 import { ChevronRightIcon } from "./icons";
 import { formatUpdatedAt } from "../../utils/format";
 import ProgrammeLogo from "../common/ProgrammeLogo";
+import { track } from "../../lib/analytics";
+import { EV } from "../../lib/analytics/events";
 
 // Phase 15 sync-state pills (statement-authoritative). Muted, no amber.
 const STATE_PILL = {
@@ -25,9 +27,13 @@ function readableOn(hex) {
 }
 
 export default function ProgrammeRow({ account, open, onClick }) {
+  const handleClick = () => {
+    if (!open) track(EV.PROGRAMME_CARD_EXPANDED, { programme: account.programme });
+    onClick?.();
+  };
   return (
     <div
-      onClick={onClick}
+      onClick={handleClick}
       className={`flex items-center gap-4 py-[15px] px-0.5 cursor-pointer transition-colors border-b ${
         open ? "bg-white/[0.72] border-transparent" : "border-ink-900/[0.07] hover:bg-white/50"
       }`}
@@ -82,7 +88,7 @@ export default function ProgrammeRow({ account, open, onClick }) {
       <div className="flex items-center gap-6 flex-shrink-0 tabular-nums">
         <div className="text-right min-w-[70px]">
           <p className="text-[9.5px] text-ink-300/80 font-medium mb-0.5">Balance</p>
-          <p className="text-[13px] font-semibold text-ink-900">{account.balance.toLocaleString()}</p>
+          <p data-private className="text-[13px] font-semibold text-ink-900">{account.balance.toLocaleString()}</p>
         </div>
         <span className={`text-ink-300 w-4 flex justify-end transition-transform ${open ? "rotate-90 text-ink-600" : ""}`}>
           <ChevronRightIcon width="15" height="15" />

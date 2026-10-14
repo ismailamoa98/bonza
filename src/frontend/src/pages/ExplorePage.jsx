@@ -8,6 +8,9 @@ import ExploreHeader from "../components/explore/ExploreHeader";
 import ExploreMap from "../components/explore/ExploreMap";
 import ExplorePanel from "../components/explore/ExplorePanel";
 import ExploreGrid from "../components/explore/ExploreGrid";
+import ErrorBoundary from "../components/ErrorBoundary";
+import { track } from "../lib/analytics";
+import { EV } from "../lib/analytics/events";
 import { useHead } from "../utils/useHead";
 import { canonicalUrl } from "../utils/siteUrl";
 
@@ -54,7 +57,10 @@ export default function ExplorePage() {
   }, []);
 
   const countries = data?.countries ?? [];
-  const openCountry = (code) => navigate(`/explore/${code}?origin=${origin}`);
+  const openCountry = (code) => {
+    track(EV.EXPLORE_COUNTRY_CLICKED, { country: code, origin });
+    navigate(`/explore/${code}?origin=${origin}`);
+  };
   const effectiveView = narrow ? "grid" : view;
 
   return (
@@ -76,12 +82,14 @@ export default function ExplorePage() {
 
         {effectiveView === "map" ? (
           <div className="mt-4 grid h-[640px] grid-cols-1 gap-[1.15rem] lg:grid-cols-[1.15fr_1fr]">
-            <ExploreMap
-              countries={countries}
-              hovered={hovered}
-              onSelect={openCountry}
-              onHover={setHovered}
-            />
+            <ErrorBoundary level="section" surface="explore_map">
+              <ExploreMap
+                countries={countries}
+                hovered={hovered}
+                onSelect={openCountry}
+                onHover={setHovered}
+              />
+            </ErrorBoundary>
             <ExplorePanel
               countries={countries}
               hovered={hovered}

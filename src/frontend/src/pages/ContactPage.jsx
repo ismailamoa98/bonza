@@ -8,6 +8,7 @@ import { getBookings, createTicket, getStatus, getHelpTopPicks, getOpenTickets, 
 import { useAppStore } from "../store/appStore";
 import BookingBoundary from "../components/support/BookingBoundary";
 import SupportAssistant from "../components/support/SupportAssistant";
+import ErrorBoundary from "../components/ErrorBoundary";
 import Icon from "../components/support/icons";
 
 const SUPPORT_PHONE = "+44 20 3966 1066"; // placeholder — real number is a pre-go-live task
@@ -196,7 +197,11 @@ export default function ContactPage() {
         </RouteRow>
 
         <RouteRow icon="help-circle" title="Something else" desc="Points, Pro, Credits or account" sla="Ask Bonza" channel="Email if needed" active={route === "general"} onClick={() => setRoute(route === "general" ? null : "general")}>
-          <div className="border-t border-[#f0ebe3] px-5 py-4"><SupportAssistant /></div>
+          <div className="border-t border-[#f0ebe3] px-5 py-4">
+            <ErrorBoundary level="section" surface="support_assistant">
+              <SupportAssistant />
+            </ErrorBoundary>
+          </div>
         </RouteRow>
       </div>
 

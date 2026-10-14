@@ -7,6 +7,8 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import ProgrammeLogo from "../common/ProgrammeLogo";
 import { buildSearchUrl, openSearch } from "../../utils/searchUrl";
+import { track } from "../../lib/analytics";
+import { EV } from "../../lib/analytics/events";
 
 // Turn a display month ("May 2026") + nights into concrete check-in/out dates for the search. Anchors
 // mid-month (the 12th) so the range never spills into the next month; the search treats these as the trip.
@@ -52,6 +54,7 @@ export default function DestinationBand({ destination, index, total, isAuthentic
 
   // Signed in → search this exact holiday (origin, destination, party, month). Signed out → sign up first.
   const goToBestOption = () => {
+    track(EV.HERO_DESTINATION_CLICKED, { destination: destCode, origin: originCode });
     if (!isAuthenticated) {
       navigate("/sign-up");
       return;

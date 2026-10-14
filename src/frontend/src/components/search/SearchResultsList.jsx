@@ -2,7 +2,7 @@
 import { useState } from "react";
 import SearchResultCard from "./SearchResultCard";
 import SearchSkeleton from "./SearchSkeleton";
-import { SearchOffIcon } from "./icons";
+import StateView, { COPY } from "../StateView";
 import { filterResults, nightsFromMeta } from "./filterResults";
 import { sliceDurationMs } from "./flightFormat";
 
@@ -30,17 +30,11 @@ export default function SearchResultsList({
 
   if (!items.length) {
     return (
-      <div className="flex-1 flex items-center justify-center py-20 text-center">
-        <div>
-          <div className="w-12 h-12 bg-cream rounded-xl flex items-center justify-center mx-auto mb-3 text-ink-300">
-            <SearchOffIcon />
-          </div>
-          <p className="font-semibold text-ink-900 mb-1">No results found</p>
-          <p className="text-sm text-ink-300">
-            {activeTab === "cars" ? "Car search is coming soon" : "Try adjusting your filters or dates"}
-          </p>
-        </div>
-      </div>
+      <StateView
+        variant="empty"
+        title={activeTab === "cars" ? "Car search is coming soon" : COPY.search_no_packages.title}
+        body={activeTab === "cars" ? "We’re adding rental cars — flights and hotels are live now." : COPY.search_no_packages.body}
+      />
     );
   }
 

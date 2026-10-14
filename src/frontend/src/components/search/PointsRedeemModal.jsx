@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ProGate from "../ProGate";
 import { getHotelRedemptionOptions, pointsHandoff, confirmTransfer } from "../../utils/api";
+import { track } from "../../lib/analytics";
+import { EV } from "../../lib/analytics/events";
 import { formatGbp } from "../../utils/format";
 import { PROGRAMME_LABELS } from "./programmes";
 import { XIcon, StarIcon } from "./icons";
@@ -110,7 +112,10 @@ export default function PointsRedeemModal({ open, onClose, result, meta, program
         }).catch(() => {});
       }
       if (res.buyPointsUrl) window.open(res.buyPointsUrl, "_blank", "noopener,noreferrer");
-      if (res.awardUrl) window.open(res.awardUrl, "_blank", "noopener,noreferrer");
+      if (res.awardUrl) {
+        track(EV.DEEPLINK_OPENED, { programme: opt?.programme || data?.programme || null });
+        window.open(res.awardUrl, "_blank", "noopener,noreferrer");
+      }
       const journeyId = res.journeyId;
       close();
       if (journeyId) onHandoff?.(journeyId);

@@ -121,7 +121,7 @@ export default function LoyaltyCard({ loyaltyPoints, variant = "full", pointsUse
           </span>
         </span>
 
-        <span className="hidden items-center gap-2 text-[12px] text-white/80 sm:flex">
+        <span data-private className="hidden items-center gap-2 text-[12px] text-white/80 sm:flex">
           {rows.map((r) => (
             <span key={r.key}>
               {r.short} <b className="font-semibold text-white">{formatPoints(r.points)}</b>

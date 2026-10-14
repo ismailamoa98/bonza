@@ -74,6 +74,9 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", service: "bonza-backend", env: env.NODE_ENV });
 });
 
+// Phase 24 §24i — under the proxied /api/v1 path so the frontend offline heartbeat (HEAD) can reach it.
+app.all("/api/v1/health", (req, res) => res.status(200).end());
+
 app.use(clerkMiddleware());
 
 const optimizeLimiter = rateLimit({

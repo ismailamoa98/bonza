@@ -7,6 +7,8 @@ const { getFlights } = require("../utils/mockFlights");
 const { getHotels } = require("../utils/mockHotels");
 const { resolveAirport, airportInfo } = require("../utils/airportSearch");
 const { logger } = require("../utils/logger");
+const { withRetry, withTimeout, TIMEOUTS } = require("../utils/withRetry");
+const health = require("./serviceHealth");
 
 let _duffel = null;
 function getDuffel() {
@@ -337,7 +339,9 @@ function mockSearchHotels({ location, checkIn }) {
 async function searchFlights(params) {
   if (!env.hasDuffel) return mockSearchFlights(params);
   try {
-    const real = await duffelSearchFlights(params);
+    const real = await health.tracked("duffel", () =>
+      withRetry(() => withTimeout(() => duffelSearchFlights(params), TIMEOUTS.duffel_search, "duffel_search"), { label: "duffel_search" })
+    );
     if (real && real.length) return real;
     logger.warn("Duffel flight search returned no offers — falling back to mock", {
       route: `${params?.origin}-${params?.destination}`,
@@ -352,7 +356,10 @@ async function searchFlights(params) {
 }
 
 function confirmFlightPrice(offerId) {
-  return env.hasDuffel ? duffelConfirmFlightPrice(offerId) : Promise.resolve(mockConfirmFlightPrice(offerId));
+  if (!env.hasDuffel) return Promise.resolve(mockConfirmFlightPrice(offerId));
+  return health.tracked("duffel", () =>
+    withRetry(() => withTimeout(() => duffelConfirmFlightPrice(offerId), TIMEOUTS.duffel_search, "duffel_price"), { label: "duffel_price" })
+  );
 }
 
 // Real Duffel Stays when a key is present, but never let it blank the grid: if the live search throws
@@ -361,7 +368,9 @@ function confirmFlightPrice(offerId) {
 async function searchHotels(params) {
   if (!env.hasDuffel) return mockSearchHotels(params);
   try {
-    const real = await duffelSearchHotels(params);
+    const real = await health.tracked("duffel_stays", () =>
+      withRetry(() => withTimeout(() => duffelSearchHotels(params), TIMEOUTS.rooms_aero, "duffel_stays"), { label: "duffel_stays" })
+    );
     if (real && real.length) return real;
     logger.warn("Duffel Stays returned no hotels — falling back to mock", { location: params?.location });
   } catch (err) {

@@ -1,5 +1,7 @@
 // api/bookings.js — cash booking flow (payment-intent, confirm-cash via Duffel) + history/cancel.
 const express = require("express");
+const crypto = require("crypto");
+const { sendError } = require("../utils/AppError");
 const prisma = require("../config/database");
 const { ownedOr403 } = require("../utils/ownedOr403");
 const { writeBooking } = require("../utils/bookingWriter");
@@ -152,14 +154,14 @@ router.post("/confirm-cash", async (req, res, next) => {
       tripId, origin, destination, checkIn, checkOut, travelers, passengers, legs,
     } = req.body || {};
 
-    if (!paymentIntentId) return res.status(400).json({ error: { message: "paymentIntentId is required" } });
+    if (!paymentIntentId) return sendError(res, "VALIDATION_FAILED", { message: "paymentIntentId is required" });
     if (!Array.isArray(legs) || !legs.length) {
-      return res.status(400).json({ error: { message: "legs must be a non-empty array" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "legs must be a non-empty array" });
     }
 
     const pi = await retrievePaymentIntent(paymentIntentId);
     if (pi.status !== "succeeded") {
-      return res.status(402).json({ error: { message: `Payment not completed (status: ${pi.status})`, code: "PAYMENT_NOT_SUCCEEDED" } });
+      return sendError(res, "PAYMENT_FAILED", { message: `Payment not completed (status: ${pi.status})` });
     }
 
     let bookingLink = null;
@@ -176,6 +178,19 @@ router.post("/confirm-cash", async (req, res, next) => {
       if (!["flight", "hotel", "car"].includes(type)) continue;
       const cash = leg.cashValueGbp != null ? Number(leg.cashValueGbp) : null;
       let supplierReference = null;
+
+      // §24g idempotency — key this leg on {userId, paymentIntent, type, quotedTotal}. A replayed confirm
+      // (user-triggered retry on the same PaymentIntent) returns the existing booking instead of re-ordering
+      // / double-charging / double-crediting. The key is persisted on the Booking before the order.
+      const idempotencyKey = crypto
+        .createHash("sha256")
+        .update(`${req.userId}:${paymentIntentId}:${type}:${cash}`)
+        .digest("hex");
+      const existing = await prisma.booking.findUnique({ where: { idempotencyKey } });
+      if (existing) {
+        bookings.push(existing);
+        continue;
+      }
 
       if (type === "flight") {
         const { order } = await bookCashFlight({
@@ -213,6 +228,7 @@ router.post("/confirm-cash", async (req, res, next) => {
         cashValueGbp: cash,
         serviceFeeGbp: cash != null ? round2(cash * (COMMISSION_RATES[type] || 0)) : null,
         confirmationMethod: LEG_METHOD[type],
+        idempotencyKey,
       });
       bookings.push(booking);
 
@@ -297,7 +313,7 @@ router.post("/:id/cancel", async (req, res, next) => {
     if (!ownedOr403(booking, req.userId, res)) return;
 
     if (booking.status === "cancelled") {
-      return res.status(400).json({ error: { message: "Booking already cancelled" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "Booking already cancelled" });
     }
 
     const updated = await prisma.booking.update({

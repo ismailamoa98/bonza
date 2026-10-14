@@ -8,6 +8,10 @@ const SERVICES = [
   { service: "award_search", displayName: "Award availability" },
   { service: "booking", displayName: "Booking" },
   { service: "balance_sync", displayName: "Balance sync" },
+  // Phase 24 §24f — serviceHealth maps stripe/claude/resend onto these.
+  { service: "payments", displayName: "Payments" },
+  { service: "assistant", displayName: "Support assistant" },
+  { service: "email", displayName: "Email" },
 ];
 
 async function seedServiceStatus() {

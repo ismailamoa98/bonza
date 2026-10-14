@@ -2,6 +2,8 @@
 const env = require("../config/env");
 const prisma = require("../config/database");
 const { logger } = require("../utils/logger");
+const { withRetry, withTimeout, TIMEOUTS } = require("../utils/withRetry");
+const health = require("./serviceHealth");
 
 let _resend = null;
 function getResend() {
@@ -35,7 +37,10 @@ async function sendEmail({ to, subject, html, notificationId }) {
   }
 
   try {
-    const { data, error } = await getResend().emails.send({ from: env.EMAIL_FROM, to, subject, html });
+    // §24g/f — retry + timeout + health. User-facing flows never block on this (callers fire-and-forget).
+    const { data, error } = await health.tracked("resend", () =>
+      withRetry(() => withTimeout(() => getResend().emails.send({ from: env.EMAIL_FROM, to, subject, html }), TIMEOUTS.resend, "resend"), { label: "resend" })
+    );
     if (error) {
       logger.error("[emailService] Resend error", error);
       return { sent: false, error };

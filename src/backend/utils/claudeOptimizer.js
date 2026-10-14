@@ -3,6 +3,8 @@ const env = require("../config/env");
 const { CLAUDE_MODEL, STRATEGIES } = require("../config/constants");
 const { generateMockScenarios } = require("./mockDataGenerator");
 const { logger } = require("./logger");
+const { withTimeout, TIMEOUTS } = require("./withRetry");
+const health = require("../services/serviceHealth");
 
 const BONZA_SYSTEM_PROMPT = `You are Bonza, an expert AI travel optimizer. You help users get the most value
 from their loyalty points (AMEX, Chase, United, Marriott, etc.) when booking flights, hotels, and cars.
@@ -35,16 +37,13 @@ async function callClaude(userContent, maxTokens) {
     messages: [{ role: "user", content: userContent }],
   };
 
-  let response;
-  if (env.hasGondola) {
-    response = await client.beta.messages.create({
-      ...params,
-      mcp_servers: [{ name: "gondola", type: "url", url: env.GONDOLA_MCP_URL }],
-      betas: ["mcp-client-2025-04-04"],
-    });
-  } else {
-    response = await client.messages.create(params);
-  }
+  // §24g/f — timeout + health tracking on the live Anthropic call (no retry: non-streaming + idempotent is
+  // fine, but keep it single to avoid doubling token spend on a slow response).
+  const call = () =>
+    env.hasGondola
+      ? client.beta.messages.create({ ...params, mcp_servers: [{ name: "gondola", type: "url", url: env.GONDOLA_MCP_URL }], betas: ["mcp-client-2025-04-04"] })
+      : client.messages.create(params);
+  const response = await health.tracked("claude", () => withTimeout(call, TIMEOUTS.claude, "claude"));
 
   return response.content
     .filter((block) => block.type === "text")

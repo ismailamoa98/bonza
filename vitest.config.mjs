@@ -37,7 +37,8 @@ export default defineConfig({
       {
         plugins: [react()],
         // Components resolve `react` from src/frontend/node_modules while Testing Library resolves it from
-        // the root — two copies break hooks. Dedupe to a single React instance.
+        // the root — two copies break hooks. Dedupe to a single React instance. (Tests needing react-router
+        // mock it rather than rendering a real Router, whose UMD build pulls a second React copy.)
         resolve: { dedupe: ["react", "react-dom", "react/jsx-runtime"] },
         test: {
           name: "frontend",

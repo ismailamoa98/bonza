@@ -2,6 +2,7 @@
 const express = require("express");
 const prisma = require("../config/database");
 const env = require("../config/env");
+const { sendError } = require("../utils/AppError");
 const { isProActive } = require("../middleware/requirePro");
 const { createSubscription, cancelSubscription, handleWebhook } = require("../services/stripeService");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
@@ -52,14 +53,14 @@ router.get("/status", async (req, res, next) => {
 
 async function stripeWebhook(req, res) {
   if (!env.STRIPE_WEBHOOK_SECRET) {
-    return res.status(400).json({ error: "Stripe webhook secret not configured" });
+    return sendError(res, "VALIDATION_FAILED", { message: "Stripe webhook secret not configured" });
   }
   try {
     const result = await handleWebhook(req.body, req.headers["stripe-signature"]);
     if (result?.activatedUserId) triggerProActivated(result.activatedUserId);
     res.json(result);
   } catch (err) {
-    res.status(400).json({ error: `Webhook error: ${err.message}` });
+    sendError(res, "VALIDATION_FAILED", { message: `Webhook error: ${err.message}` });
   }
 }
 

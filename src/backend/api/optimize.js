@@ -1,5 +1,6 @@
 // api/optimize.js — trip optimisation (5 scenarios) + Pro redemption endpoint.
 const express = require("express");
+const { sendError } = require("../utils/AppError");
 const prisma = require("../config/database");
 const { generateScenarios } = require("../utils/claudeOptimizer");
 const { generateRedemptionOptions } = require("../services/redemptionEngine");
@@ -215,7 +216,7 @@ router.post("/trip", async (req, res, next) => {
   try {
     const { legs, overrides } = req.body || {};
     if (!Array.isArray(legs) || !legs.length) {
-      return res.status(400).json({ error: { message: "legs must be a non-empty array" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "legs must be a non-empty array" });
     }
 
     const withAwards = legs
@@ -255,7 +256,7 @@ router.post("/hotel-options", async (req, res, next) => {
   try {
     const { cashGbp, centsPerPoint, programme } = req.body || {};
     if (!programme || !(Number(cashGbp) > 0)) {
-      return res.status(400).json({ error: { message: "programme and cashGbp (>0) are required" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "programme and cashGbp (>0) are required" });
     }
 
     const accounts = await prisma.loyaltyAccount.findMany({ where: { userId: req.userId } });

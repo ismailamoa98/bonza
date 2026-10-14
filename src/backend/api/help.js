@@ -2,6 +2,7 @@
 // (bumps viewCount), and helpfulness votes. Search ranks with Postgres to_tsvector/websearch_to_tsquery +
 // ts_rank over weighted title/keywords/summary/body (no stored generated column — fits db push).
 const express = require("express");
+const { sendError } = require("../utils/AppError");
 const router = express.Router();
 const prisma = require("../config/database");
 const { HELP_CATEGORIES } = require("../db/seedHelp");
@@ -100,7 +101,7 @@ router.get("/popular", async (req, res, next) => {
 router.get("/articles/:slug", async (req, res, next) => {
   try {
     const article = await prisma.helpArticle.findUnique({ where: { slug: req.params.slug } });
-    if (!article || !article.isPublished) return res.status(404).json({ error: { message: "Not found" } });
+    if (!article || !article.isPublished) return sendError(res, "NOT_FOUND", { message: "Not found" });
     prisma.helpArticle.update({ where: { slug: article.slug }, data: { viewCount: { increment: 1 } } }).catch(() => {});
     const related = article.relatedSlugs.length
       ? await prisma.helpArticle.findMany({ where: { slug: { in: article.relatedSlugs }, isPublished: true }, select: { slug: true, category: true, title: true } })
@@ -116,7 +117,7 @@ router.get("/articles/:slug", async (req, res, next) => {
 router.get("/category/:slug", async (req, res, next) => {
   try {
     const category = HELP_CATEGORIES.find((c) => c.slug === req.params.slug);
-    if (!category) return res.status(404).json({ error: { message: "Not found" } });
+    if (!category) return sendError(res, "NOT_FOUND", { message: "Not found" });
     const articles = await prisma.helpArticle.findMany({
       where: { category: category.slug, isPublished: true },
       orderBy: { order: "asc" },

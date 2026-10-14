@@ -2,6 +2,7 @@
 // optionalAuth (works logged-out with email+name); reading tickets requires auth (own) or email+ref; the
 // assistant is auth + rate-limited (escalation funnels into a real ticket); programme-contact is public.
 const express = require("express");
+const { sendError } = require("../utils/AppError");
 const router = express.Router();
 const prisma = require("../config/database");
 const { optionalAuth } = require("../middleware/optionalAuth");
@@ -14,7 +15,7 @@ router.post("/tickets", optionalAuth, async (req, res, next) => {
   try {
     const { email, name, urgency, category, subject, message, bookingId } = req.body || {};
     const resolvedEmail = email || null;
-    if (!resolvedEmail && !req.userId) return res.status(400).json({ error: { message: "Email is required" } });
+    if (!resolvedEmail && !req.userId) return sendError(res, "VALIDATION_FAILED", { message: "Email is required" });
 
     // If logged in and no email provided, use the account email.
     let finalEmail = resolvedEmail;
@@ -22,7 +23,7 @@ router.post("/tickets", optionalAuth, async (req, res, next) => {
       const u = await prisma.user.findUnique({ where: { id: req.userId }, select: { email: true, name: true } });
       finalEmail = u?.email;
     }
-    if (!finalEmail) return res.status(400).json({ error: { message: "Email is required" } });
+    if (!finalEmail) return sendError(res, "VALIDATION_FAILED", { message: "Email is required" });
 
     // A bookingId is only honoured if it belongs to the caller (IDOR guard).
     let safeBookingId = null;
@@ -83,13 +84,13 @@ router.get("/tickets/:ref", async (req, res, next) => {
       where: { reference: req.params.ref },
       include: { messages: { where: { isInternal: false }, orderBy: { createdAt: "asc" } } },
     });
-    if (!ticket) return res.status(404).json({ error: { message: "Not found" } });
+    if (!ticket) return sendError(res, "NOT_FOUND", { message: "Not found" });
 
     // Authorise: the owner, or a matching email supplied via ?email=.
     const { userId } = require("@clerk/express").getAuth(req);
     const emailMatch = req.query.email && String(req.query.email).toLowerCase() === ticket.email.toLowerCase();
     if (!(userId && ticket.userId === userId) && !emailMatch) {
-      return res.status(403).json({ error: { message: "Provide the email used to raise this ticket" } });
+      return sendError(res, "FORBIDDEN", { message: "Provide the email used to raise this ticket" });
     }
     res.json({ ticket: { reference: ticket.reference, subject: ticket.subject, status: ticket.status, urgency: ticket.urgency, slaTarget: ticket.slaTarget, createdAt: ticket.createdAt, messages: ticket.messages.map((m) => ({ author: m.author, authorName: m.authorName, body: m.body, createdAt: m.createdAt })) } });
   } catch (err) {
@@ -101,7 +102,7 @@ router.get("/tickets/:ref", async (req, res, next) => {
 router.post("/tickets/:id/messages", auth, async (req, res, next) => {
   try {
     const ticket = await prisma.supportTicket.findFirst({ where: { id: req.params.id, userId: req.userId }, select: { id: true } });
-    if (!ticket) return res.status(404).json({ error: { message: "Not found" } });
+    if (!ticket) return sendError(res, "NOT_FOUND", { message: "Not found" });
     const msg = await addMessage(ticket.id, { author: "user", body: String(req.body?.body || "").slice(0, 5000) });
     res.status(201).json({ ok: true, createdAt: msg.createdAt });
   } catch (err) {
@@ -115,7 +116,7 @@ router.post("/tickets/:id/messages", auth, async (req, res, next) => {
 router.post("/assistant", auth, async (req, res, next) => {
   try {
     const { message, history } = req.body || {};
-    if (!message || !String(message).trim()) return res.status(400).json({ error: { message: "message is required" } });
+    if (!message || !String(message).trim()) return sendError(res, "VALIDATION_FAILED", { message: "message is required" });
 
     const result = await assistant.reply({ userId: req.userId, history: history || [], message });
 
@@ -152,7 +153,7 @@ router.post("/assistant", auth, async (req, res, next) => {
 router.get("/programme-contact/:prog", async (req, res, next) => {
   try {
     const contact = await prisma.programmeContact.findUnique({ where: { programme: req.params.prog } });
-    if (!contact) return res.status(404).json({ error: { message: "Not found" } });
+    if (!contact) return sendError(res, "NOT_FOUND", { message: "Not found" });
     res.json({ contact });
   } catch (err) {
     next(err);

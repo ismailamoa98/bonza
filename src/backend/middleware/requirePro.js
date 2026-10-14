@@ -1,6 +1,7 @@
 // middleware/requirePro.js — 403 PRO_REQUIRED unless active subscription (off in dev unless PRO_ENFORCED).
 const prisma = require("../config/database");
 const env = require("../config/env");
+const { sendError } = require("../utils/AppError");
 
 const ACTIVE_STATUSES = ["active", "trialing"];
 
@@ -19,11 +20,7 @@ async function requirePro(req, res, next) {
     const sub = await prisma.subscription.findUnique({ where: { userId: req.userId } });
     if (isProActive(sub)) return next();
 
-    return res.status(403).json({
-      error: "Bonza Pro required",
-      code: "PRO_REQUIRED",
-      upgradeUrl: "/dashboard?upgrade=true",
-    });
+    return sendError(res, "PLAN_REQUIRED", { message: "Bonza Pro required" });
   } catch (err) {
     next(err);
   }

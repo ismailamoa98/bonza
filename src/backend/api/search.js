@@ -1,6 +1,7 @@
 // api/search.js — Phase 12 unified search: cash + points across hotels and flights in one call.
 // Single POST endpoint (auth + rate limit applied at mount in server.js). Offline-safe (Duffel mocks).
 const express = require("express");
+const { sendError } = require("../utils/AppError");
 const router = express.Router();
 const prisma = require("../config/database");
 const env = require("../config/env");
@@ -147,7 +148,7 @@ router.get("/hotel/:id", async (req, res, next) => {
     const { id } = req.params;
     const { destination, checkIn, checkOut, adults } = req.query;
     if (!destination) {
-      return res.status(400).json({ error: { message: "destination is required" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "destination is required" });
     }
 
     const hotels = await searchHotels({
@@ -158,7 +159,7 @@ router.get("/hotel/:id", async (req, res, next) => {
     }).catch(() => []);
 
     const match = hotels.find((h) => h.duffelHotelId === id);
-    if (!match) return res.status(404).json({ error: { message: "hotel not found" } });
+    if (!match) return sendError(res, "NOT_FOUND", { message: "hotel not found" });
 
     res.json({
       hotel: {

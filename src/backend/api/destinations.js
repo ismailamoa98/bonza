@@ -1,6 +1,7 @@
 // api/destinations.js — Phase 17 hero destination board. Public (no auth): the hero renders for
 // logged-out visitors. When a session is present, each row gains an affordability marker.
 const express = require("express");
+const { sendError } = require("../utils/AppError");
 const router = express.Router();
 const prisma = require("../config/database");
 const { optionalAuth } = require("../middleware/optionalAuth");
@@ -188,7 +189,7 @@ router.get("/country/:code", optionalAuth, async (req, res, next) => {
       prisma.programmeValuation.findMany({ select: { programme: true, currency: true } }),
       prisma.exploreCountry.findUnique({ where: { code }, include: { cities: true } }),
     ]);
-    if (!country) return res.status(404).json({ error: { message: "Unknown country" } });
+    if (!country) return sendError(res, "NOT_FOUND", { message: "Unknown country" });
 
     const valMap = Object.fromEntries(valuations.map((v) => [v.programme, v]));
     const exploreOrigin = EXPLORE_ORIGIN[origin.code] || "LON";

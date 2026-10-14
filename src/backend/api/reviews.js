@@ -2,6 +2,7 @@
 //   GET  /            → { placeId, google, aspects, bonza, canReview }
 //   POST /bonza       → submit a verified Bonza review (must have a confirmed booking for the property)
 const express = require("express");
+const { sendError } = require("../utils/AppError");
 const router = express.Router();
 const prisma = require("../config/database");
 const { getPropertyReviews } = require("../services/googlePlacesService");
@@ -84,7 +85,7 @@ router.post("/bonza", async (req, res, next) => {
   try {
     const { placeId, propertyName, rating, location, comfort, facilities, text } = req.body || {};
     if (!placeId || !rating || !text || !String(text).trim()) {
-      return res.status(400).json({ error: { message: "placeId, rating and text are required" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "placeId, rating and text are required" });
     }
 
     // Verified-stay guard: the user must have a confirmed hotel booking for this exact property.

@@ -4,6 +4,7 @@ const env = require("../config/env");
 const prisma = require("../config/database");
 const { DEV_USER } = require("../config/constants");
 const { ensureUser } = require("../utils/ensureUser");
+const { sendError } = require("../utils/AppError");
 
 const LOGIN_STAMP_THROTTLE_MS = 60 * 60 * 1000; // refresh lastLoginAt at most hourly
 
@@ -33,7 +34,7 @@ module.exports = async function auth(req, res, next) {
       return next();
     }
 
-    return res.status(401).json({ error: { message: "Unauthorised" } });
+    return sendError(res, "UNAUTHENTICATED", { message: "Unauthorised" });
   } catch (err) {
     next(err);
   }

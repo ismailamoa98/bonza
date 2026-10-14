@@ -2,6 +2,7 @@
 // cached ProgrammeValuation + TransferPartner rows (seeded once, refreshed nightly) — no live third-party
 // calls. Auth (req.userId, dev-fallback) applied at mount in server.js.
 const express = require("express");
+const { sendError } = require("../utils/AppError");
 const router = express.Router();
 const prisma = require("../config/database");
 const { ownedOr403 } = require("../utils/ownedOr403");
@@ -315,10 +316,10 @@ router.post("/review/acknowledge", async (req, res, next) => {
 router.patch("/balance/:accountId", async (req, res, next) => {
   try {
     const account = await setManualBalance(req.userId, req.params.accountId, req.body.balance);
-    if (!account) return res.status(404).json({ error: { message: "Account not found" } });
+    if (!account) return sendError(res, "NOT_FOUND", { message: "Account not found" });
     res.json({ account });
   } catch (err) {
-    if (/non-negative/.test(err.message)) return res.status(400).json({ error: { message: err.message } });
+    if (/non-negative/.test(err.message)) return sendError(res, "VALIDATION_FAILED", { message: err.message });
     next(err);
   }
 });
@@ -327,7 +328,7 @@ router.patch("/balance/:accountId", async (req, res, next) => {
 router.delete("/duplicate/:accountId", async (req, res, next) => {
   try {
     const account = await prisma.loyaltyAccount.findFirst({ where: { id: req.params.accountId, userId: req.userId } });
-    if (!account) return res.status(404).json({ error: { message: "Account not found" } });
+    if (!account) return sendError(res, "NOT_FOUND", { message: "Account not found" });
     await prisma.loyaltyAccount.delete({ where: { id: account.id } });
     res.json({ deleted: true });
   } catch (err) {
@@ -340,7 +341,7 @@ router.delete("/duplicate/:accountId", async (req, res, next) => {
 router.delete("/account/:accountId", async (req, res, next) => {
   try {
     const account = await prisma.loyaltyAccount.findFirst({ where: { id: req.params.accountId, userId: req.userId } });
-    if (!account) return res.status(404).json({ error: { message: "Account not found" } });
+    if (!account) return sendError(res, "NOT_FOUND", { message: "Account not found" });
     await prisma.loyaltyAccount.delete({ where: { id: account.id } });
     res.json({ deleted: true });
   } catch (err) {

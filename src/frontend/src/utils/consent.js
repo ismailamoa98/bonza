@@ -35,3 +35,8 @@ export function saveConsent(prefs) {
 export function openCookiePreferences() {
   window.dispatchEvent(new Event(OPEN_EVENT));
 }
+
+// Phase 24 §24a — analytics loads only on an explicit opt-in (null/not-yet-chosen => false).
+export function hasAnalyticsConsent() {
+  return getConsent()?.analytics === true;
+}

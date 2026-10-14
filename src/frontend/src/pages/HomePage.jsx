@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TripForm from "../components/TripForm";
 import DestinationBand from "../components/hero/DestinationBand";
+import ErrorBoundary from "../components/ErrorBoundary";
 import WhyBonza from "../components/home/WhyBonza";
 import DiscoverRails from "../components/home/DiscoverRails";
 import HowItWorks from "../components/home/HowItWorks";
@@ -222,14 +223,16 @@ export default function HomePage() {
       {/* Phase 17 — award-price band. Full-width white section directly beneath the hero; shares the slide
           index so its arrows/bars also drive the hero photo. Does the proof the hero no longer carries. */}
       {bandDestination && (
-        <DestinationBand
-          destination={bandDestination}
-          index={heroIdx}
-          total={order.length}
-          isAuthenticated={heroData?.isAuthenticated}
-          onGoTo={goTo}
-          onStep={step}
-        />
+        <ErrorBoundary level="section" surface="hero_board" fallback={() => null}>
+          <DestinationBand
+            destination={bandDestination}
+            index={heroIdx}
+            total={order.length}
+            isAuthenticated={heroData?.isAuthenticated}
+            onGoTo={goTo}
+            onStep={step}
+          />
+        </ErrorBoundary>
       )}
       </div>
 

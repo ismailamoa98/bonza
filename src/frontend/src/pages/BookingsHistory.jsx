@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getBookings, apiErrorMessage } from "../utils/api";
 import { formatGbp, shortDate } from "../utils/format";
+import StateView, { COPY } from "../components/StateView";
 
 export default function BookingsHistory() {
   const [bookings, setBookings] = useState(null);
@@ -31,13 +32,12 @@ export default function BookingsHistory() {
           ))}
         </div>
       ) : bookings.length === 0 ? (
-        <div className="mt-8 rounded-2xl border border-[rgba(40,30,20,0.08)] bg-white p-8 text-center">
-          <p className="text-[14px] font-semibold text-ink">No bookings yet</p>
-          <p className="mt-1 text-[13px] text-ink-soft">When you book a trip it'll show up here.</p>
-          <Link to="/dashboard" className="mt-4 inline-block rounded-full bg-bonza px-5 py-2 text-[13px] font-semibold text-white hover:bg-bonza-dark">
-            Plan a trip
-          </Link>
-        </div>
+        <StateView
+          variant="empty"
+          title={COPY.bookings_empty.title}
+          body={COPY.bookings_empty.body}
+          primaryAction={{ label: "Plan a trip", to: "/dashboard" }}
+        />
       ) : (
         <ul className="mt-6 space-y-3">
           {bookings.map((b) => (

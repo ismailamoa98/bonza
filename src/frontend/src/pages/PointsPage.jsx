@@ -7,6 +7,8 @@ import PortfolioMetrics from "../components/points/PortfolioMetrics";
 import CategoryFilter from "../components/points/CategoryFilter";
 import ProgrammeGroup from "../components/points/ProgrammeGroup";
 import PointsActivitySection from "../components/points/PointsActivitySection";
+import ErrorBoundary from "../components/ErrorBoundary";
+import StateView, { COPY } from "../components/StateView";
 import AddProgrammePanel from "../components/points/AddProgrammePanel";
 import { RefreshIcon, LockIcon } from "../components/points/icons";
 import { getPointsPortfolio, getPointsReview } from "../utils/api";
@@ -119,6 +121,13 @@ export default function PointsPage() {
               <div key={i} className="h-16 bg-white/50 rounded-xl animate-pulse" />
             ))}
           </div>
+        ) : (data?.totalConnected ?? 0) === 0 ? (
+          <StateView
+            variant="empty"
+            title={COPY.points_no_programmes.title}
+            body={COPY.points_no_programmes.body}
+            primaryAction={{ label: "Add a programme", onClick: () => { setEditAccount(null); setAddOpen(true); } }}
+          />
         ) : (
           visibleCategories.map((cat) => (
             <ProgrammeGroup
@@ -141,7 +150,11 @@ export default function PointsPage() {
           ))
         )}
 
-        {!loading && <PointsActivitySection />}
+        {!loading && (
+          <ErrorBoundary level="section" surface="points_activity" fallback={() => null}>
+            <PointsActivitySection />
+          </ErrorBoundary>
+        )}
 
         <p className="flex items-center gap-2 mt-7 text-[11.5px] text-ink-300">
           <LockIcon width="13" height="13" />

@@ -3,6 +3,7 @@
 // Read-only, presentation only — data comes from GET /points/activity. Honest empty state when no rows.
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import StateView, { COPY } from "../StateView";
 import { openSearch } from "../../utils/searchUrl";
 import { getPointsActivity } from "../../utils/api";
 
@@ -98,9 +99,7 @@ export default function PointsActivitySection() {
             )}
           </div>
           {activity.length === 0 ? (
-            <p className="text-[12.5px] text-ink-300 py-6 text-center">
-              No activity yet — your earns, spends and transfers will show here.
-            </p>
+            <StateView size="inline" variant="empty" title={COPY.activity_empty.title} body={COPY.activity_empty.body} />
           ) : (
             <div className="divide-y divide-ink-900/[0.06]">
               {activity.map((a) => {

@@ -1,5 +1,7 @@
 // utils/api.js — axios client (relative /api/v1) + Clerk bearer interceptor + endpoint helpers.
 import axios from "axios";
+import { track } from "../lib/analytics";
+import { EV, SERVICE } from "../lib/analytics/events";
 
 const client = axios.create({
   baseURL: "/api/v1",
@@ -20,6 +22,32 @@ client.interceptors.request.use(async (config) => {
   }
   return config;
 });
+
+// Phase 24 §24h — normalise the error contract onto err.appError, and fire EV.API_ERROR exactly once per
+// failed request (not once per component that observes it). Analytics is a no-op until consented + keyed.
+client.interceptors.response.use(
+  (r) => r,
+  (error) => {
+    const status = error?.response?.status ?? 0;
+    const body = error?.response?.data?.error;
+    const appError =
+      body && typeof body === "object"
+        ? { code: body.code || "INTERNAL", message: body.message || null, retryable: !!body.retryable, service: body.service || null }
+        : {
+            code: status === 0 ? "NETWORK" : "INTERNAL",
+            message: typeof body === "string" ? body : error?.message || null,
+            retryable: status === 0 || status === 429 || status >= 500,
+            service: null,
+          };
+    error.appError = appError;
+    try {
+      track(EV.API_ERROR, { service: appError.service || SERVICE.INTERNAL, code: appError.code, status, retryable: appError.retryable });
+    } catch {
+      /* analytics must never break the request flow */
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const getTrips = () => client.get("/trips").then((r) => r.data.trips || []);
 
@@ -298,7 +326,9 @@ export const getStatus = () => client.get("/status").then((r) => r.data);
 export const getAdminUser = (userId) => client.get(`/admin/user/${userId}`).then((r) => r.data);
 
 export const apiErrorMessage = (err) =>
-  err?.response?.data?.error ||
+  err?.appError?.message ||
+  err?.response?.data?.error?.message ||
+  (typeof err?.response?.data?.error === "string" ? err.response.data.error : null) ||
   err?.response?.data?.message ||
   err?.message ||
   "Something went wrong. Please try again.";

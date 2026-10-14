@@ -1,7 +1,9 @@
 // pages/UpgradePage.jsx — Bonza Pro marketing + Stripe checkout entry.
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { startProCheckout, apiErrorMessage } from "../utils/api";
+import { track } from "../lib/analytics";
+import { EV, SURFACE } from "../lib/analytics/events";
 
 const FEATURES = [
   {
@@ -34,9 +36,14 @@ export default function UpgradePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  useEffect(() => {
+    track(EV.PRO_UPSELL_VIEWED, { plan: "free", surface: SURFACE.SETTINGS });
+  }, []);
+
   const start = async () => {
     setLoading(true);
     setError(null);
+    track(EV.PRO_CHECKOUT_STARTED, { plan: "free", surface: SURFACE.SETTINGS });
     try {
       const { checkoutUrl } = await startProCheckout();
       if (checkoutUrl) {

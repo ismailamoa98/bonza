@@ -13,6 +13,8 @@ import Navigation from "./components/Navigation";
 import Footer from "./components/Footer";
 import CookieConsent from "./components/CookieConsent";
 import IncidentBanner from "./components/IncidentBanner";
+import ErrorBoundary from "./components/ErrorBoundary";
+import OfflineBar from "./components/OfflineBar";
 import HomePage from "./pages/HomePage"; // eager — the landing/LCP route
 
 // Route-level code-splitting: secondary/heavy pages load on demand, so maplibre-gl (/explore),
@@ -46,6 +48,8 @@ const StatusPage = lazy(() => import("./pages/StatusPage"));
 const AdminUserPage = lazy(() => import("./pages/AdminUserPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 import { useAppStore } from "./store/appStore";
+import { identify, resetAnalytics, track } from "./lib/analytics";
+import { EV } from "./lib/analytics/events";
 import {
   setAuthTokenGetter,
   getSubscriptionStatus,
@@ -115,12 +119,23 @@ function AuthSync() {
         name: user.fullName,
         email: user.primaryEmailAddress?.emailAddress || null,
       });
-      getSubscriptionStatus().then((s) => setProStatus(s.isPro)).catch(() => {});
+      // Analytics identity — plan tier, counts and booleans only (no PII). identify() merges, so each
+      // fetch enriches the profile; it's a no-op until analytics is consented + keyed.
+      const createdAt = user.createdAt instanceof Date ? user.createdAt.toISOString() : user.createdAt;
+      identify({ id: user.id, createdAt, plan: "free", programmeCount: 0 });
+      getSubscriptionStatus()
+        .then((s) => { setProStatus(s.isPro); identify({ id: user.id, plan: s.isPro ? "pro" : "free" }); })
+        .catch(() => {});
       getCredits().then((c) => setCreditBalance(c.totalCreditsGbp)).catch(() => {});
-      getLoyaltyAccounts().then(setLoyaltyAccounts).catch(() => {});
-      getProfile().then(setProfile).catch(() => {});
+      getLoyaltyAccounts()
+        .then((a) => { setLoyaltyAccounts(a); identify({ id: user.id, programmeCount: a?.length ?? 0 }); })
+        .catch(() => {});
+      getProfile()
+        .then((p) => { setProfile(p); identify({ id: user.id, emailSyncEnabled: !!(p?.gmailConnected || p?.outlookConnected), homeCity: p?.homeAirport ?? null }); })
+        .catch(() => {});
     } else {
       logout(); // clears user + isPro/creditBalance/loyaltyAccounts/profile
+      resetAnalytics();
     }
   }, [isLoaded, isSignedIn, user, setUser, logout, setProStatus, setCreditBalance, setLoyaltyAccounts, setProfile]);
 
@@ -161,6 +176,30 @@ function RequireAuth({ children }) {
   );
 }
 
+// App-level boundary fallback — a full-page cream error screen with the wordmark, a reload and a help link.
+function appFallback() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-cream px-6 text-center text-ink">
+      <span className="font-display text-[26px] font-semibold tracking-[-0.01em]">Bonza</span>
+      <p className="mt-6 text-[15px] font-semibold">Something went wrong</p>
+      <p className="mt-1.5 max-w-sm text-sm text-ink-soft">The app hit an unexpected error. Reloading usually fixes it.</p>
+      <div className="mt-7 flex flex-wrap items-center justify-center gap-4">
+        <button type="button" onClick={() => window.location.reload()} className="inline-flex h-10 items-center rounded-xl bg-bonza px-5 text-sm font-medium text-white hover:bg-bonza-dark">Reload</button>
+        <a href="/help" className="text-sm text-ink-soft underline-offset-4 hover:underline">Get help</a>
+      </div>
+    </div>
+  );
+}
+
+// Fires EV.PAGE_VIEWED on every route change (path only — query strings carry origin/dest/dates).
+function PageViews() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    track(EV.PAGE_VIEWED, { path: pathname });
+  }, [pathname]);
+  return null;
+}
+
 export default function App() {
   if (!HAS_CLERK_KEY) return <ClerkSetupNotice />;
 
@@ -175,11 +214,15 @@ export default function App() {
       <BrowserRouter>
         <AuthSync />
         <OnboardingGate />
+        <PageViews />
+        <ErrorBoundary level="app" surface="app" fallback={appFallback}>
         <div className="flex min-h-screen flex-col bg-cream text-ink">
           <IncidentBanner />
           <Navigation />
+          <OfflineBar />
           <main className="flex-1">
-            {/* Each page owns its own vertical rhythm. */}
+            {/* Each page owns its own vertical rhythm. Route-level boundary keeps nav + footer on a page error. */}
+            <ErrorBoundary level="route" surface="route">
             <Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center" aria-busy="true"><div className="h-8 w-8 animate-spin rounded-full border-2 border-bonza border-t-transparent" /></div>}>
             <Routes>
               <Route path="/" element={<HomePage />} />
@@ -289,10 +332,12 @@ export default function App() {
               <Route path="*" element={<NotFound />} />
             </Routes>
             </Suspense>
+            </ErrorBoundary>
           </main>
           <Footer />
           <CookieConsent />
         </div>
+        </ErrorBoundary>
       </BrowserRouter>
     </ClerkProvider>
   );

@@ -3,6 +3,8 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { askAssistant, apiErrorMessage } from "../../utils/api";
+import { track } from "../../lib/analytics";
+import { EV } from "../../lib/analytics/events";
 import Icon from "./icons";
 
 export default function SupportAssistant({ seedMessage }) {
@@ -20,10 +22,14 @@ export default function SupportAssistant({ seedMessage }) {
     setHistory(nextHistory);
     setInput("");
     setSending(true);
+    track(EV.SUPPORT_ASSISTANT_ASKED, {});
     try {
       const res = await askAssistant(message, history);
       setHistory((h) => [...h, { author: "assistant", body: res.reply }]);
-      if (res.escalated && res.reference) setEscalatedRef(res.reference);
+      if (res.escalated && res.reference) {
+        track(EV.SUPPORT_ASSISTANT_ESCALATED, {});
+        setEscalatedRef(res.reference);
+      }
     } catch (err) {
       setHistory((h) => [...h, { author: "assistant", body: apiErrorMessage(err) }]);
     } finally {

@@ -15,6 +15,8 @@ import {
   getProfile,
 } from "../utils/api";
 import { formatMoney, formatPoints, shortDate } from "../utils/format";
+import { track } from "../lib/analytics";
+import { EV } from "../lib/analytics/events";
 import { imageUrl } from "../data/packages";
 import {
   HAS_STRIPE_KEY,
@@ -221,6 +223,10 @@ export default function BookingPage() {
     return () => { cancelled = true; };
   }, [hasTrip, payableCash, trip?.id]);
 
+  useEffect(() => {
+    if (hasTrip) track(EV.BOOKING_STARTED, {});
+  }, [hasTrip]);
+
   if (!hasTrip || (hasUrlSelection && !minTimePassed)) {
     if (bootstrapping || hasUrlSelection) return <PreparingScreen />;
     return null;
@@ -312,18 +318,26 @@ export default function BookingPage() {
       ...(it.type === "hotel" && selectedHotel?.name ? { propertyName: selectedHotel.name } : {}),
     }));
 
-    await confirmCashBooking({
-      paymentIntentId,
-      bookingToken: bookingLink.token,
-      tripId: trip.id,
-      origin: trip.origin,
-      destination: trip.destination,
-      checkIn: trip.checkIn,
-      checkOut: trip.checkOut,
-      travelers,
-      passengers,
-      legs,
-    });
+    const money = { amount_minor: Math.round((totals.totalCash || 0) * 100), currency: "GBP" };
+    track(EV.BOOKING_PAYMENT_SUBMITTED, money);
+    try {
+      await confirmCashBooking({
+        paymentIntentId,
+        bookingToken: bookingLink.token,
+        tripId: trip.id,
+        origin: trip.origin,
+        destination: trip.destination,
+        checkIn: trip.checkIn,
+        checkOut: trip.checkOut,
+        travelers,
+        passengers,
+        legs,
+      });
+    } catch (err) {
+      track(EV.BOOKING_FAILED, { ...money, code: err?.appError?.code || "INTERNAL", service: err?.appError?.service || null });
+      throw err;
+    }
+    track(EV.BOOKING_CONFIRMED, money);
 
     ["hotel", "car"].forEach((t) => {
       if (isPointsLeg(t)) return; // points legs are redeemed on the programme site, not via affiliate cash

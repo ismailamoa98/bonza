@@ -20,6 +20,7 @@ const flightsRouter = require("./api/flights");
 const carsRouter = require("./api/cars");
 const plaidRouter = require("./api/plaid");
 const profileRouter = require("./api/profile");
+const meRouter = require("./api/me");
 const optimizeRouter = require("./api/optimize");
 const chatRouter = require("./api/chat");
 const bookingRouter = require("./api/booking");
@@ -156,6 +157,7 @@ app.post("/api/v1/loyalty/accounts", auth, manualLoyaltyLimiter); // manual entr
 app.use("/api/v1/trips", auth, tripsRouter); // POST /api/v1/trips
 app.use("/api/v1/user", auth, plaidRouter); // GET  /api/v1/user/loyalty-points
 app.use("/api/v1/user", auth, profileRouter); // GET/PATCH /api/v1/user/profile
+app.use("/api/v1/me", auth, meRouter); // Phase 25 — legal acceptance (§25d) + DSAR export/delete (§25e)
 app.use("/api/v1/optimize", optimizeLimiter, auth, optimizeRouter); // POST /api/v1/optimize
 app.use("/api/v1/chat", chatLimiter, auth, chatRouter); // POST /api/v1/chat
 app.use("/api/v1/loyalty", auth, loyaltyRouter); // POST /sync-email · GET /accounts

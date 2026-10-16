@@ -392,6 +392,10 @@ function HotelBody({ result, meta, loyaltyAccounts, tab, setTab, navigate, onClo
           </button>
         )}
       </div>
+      {pts && (
+        /* §25i — cached-price disclaimer on the points figure, once per surface. */
+        <p className="mt-2 text-center text-[10.5px] text-ink-300">Points figures are indicative — availability and transfer ratios can change.</p>
+      )}
 
       <PointsRedeemModal
         open={pointsModal}

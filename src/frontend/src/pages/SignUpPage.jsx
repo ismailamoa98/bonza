@@ -30,6 +30,19 @@ export default function SignUpPage() {
       slide={SIGNUP_SLIDE}
     >
       <SignUp path="/sign-up" routing="path" appearance={clerkAppearance} signInUrl="/sign-in" />
+      {/* Phase 25 §25d — explicit consent disclosure. Creating the account is the affirmative act; the server
+          records acceptance of Terms + Privacy at the current version (ensureUser / Clerk webhook). */}
+      <p className="mx-auto mt-4 max-w-[22rem] text-center text-[12.5px] leading-relaxed text-ink-muted">
+        By creating an account you agree to our{" "}
+        <a href="/legal/terms" target="_blank" rel="noopener noreferrer" className="font-semibold text-bonza hover:text-bonza-dark">
+          Terms of Service
+        </a>{" "}
+        and{" "}
+        <a href="/legal/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold text-bonza hover:text-bonza-dark">
+          Privacy Policy
+        </a>
+        . Bonza is for adults (18+).
+      </p>
     </AuthLayout>
   );
 }

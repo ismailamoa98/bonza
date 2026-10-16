@@ -5,11 +5,14 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getConsent, saveConsent, OPEN_EVENT } from "../utils/consent";
+import { useAppStore } from "../store/appStore";
+import { updateConsent } from "../utils/api";
 
 const CATEGORIES = [
   { key: "necessary", title: "Strictly necessary", desc: "Sign-in, session security and core features. Always on — the site can’t work without these.", locked: true },
   { key: "functional", title: "Functional", desc: "Remembers preferences such as your origin, recent searches and UI choices." },
-  { key: "analytics", title: "Analytics", desc: "Aggregated usage data so we can understand and improve the service." },
+  { key: "analytics", title: "Analytics", desc: "Aggregated usage data (PostHog, EU) so we can understand and improve the service." },
+  { key: "marketing", title: "Marketing", desc: "Measures campaigns and tailors offers. Never sold; you can opt out any time." },
 ];
 
 function Toggle({ on, locked, onChange }) {
@@ -30,15 +33,23 @@ function Toggle({ on, locked, onChange }) {
 export default function CookieConsent() {
   const [decided, setDecided] = useState(true); // assume decided until mount reads storage (avoids flash)
   const [modalOpen, setModalOpen] = useState(false);
-  const [prefs, setPrefs] = useState({ functional: true, analytics: true });
+  const user = useAppStore((s) => s.user);
+  // Pre-rejected (§25b): non-essential toggles start off until the visitor opts in.
+  const [prefs, setPrefs] = useState({ functional: false, analytics: false, marketing: false });
+
+  // §25b — mirror the choice server-side for signed-in users so the §9 email sender respects marketing consent.
+  const mirrorConsentToServer = (rec) => {
+    if (!user?.id) return;
+    updateConsent({ consentAnalytics: rec.analytics, consentMarketing: rec.marketing }).catch(() => {});
+  };
 
   useEffect(() => {
     const existing = getConsent();
     setDecided(!!existing);
-    if (existing) setPrefs({ functional: existing.functional, analytics: existing.analytics });
+    if (existing) setPrefs({ functional: existing.functional, analytics: existing.analytics, marketing: existing.marketing });
     const onOpen = () => {
       const cur = getConsent();
-      if (cur) setPrefs({ functional: cur.functional, analytics: cur.analytics });
+      if (cur) setPrefs({ functional: cur.functional, analytics: cur.analytics, marketing: cur.marketing });
       setModalOpen(true);
     };
     window.addEventListener(OPEN_EVENT, onOpen);
@@ -52,8 +63,9 @@ export default function CookieConsent() {
     return () => window.removeEventListener("keydown", onKey);
   }, [modalOpen]);
 
-  const choose = (functional, analytics) => {
-    saveConsent({ functional, analytics });
+  const choose = (functional, analytics, marketing) => {
+    const rec = saveConsent({ functional, analytics, marketing });
+    mirrorConsentToServer(rec); // best-effort server mirror for signed-in users (§25b)
     setDecided(true);
     setModalOpen(false);
   };
@@ -71,13 +83,14 @@ export default function CookieConsent() {
               <Link to="/cookies" className="font-semibold text-bonza hover:text-bonza-dark">Cookie Policy</Link>.
             </p>
             <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
-              <button type="button" onClick={() => setModalOpen(true)} className="rounded-lg border border-[#e3ded6] bg-white px-3 py-2 text-[13px] font-semibold text-ink hover:border-bonza hover:text-bonza">
-                Manage
+              <button type="button" onClick={() => setModalOpen(true)} className="rounded-lg border border-transparent px-2 py-2 text-[13px] font-semibold text-ink-soft underline-offset-2 hover:text-bonza hover:underline">
+                Choose
               </button>
-              <button type="button" onClick={() => choose(false, false)} className="rounded-lg border border-[#e3ded6] bg-white px-3 py-2 text-[13px] font-semibold text-ink hover:border-bonza hover:text-bonza">
-                Reject non-essential
+              {/* §25b: Reject all and Accept all must have identical computed dimensions (same border box + padding + min-width). */}
+              <button type="button" onClick={() => choose(false, false, false)} className="min-w-[112px] rounded-lg border border-[#d8d2c8] bg-white px-4 py-2 text-center text-[13px] font-semibold text-ink hover:border-bonza hover:text-bonza">
+                Reject all
               </button>
-              <button type="button" onClick={() => choose(true, true)} className="rounded-lg bg-bonza px-4 py-2 text-[13px] font-semibold text-white hover:bg-bonza-dark">
+              <button type="button" onClick={() => choose(true, true, true)} className="min-w-[112px] rounded-lg border border-transparent bg-bonza px-4 py-2 text-center text-[13px] font-semibold text-white hover:bg-bonza-dark">
                 Accept all
               </button>
             </div>
@@ -109,10 +122,10 @@ export default function CookieConsent() {
               ))}
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-[#f0ebe3] px-5 py-3">
-              <button type="button" onClick={() => choose(false, false)} className="rounded-lg border border-[#e3ded6] bg-white px-3 py-2 text-[13px] font-semibold text-ink hover:border-bonza hover:text-bonza">
-                Reject non-essential
+              <button type="button" onClick={() => choose(false, false, false)} className="rounded-lg border border-[#e3ded6] bg-white px-3 py-2 text-[13px] font-semibold text-ink hover:border-bonza hover:text-bonza">
+                Reject all
               </button>
-              <button type="button" onClick={() => choose(prefs.functional, prefs.analytics)} className="rounded-lg bg-bonza px-4 py-2 text-[13px] font-semibold text-white hover:bg-bonza-dark">
+              <button type="button" onClick={() => choose(prefs.functional, prefs.analytics, prefs.marketing)} className="rounded-lg bg-bonza px-4 py-2 text-[13px] font-semibold text-white hover:bg-bonza-dark">
                 Save preferences
               </button>
             </div>

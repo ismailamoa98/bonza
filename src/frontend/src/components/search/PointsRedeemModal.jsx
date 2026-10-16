@@ -24,9 +24,11 @@ export default function PointsRedeemModal({ open, onClose, result, meta, program
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [transferDone, setTransferDone] = useState(false);
+  const [agencyGate, setAgencyGate] = useState(false); // §25i — agency interstitial before the programme handoff
 
   const close = () => {
     setShown(false);
+    setAgencyGate(false);
     setTimeout(() => onClose?.(), 200);
   };
 
@@ -131,6 +133,12 @@ export default function PointsRedeemModal({ open, onClose, result, meta, program
     return `Continue to ${programmeName}`;
   };
 
+  // §25i — for a points handoff, show the agency interstitial first; cash books in-app with no handoff.
+  const onPrimary = () => {
+    if (opt && opt.method !== "cash" && !agencyGate) return setAgencyGate(true);
+    doContinue();
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={close} aria-hidden="true" />
@@ -145,6 +153,31 @@ export default function PointsRedeemModal({ open, onClose, result, meta, program
         <button onClick={close} aria-label="Close" className="absolute top-3 right-3 w-8 h-8 rounded-full bg-cream flex items-center justify-center text-ink-600 hover:text-ink-900 z-10">
           <XIcon width="15" height="15" />
         </button>
+
+        {/* §25i — agency interstitial: the consumer's understanding is formed here, so say it plainly before the handoff. */}
+        {agencyGate && (
+          <div className="absolute inset-0 z-20 flex flex-col justify-center rounded-2xl bg-white px-7 py-8">
+            <div className="flex items-center gap-2 text-bonza">
+              <StarIcon width="18" height="18" />
+              <h2 className="text-[18px] font-display font-semibold text-ink-900">You&rsquo;re continuing to {programmeName}</h2>
+            </div>
+            <p className="mt-3 text-[13.5px] leading-relaxed text-ink-700">
+              Your booking will be with {programmeName}, not Bonza — we can&rsquo;t see, change or cancel it
+              afterwards. Availability and transfer ratios can change, so confirm the final terms on their site.
+            </p>
+            <button
+              onClick={doContinue}
+              disabled={busy}
+              className="mt-6 w-full py-3 bg-bonza text-white rounded-full text-[13px] font-semibold disabled:opacity-50"
+            >
+              {busy ? "Preparing…" : `Continue to ${programmeName}`}
+            </button>
+            <div className="mt-3 flex items-center justify-between text-[12px]">
+              <button onClick={() => setAgencyGate(false)} className="font-semibold text-ink-600 hover:text-ink-900">Back</button>
+              <a href="/legal/terms#points-agency" target="_blank" rel="noopener noreferrer" className="font-semibold text-bonza hover:text-bonza-dark">How this works</a>
+            </div>
+          </div>
+        )}
 
         <div className="px-6 pt-6 pb-5">
           <div className="flex items-center gap-2 text-bonza mb-1">
@@ -206,7 +239,7 @@ export default function PointsRedeemModal({ open, onClose, result, meta, program
                 <p className="text-[11px] font-bold tracking-wider text-ink-300 mt-4 mb-1">STEP 2 · BOOK THE STAY</p>
               )}
               <button
-                onClick={doContinue}
+                onClick={onPrimary}
                 disabled={busy || !opt}
                 className="mt-3 w-full py-3 bg-bonza text-white rounded-full text-[13px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >

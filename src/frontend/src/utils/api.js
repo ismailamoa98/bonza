@@ -284,6 +284,10 @@ export const getProfile = () => client.get("/user/profile").then((r) => r.data.p
 export const updateProfile = (patch) =>
   client.patch("/user/profile", patch).then((r) => r.data.profile);
 
+// §25b — mirror cookie-consent choice onto the account (server-side marketing-consent source of truth).
+export const updateConsent = ({ consentAnalytics, consentMarketing }) =>
+  client.patch("/user/profile", { consentAnalytics, consentMarketing }).then((r) => r.data.profile);
+
 export const getLoyaltyProviders = () =>
   client.get("/loyalty/providers").then((r) => r.data.providers || {});
 
@@ -324,6 +328,17 @@ export const askAssistant = (message, history) => client.post("/support/assistan
 export const getProgrammeContact = (prog) => client.get(`/support/programme-contact/${prog}`).then((r) => r.data.contact);
 export const getStatus = () => client.get("/status").then((r) => r.data);
 export const getAdminUser = (userId) => client.get(`/admin/user/${userId}`).then((r) => r.data);
+
+// Phase 25 §25d — legal acceptance history + re-acceptance.
+export const getLegalAcceptance = () => client.get("/me/legal").then((r) => r.data);
+export const acceptLegal = (documents, context = "reaccept") =>
+  client.post("/me/legal/accept", { documents, context }).then((r) => r.data);
+
+// Phase 25 §25e — data-subject requests (export + delete).
+export const requestDataExport = () => client.post("/me/export").then((r) => r.data);
+export const requestAccountDelete = () => client.post("/me/delete").then((r) => r.data);
+export const cancelAccountDelete = () => client.post("/me/delete/cancel").then((r) => r.data);
+export const getDeleteStatus = () => client.get("/me/delete/status").then((r) => r.data);
 
 export const apiErrorMessage = (err) =>
   err?.appError?.message ||

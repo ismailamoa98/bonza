@@ -19,6 +19,10 @@ const TRANSACTIONAL = new Set([
   "credits_awarded",
   "pro_activated",
   "pro_expiring",
+  // Phase 25 §25e — DSAR confirmations are transactional (legal obligation; can't be opted out of).
+  "data_export_ready",
+  "account_deletion_scheduled",
+  "account_deletion_cancelled",
 ]);
 
 const PREF_FOR_TYPE = {

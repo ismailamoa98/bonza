@@ -4,6 +4,9 @@ const { runMonthlySummaries } = require("../jobs/monthlySummaryJob");
 const { refreshValuations } = require("../jobs/valuationRefreshJob");
 const { refreshHeroDestinations } = require("../jobs/heroDestinationJob");
 const { refreshExplore } = require("../jobs/exploreRefreshJob");
+const { runRetention } = require("../jobs/retentionJob");
+const { runHardDeleteJob } = require("../jobs/hardDeleteJob");
+const { runExportJob } = require("../jobs/exportJob");
 
 exports.handler = async (event) => {
   const { jobType } = event || {};
@@ -25,6 +28,15 @@ exports.handler = async (event) => {
       break;
     case "explore_refresh":
       await refreshExplore({ continent: event.continent });
+      break;
+    case "retention": // Phase 25 §25f — nightly retention sweep (includes due hard-deletes)
+      await runRetention();
+      break;
+    case "hard_delete": // Phase 25 §25e — process soft-deletes past the 14-day grace
+      await runHardDeleteJob();
+      break;
+    case "data_export": // Phase 25 §25e — async DSAR export for one user
+      await runExportJob({ userId: event.userId });
       break;
     default:
       throw new Error(`Unknown job type: ${jobType}`);

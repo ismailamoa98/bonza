@@ -12,6 +12,7 @@ import {
 import Navigation from "./components/Navigation";
 import Footer from "./components/Footer";
 import CookieConsent from "./components/CookieConsent";
+import ReAcceptGate from "./components/legal/ReAcceptGate";
 import IncidentBanner from "./components/IncidentBanner";
 import ErrorBoundary from "./components/ErrorBoundary";
 import OfflineBar from "./components/OfflineBar";
@@ -35,9 +36,8 @@ const UpgradePage = lazy(() => import("./pages/UpgradePage"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Settings = lazy(() => import("./pages/Settings"));
 const BookingsHistory = lazy(() => import("./pages/BookingsHistory"));
-const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
-const TermsOfService = lazy(() => import("./pages/TermsOfService"));
-const CookiePolicy = lazy(() => import("./pages/CookiePolicy"));
+const LegalDoc = lazy(() => import("./pages/LegalDoc"));
+const LegalChanges = lazy(() => import("./pages/LegalDoc").then((m) => ({ default: m.LegalChanges })));
 const HelpHome = lazy(() => import("./pages/HelpHome"));
 const HelpCategory = lazy(() => import("./pages/HelpCategory"));
 const HelpArticlePage = lazy(() => import("./pages/HelpArticlePage"));
@@ -214,6 +214,7 @@ export default function App() {
       <BrowserRouter>
         <AuthSync />
         <OnboardingGate />
+        <ReAcceptGate />
         <PageViews />
         <ErrorBoundary level="app" surface="app" fallback={appFallback}>
         <div className="flex min-h-screen flex-col bg-cream text-ink">
@@ -285,10 +286,15 @@ export default function App() {
               />
               <Route path="/booking" element={<BookingPage />} />
               <Route path="/upgrade" element={<UpgradePage />} />
-              {/* Public legal pages (footer). */}
-              <Route path="/privacy" element={<PrivacyPolicy />} />
-              <Route path="/terms" element={<TermsOfService />} />
-              <Route path="/cookies" element={<CookiePolicy />} />
+              {/* Public legal pages (footer) — Phase 25 §25c versioned /legal/* docs. */}
+              {/* /changes before /:version so "changes" isn't captured as a version. */}
+              <Route path="/legal/:doc/changes" element={<LegalChanges />} />
+              <Route path="/legal/:doc/:version" element={<LegalDoc />} />
+              <Route path="/legal/:doc" element={<LegalDoc />} />
+              {/* Phase 21 paths redirect to their versioned homes. */}
+              <Route path="/privacy" element={<Navigate to="/legal/privacy" replace />} />
+              <Route path="/terms" element={<Navigate to="/legal/terms" replace />} />
+              <Route path="/cookies" element={<Navigate to="/legal/cookies" replace />} />
               {/* Phase 22 — Support (public). Specific /help/* routes before /help/:category so they don't shadow. */}
               <Route path="/help" element={<HelpHome />} />
               <Route path="/help/contact" element={<ContactPage />} />

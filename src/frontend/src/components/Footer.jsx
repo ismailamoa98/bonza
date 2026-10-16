@@ -28,9 +28,13 @@ const COLUMNS = [
   {
     title: "Legal",
     links: [
-      { label: "Privacy policy", to: "/privacy" },
-      { label: "Terms of service", to: "/terms" },
-      { label: "Cookie policy", to: "/cookies" },
+      { label: "Privacy policy", to: "/legal/privacy" },
+      { label: "Terms of service", to: "/legal/terms" },
+      { label: "Booking terms", to: "/legal/booking-terms" },
+      { label: "Bonza Pro terms", to: "/legal/pro-terms" },
+      { label: "Cookie policy", to: "/legal/cookies" },
+      { label: "Acceptable use", to: "/legal/acceptable-use" },
+      { label: "Sub-processors", to: "/legal/subprocessors" },
       { label: "Privacy settings", onClick: openCookiePreferences },
       { label: "Complaints", to: "/help/complaints" },
     ],
@@ -93,10 +97,16 @@ export default function Footer() {
           </div>
         </div>
 
-        {/* Bottom row */}
-        <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-[#e6e1d8] pt-6 sm:flex-row">
-          <p className="text-[12px] text-ink-muted">Powered by Claude, Plaid &amp; 50+ partner APIs</p>
-          <p className="text-[12px] text-ink-muted">© Bonza {new Date().getFullYear()}</p>
+        {/* Bottom row — trading name, company number and ICO registration are launch placeholders (§25g/§25h). */}
+        <div className="mt-10 flex flex-col gap-3 border-t border-[#e6e1d8] pt-6">
+          <p className="text-[12px] text-ink-muted">
+            Bonza is a trading name of [registered entity] · Company no. [company number] · ICO registration
+            [ICO number] — to be completed before launch.
+          </p>
+          <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+            <p className="text-[12px] text-ink-muted">Powered by Claude &amp; partner travel APIs</p>
+            <p className="text-[12px] text-ink-muted">© Bonza {new Date().getFullYear()}</p>
+          </div>
         </div>
       </div>
     </footer>

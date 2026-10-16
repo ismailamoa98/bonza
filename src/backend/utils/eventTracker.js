@@ -19,6 +19,10 @@ const EVENT_TYPES = {
   RECOMMENDATIONS_GENERATED: "recommendations_generated", // personalisation job produced cards (8n)
   ADMIN_VIEWED_ACCOUNT: "admin_viewed_account", // Phase 22 — an admin opened a user's inspector
   SERVICE_DEGRADED: "service_degraded", // Phase 24 §24f — serviceHealth flipped a dependency to degraded
+  LEGAL_ACCEPTED: "legal_accepted", // Phase 25 §25d — user (re-)accepted a legal document version
+  DATA_EXPORT_REQUESTED: "data_export_requested", // Phase 25 §25e — DSAR export enqueued
+  ACCOUNT_DELETE_REQUESTED: "account_delete_requested", // Phase 25 §25e — 14-day soft-delete started
+  ACCOUNT_DELETE_CANCELLED: "account_delete_cancelled", // Phase 25 §25e — user undid the deletion
 };
 
 async function recordEvent(userId, type, metadata = {}, sessionId = null) {

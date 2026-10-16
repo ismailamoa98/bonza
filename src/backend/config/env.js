@@ -67,6 +67,21 @@ const env = {
 
   SENTRY_DSN: (process.env.SENTRY_DSN || "").trim(),
   hasSentry: Boolean((process.env.SENTRY_DSN || "").trim()),
+
+  // Phase 25 §25d — salt for one-way IP hashing on legal-acceptance records (never store the raw IP).
+  APP_SALT: process.env.APP_SALT || "bonza-dev-salt-change-me",
+
+  // Phase 25 §25e — DSAR export delivery. With a bucket + AWS creds the export zip is uploaded and a 72h
+  // signed link is emailed; offline it's written to a temp path and logged (no link).
+  AWS_REGION: (process.env.AWS_REGION || "eu-west-2").trim(),
+  S3_EXPORT_BUCKET: (process.env.S3_EXPORT_BUCKET || "").trim(),
+  hasS3Export: Boolean((process.env.S3_EXPORT_BUCKET || "").trim()),
+
+  // Phase 25 §25i — the bundled flight+hotel single-total cash checkout. Defaults ON for the build; must be
+  // flipped OFF at go-live (BUNDLED_CHECKOUT_ENABLED=false) until the ATOL question (§25h) is answered. The
+  // flight and hotel cash paths stay separable in code regardless, so an agent-model restructure is a flow
+  // change, not a rewrite.
+  bundledCheckoutEnabled: process.env.BUNDLED_CHECKOUT_ENABLED !== "false",
 };
 
 if (!env.DATABASE_URL) {

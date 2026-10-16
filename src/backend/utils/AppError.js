@@ -12,6 +12,7 @@ const CODES = {
   FORBIDDEN: { status: 403, retryable: false, message: "You don’t have access to that." },
   NOT_FOUND: { status: 404, retryable: false, message: "We couldn’t find that." },
   RATE_LIMITED: { status: 429, retryable: true, message: "You’re going a little fast — try again in a moment." },
+  ACCOUNT_LOCKED: { status: 423, retryable: false, message: "Your account is scheduled for deletion. Undo it to continue." },
   AWARD_SEARCH_UNAVAILABLE: { status: 503, retryable: true, service: "seats_aero", message: "Award space couldn’t be checked for this route." },
   FLIGHT_SEARCH_UNAVAILABLE: { status: 503, retryable: true, service: "duffel", message: "We couldn’t search flights just now." },
   HOTEL_SEARCH_UNAVAILABLE: { status: 503, retryable: true, service: "duffel", message: "We couldn’t search hotels just now." },

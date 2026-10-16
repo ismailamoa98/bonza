@@ -81,5 +81,17 @@ export class Jobs extends Construct {
         }),
       ],
     });
+
+    // Phase 25 §25f — nightly data-retention sweep (also processes soft-deletes past the 14-day grace).
+    new events.Rule(this, "RetentionRule", {
+      schedule: events.Schedule.cron({ minute: "30", hour: "3" }),
+      description: "Trigger the nightly data-retention + hard-delete sweep",
+      targets: [
+        new targets.LambdaFunction(jobsFunction, {
+          event: events.RuleTargetInput.fromObject({ jobType: "retention" }),
+          retryAttempts: 2,
+        }),
+      ],
+    });
   }
 }

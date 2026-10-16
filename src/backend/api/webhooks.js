@@ -5,6 +5,7 @@ const env = require("../config/env");
 const { sendError } = require("../utils/AppError");
 const { writeBooking } = require("../utils/bookingWriter");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
+const { recordSignupAcceptance } = require("../services/legalAcceptance");
 const { logger } = require("../utils/logger");
 
 async function clerkWebhook(req, res) {
@@ -35,6 +36,9 @@ async function clerkWebhook(req, res) {
         update: {},
         create: { id: evt.data.id, email, name },
       });
+      // Phase 25 §25d — record signup acceptance of terms + privacy (idempotent; server-side, so no browser
+      // IP/UA — the JIT ensureUser path captures those on the user's first authenticated request).
+      await recordSignupAcceptance(evt.data.id, null).catch(() => {});
     }
 
     if (evt.type === "user.deleted") {

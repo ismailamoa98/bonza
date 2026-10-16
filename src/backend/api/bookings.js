@@ -159,6 +159,14 @@ router.post("/confirm-cash", async (req, res, next) => {
       return sendError(res, "VALIDATION_FAILED", { message: "legs must be a non-empty array" });
     }
 
+    // §25h/§25i — a single-payment flight+hotel cash order is a flight-inclusive package under the PTR 2018.
+    // Gated on env.bundledCheckoutEnabled (defaults ON for the build; set BUNDLED_CHECKOUT_ENABLED=false at
+    // go-live until the ATOL position is confirmed). Flight-only and hotel-only cash orders are unaffected.
+    const legTypes = new Set(legs.map((l) => l.type));
+    if (!env.bundledCheckoutEnabled && legTypes.has("flight") && legTypes.has("hotel")) {
+      return sendError(res, "FORBIDDEN", { message: "Flight-and-hotel bundled checkout is unavailable. Please book the flight and hotel separately." });
+    }
+
     const pi = await retrievePaymentIntent(paymentIntentId);
     if (pi.status !== "succeeded") {
       return sendError(res, "PAYMENT_FAILED", { message: `Payment not completed (status: ${pi.status})` });

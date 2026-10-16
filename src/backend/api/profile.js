@@ -51,6 +51,9 @@ router.patch("/profile", async (req, res, next) => {
     }
     if (travelStyle !== undefined) data.travelStyle = travelStyle ? String(travelStyle) : null;
     if (onboardingComplete === true) data.onboardingComplete = true;
+    // §25b — cookie-consent mirror (booleans only).
+    if (body.consentAnalytics !== undefined) data.consentAnalytics = !!body.consentAnalytics;
+    if (body.consentMarketing !== undefined) data.consentMarketing = !!body.consentMarketing;
 
     for (const f of TRAVELLER_FIELDS) {
       if (body[f] !== undefined) data[f] = body[f] ? String(body[f]).trim() || null : null;

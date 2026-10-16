@@ -21,17 +21,24 @@ model User {
   lastLoginAt DateTime?
   homeAirport String?
 
-  onboardingComplete  Boolean @default(false)
-  travelStyle         String?
+  onboardingComplete Boolean @default(false)
+  travelStyle        String?
+
+  // Phase 25 §25b — server mirror of the cookie-consent choice (marketing-consent source of truth for §9).
+  consentAnalytics Boolean   @default(false)
+  consentMarketing Boolean   @default(false)
+  // Phase 25 §25e — DSAR soft-delete window (account locked immediately; hard-deleted after 14 days).
+  lockedAt         DateTime?
+  deletedAt        DateTime? // set when the 14-day soft-delete starts
 
   // Traveller profile — collected in onboarding to pre-fill the booking guest form (no card data stored).
-  title           String?
-  firstName       String?
-  lastName        String?
-  dateOfBirth     String? // "YYYY-MM-DD"
-  phone           String?
-  phoneCountryCode String? @default("+44")
-  passportNumber  String?
+  title               String?
+  firstName           String?
+  lastName            String?
+  dateOfBirth         String? // "YYYY-MM-DD"
+  phone               String?
+  phoneCountryCode    String? @default("+44")
+  passportNumber      String?
   gmailConnected      Boolean @default(false)
   gmailRefreshToken   String?
   outlookConnected    Boolean @default(false)
@@ -53,10 +60,11 @@ model User {
   notifications          Notification[]
   notificationPreference NotificationPreference?
 
-  propertyReviews PropertyReview[]
-  pointsActivity  PointsActivity[]
-  syncRuns        BalanceSyncRun[]
-  supportTickets  SupportTicket[]
+  propertyReviews  PropertyReview[]
+  pointsActivity   PointsActivity[]
+  syncRuns         BalanceSyncRun[]
+  supportTickets   SupportTicket[]
+  legalAcceptances LegalAcceptance[]
 }
 
 model Trip {
@@ -602,13 +610,13 @@ model TransferPartner {
 // Factual award-price board shown on the marketing hero, tied to the destination slideshow. Seeded
 // reference data (seedHeroDestinations.js), refreshed monthly (jobs/heroDestinationJob.js).
 model HeroDestination {
-  id       String @id @default(cuid())
-  slug     String @unique // 'capetown'
-  name     String // 'Cape Town, South Africa'
-  tagline  String @default("") // editorial title — theme · season · place, e.g. 'Bali Summer Getaway'
-  imageUrl String // '/auth/capetown.jpg'
-  gradient String // fallback backdrop
-  sortOrder Int    @default(0)
+  id        String  @id @default(cuid())
+  slug      String  @unique // 'capetown'
+  name      String // 'Cape Town, South Africa'
+  tagline   String  @default("") // editorial title — theme · season · place, e.g. 'Bali Summer Getaway'
+  imageUrl  String // '/auth/capetown.jpg'
+  gradient  String // fallback backdrop
+  sortOrder Int     @default(0)
   isActive  Boolean @default(true)
 
   // Board context — what the quoted prices assume
@@ -625,7 +633,7 @@ model HeroDestination {
   flightCash Int     @default(0) // £, return, total for `adults` — whole pounds
 
   awards      DestinationAward[]
-  refreshedAt DateTime @default(now())
+  refreshedAt DateTime           @default(now())
 }
 
 model DestinationAward {
@@ -651,33 +659,33 @@ model DestinationAward {
 // Phase 18 — homepage discovery rails. Standalone reference data (no relations), seeded and refreshed
 // monthly alongside the hero destinations. All cash figures are whole-pound totals; the frontend only adds.
 model ExploreCountry {
-  id       String   @id @default(cuid())
-  code     String   @unique // ISO 3166-1 alpha-2, e.g. 'es'
-  name     String // 'Spain'
-  continent String  @default("") // grouping label (reuses the 6 discovery regions) — for the map + grid
-  latitude  Float? // pin anchor — country centroid
-  longitude Float?
-  imageUrl String? // '/explore/es.jpg' — null for directory-only countries
+  id           String  @id @default(cuid())
+  code         String  @unique // ISO 3166-1 alpha-2, e.g. 'es'
+  name         String // 'Spain'
+  continent    String  @default("") // grouping label (reuses the 6 discovery regions) — for the map + grid
+  latitude     Float? // pin anchor — country centroid
+  longitude    Float?
+  imageUrl     String? // '/explore/es.jpg' — null for directory-only countries
   heroImageUrl String? // Phase 19 — wide 1400×500 country hero; null → falls back to imageUrl then gradient
   blurb        String? // Phase 19 — one-line country blurb for the meta description (optional)
-  gradient String // fallback backdrop
-  sortOrder Int    @default(0)
-  isActive  Boolean @default(true)
+  gradient     String // fallback backdrop
+  sortOrder    Int     @default(0)
+  isActive     Boolean @default(true)
 
   // Cheapest award entry point into the country (discovery-rail "from X pts"). Refreshed monthly.
   fromPoints    Int? // 26000
   fromCurrency  String? // 'Avios' | 'pts'
   fromProgramme String? // 'ba_avios'
 
-  cities  ExploreCity[]
-  routes  ExploreRoute[]
+  cities ExploreCity[]
+  routes ExploreRoute[]
 
   refreshedAt DateTime @default(now())
 }
 
 // Phase 18 (Explore Everywhere) — bookable cities per country, and cached origin→country/city prices.
 model ExploreCity {
-  id          String @id @default(cuid())
+  id          String         @id @default(cuid())
   countryCode String
   country     ExploreCountry @relation(fields: [countryCode], references: [code], onDelete: Cascade)
 
@@ -705,7 +713,7 @@ model ExploreCity {
 // Phase 18 §18i — named award properties per city (drawer "Hotels on points"), + a rolling six-month
 // award-availability window per origin.
 model ExploreHotel {
-  id     String @id @default(cuid())
+  id     String      @id @default(cuid())
   cityId String
   city   ExploreCity @relation(fields: [cityId], references: [id], onDelete: Cascade)
 
@@ -722,13 +730,13 @@ model ExploreHotel {
 }
 
 model ExploreAvailability {
-  id     String @id @default(cuid())
+  id     String      @id @default(cuid())
   cityId String
   city   ExploreCity @relation(fields: [cityId], references: [id], onDelete: Cascade)
 
   originCode     String // 'LON'
   month          String // '2026-06'
-  seatsFound     Int     @default(0)
+  seatsFound     Int      @default(0)
   cheapestPoints Int?
   programme      String?
   refreshedAt    DateTime @default(now())
@@ -785,9 +793,9 @@ model PopularTrip {
   hotelProgramme String? // 'world_of_hyatt'
   residualCash   Int     @default(0) // £ still payable on the points route
 
-  awardAvailable Boolean @default(false) // drives the green tag
-  sortOrder      Int     @default(0)
-  isActive       Boolean @default(true)
+  awardAvailable Boolean  @default(false) // drives the green tag
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
   refreshedAt    DateTime @default(now())
 
   @@unique([originCode, destCode])
@@ -796,19 +804,19 @@ model PopularTrip {
 
 // ── Phase 22 — Support ───────────────────────────────────────────────────────
 model HelpArticle {
-  id        String  @id @default(cuid())
-  slug      String  @unique
+  id        String   @id @default(cuid())
+  slug      String   @unique
   category  String // see HELP_CATEGORIES (db/seedHelp.js)
-  topic     String  @default("") // §22l — same six slugs as category (rename for clarity)
-  isTopPick Boolean @default(false) // §22l — surfaces as a quick-link pill on /help/contact
-  title    String
-  summary  String // one line — search results + meta description
-  body     String // markdown
-  keywords String[] // extra search terms
+  topic     String   @default("") // §22l — same six slugs as category (rename for clarity)
+  isTopPick Boolean  @default(false) // §22l — surfaces as a quick-link pill on /help/contact
+  title     String
+  summary   String // one line — search results + meta description
+  body      String // markdown
+  keywords  String[] // extra search terms
 
   relatedSlugs String[]
-  order        Int     @default(0)
-  isPublished  Boolean @default(true)
+  order        Int      @default(0)
+  isPublished  Boolean  @default(true)
 
   viewCount  Int @default(0)
   helpfulYes Int @default(0)
@@ -846,8 +854,8 @@ model SupportTicket {
   slaTarget    DateTime // set from urgency at creation
 
   messages  SupportMessage[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
   @@index([status, slaTarget])
   @@index([userId, createdAt])
@@ -885,4 +893,19 @@ model ServiceStatus {
   state       String   @default("operational") // 'operational' | 'degraded' | 'outage' | 'maintenance'
   message     String?
   updatedAt   DateTime @updatedAt
+}
+
+// Phase 25 §25d — proof of which legal-document version a user accepted, and when/how.
+model LegalAcceptance {
+  id         String   @id @default(cuid())
+  userId     String
+  document   String // 'terms' | 'privacy' | 'booking-terms' | ...
+  version    String
+  acceptedAt DateTime @default(now())
+  ipHash     String // sha256(ip + APP_SALT) — never the raw IP
+  userAgent  String
+  context    String // 'signup' | 'reaccept' | 'checkout'
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, document])
 }

@@ -26,7 +26,10 @@ async function createBookingPaymentIntent({ userId, amountGbp, metadata = {} }) 
   const intent = await getStripe().paymentIntents.create({
     amount,
     currency: "gbp",
+    // §25g — automatic payment methods run 3DS2/SCA under Stripe's rules; we never request an SCA exemption.
     automatic_payment_methods: { enabled: true },
+    // §25g — a recognisable statement descriptor (base "BONZA" + suffix) reduces card disputes.
+    statement_descriptor_suffix: "TRAVEL",
     metadata: { bonzaUserId: userId, kind: "booking", ...metadata },
   });
   return { paymentIntentId: intent.id, clientSecret: intent.client_secret, mock: false };

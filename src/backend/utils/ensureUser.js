@@ -8,8 +8,9 @@
 // call Clerk for the profile, so the steady-state cost is one indexed lookup.
 const { clerkClient } = require("@clerk/express");
 const prisma = require("../config/database");
+const { recordSignupAcceptance } = require("../services/legalAcceptance");
 
-async function ensureUser(userId) {
+async function ensureUser(userId, req) {
   const existing = await prisma.user.findUnique({ where: { id: userId } });
   if (existing) return existing;
 
@@ -27,8 +28,9 @@ async function ensureUser(userId) {
     // Keep the placeholder email; the row still gets created so the request can proceed.
   }
 
+  let created;
   try {
-    return await prisma.user.create({ data: { id: userId, email, name } });
+    created = await prisma.user.create({ data: { id: userId, email, name } });
   } catch (err) {
     // P2002 on the unique email: a stale row from a previous Clerk instance still owns this
     // address (Clerk ids change when the instance is reset). Park that row's email to release
@@ -38,10 +40,16 @@ async function ensureUser(userId) {
         where: { email, id: { not: userId } },
         data: { email: `stale.${Date.now()}.${userId}@users.bonza.app` },
       });
-      return prisma.user.create({ data: { id: userId, email, name } });
+      created = await prisma.user.create({ data: { id: userId, email, name } });
+    } else {
+      throw err;
     }
-    throw err;
   }
+
+  // Phase 25 §25d — creating the account is the affirmative act of accepting the signup docs. Best-effort;
+  // never let a legal-record write fail the request that just created the user.
+  recordSignupAcceptance(userId, req).catch(() => {});
+  return created;
 }
 
 module.exports = { ensureUser };

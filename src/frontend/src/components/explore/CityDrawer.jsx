@@ -323,6 +323,8 @@ function DrawerBody({ data, onOpenHotel }) {
                   }`}
             </p>
           )}
+          {/* §25i — cached-price disclaimer, once per surface. */}
+          <p className="mt-[0.5rem] text-[10.5px] text-[#A49C92]">Availability and transfer ratios can change.</p>
         </div>
       )}
     </div>

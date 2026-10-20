@@ -1,6 +1,8 @@
 // services/stripeService.js — Stripe Checkout + webhook verify; offline mock flips Pro locally.
 const env = require("../config/env");
 const prisma = require("../config/database");
+const { oncePerEvent } = require("../utils/webhookIdempotency");
+const { reverseCredits } = require("./creditsService");
 
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -81,6 +83,16 @@ async function handleWebhook(rawBody, signature) {
   const stripe = getStripe();
   const event = stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);
 
+  // §27a — idempotent on the Stripe event id: a redelivery runs the effect zero extra times and returns 200.
+  const { duplicate, result } = await oncePerEvent(
+    { provider: "stripe", eventId: event.id },
+    () => processStripeEvent(stripe, event)
+  );
+  if (duplicate) return { received: true, duplicate: true, activatedUserId: null };
+  return result;
+}
+
+async function processStripeEvent(stripe, event) {
   let activatedUserId = null;
 
   switch (event.type) {
@@ -119,6 +131,24 @@ async function handleWebhook(rawBody, signature) {
         where: { stripeCustomerId: invoice.customer },
         data: { status: "past_due" },
       });
+      break;
+    }
+    case "charge.refunded": {
+      // §27e-3 — claw back the refunded proportion of this booking's Credits.
+      const charge = event.data.object;
+      const piId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+      const proportion = charge.amount ? Math.min(1, (charge.amount_refunded || 0) / charge.amount) : 0;
+      if (piId && proportion > 0) {
+        const bookings = await prisma.booking.findMany({ where: { paymentIntentId: piId } });
+        for (const b of bookings) {
+          await reverseCredits({ userId: b.userId, bookingId: b.id, proportion });
+          if (proportion >= 1) {
+            await prisma.booking
+              .update({ where: { id: b.id }, data: { status: "cancelled", cancelledAt: new Date(), cancellationReason: "refunded" } })
+              .catch(() => {});
+          }
+        }
+      }
       break;
     }
     default:

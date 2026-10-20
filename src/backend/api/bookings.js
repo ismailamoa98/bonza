@@ -237,6 +237,7 @@ router.post("/confirm-cash", async (req, res, next) => {
         serviceFeeGbp: cash != null ? round2(cash * (COMMISSION_RATES[type] || 0)) : null,
         confirmationMethod: LEG_METHOD[type],
         idempotencyKey,
+        paymentIntentId, // §27e-3 — so a later charge.refunded maps back to this booking
       });
       bookings.push(booking);
 

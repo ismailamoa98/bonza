@@ -15,45 +15,88 @@ async function emailVerifiableProgrammes() {
   return keys.map((p) => ({ programme: p, displayName: names[p] || p }));
 }
 
-// Statement is the truth — apply it to the programme's primary membership unless a newer override wins.
-async function applyStatementBalance(userId, programme, { balance, date, source }) {
-  const statementDate = date ? new Date(date) : new Date();
-  const valueGbp = round2(balance * (emailSync.PROGRAMME_VALUATIONS[programme] || 0));
-  const account = await prisma.loyaltyAccount.findFirst({ where: { userId, programme } });
-
+// Pure decision — no DB, no clock reads inside. Given the current account (or null) and a normalised
+// statement, decide what to do. §23/§27 unit-test this directly; §27a wraps it in a row-locked transaction.
+// §27e-2: the override race compares `manualOverrideAt` against the statement's DELIVERY time
+// (`statementReceivedAt`), never the date printed on the statement.
+function decideBalance(account, stmt) {
   if (!account) {
-    await prisma.loyaltyAccount.create({
-      data: {
-        userId, programme, balance, valueGbp,
-        statementDate, statementSource: source || null,
-        syncState: "verified", lastSynced: new Date(), syncMethod: "email_parse",
+    return {
+      status: "created",
+      patch: {
+        balance: stmt.balance, valueGbp: stmt.valueGbp,
+        statementDate: stmt.statementDate, statementReceivedAt: stmt.statementReceivedAt,
+        statementSource: stmt.source, syncState: "verified",
+        lastSynced: stmt.now, syncMethod: "email_parse",
       },
-    });
-    return "created";
+    };
   }
 
-  // A manual override newer than this statement wins — record the statement but don't apply it.
-  if (account.manualOverrideAt && account.manualOverrideAt > statementDate) {
-    await prisma.loyaltyAccount.update({
-      where: { id: account.id },
-      data: { statementDate, statementSource: source || null, lastSynced: new Date() },
-    });
-    return "override_held";
+  // A manual override made AFTER the statement was delivered wins — record the statement but don't apply it.
+  if (account.manualOverrideAt && stmt.statementReceivedAt && account.manualOverrideAt > stmt.statementReceivedAt) {
+    return {
+      status: "override_held",
+      patch: {
+        statementDate: stmt.statementDate, statementReceivedAt: stmt.statementReceivedAt,
+        statementSource: stmt.source, lastSynced: stmt.now,
+      },
+    };
   }
 
-  const matches = account.balance === balance;
-  await prisma.loyaltyAccount.update({
-    where: { id: account.id },
-    data: {
-      balance, valueGbp,
+  const matches = account.balance === stmt.balance;
+  return {
+    status: matches ? "verified" : "updated",
+    patch: {
+      balance: stmt.balance, valueGbp: stmt.valueGbp,
       previousBalance: matches ? null : account.balance,
-      statementDate, statementSource: source || null,
+      statementDate: stmt.statementDate, statementReceivedAt: stmt.statementReceivedAt,
+      statementSource: stmt.source,
       syncState: matches ? "verified" : "updated",
       manualOverrideAt: null, // a fresh statement clears any override
-      lastSynced: new Date(), syncMethod: "email_parse",
+      lastSynced: stmt.now, syncMethod: "email_parse",
     },
-  });
-  return matches ? "verified" : "updated";
+  };
+}
+
+// Statement is the truth — apply it to the programme's primary membership unless a newer override wins.
+// §27a: the read-decide-write is atomic — the row is locked FOR UPDATE for the duration of the transaction,
+// so two statements landing at once serialise instead of racing to a lost update.
+async function applyStatementBalance(userId, programme, { balance, date, receivedAt, source }) {
+  const statementDate = date ? new Date(date) : new Date();
+  const statementReceivedAt = receivedAt ? new Date(receivedAt) : new Date();
+  const valueGbp = round2(balance * (emailSync.PROGRAMME_VALUATIONS[programme] || 0));
+  const stmt = { balance, valueGbp, statementDate, statementReceivedAt, source: source || null, now: new Date() };
+
+  const run = () =>
+    prisma.$transaction(
+      async (tx) => {
+        // Lock the primary membership row (oldest) for this programme for the life of the transaction.
+        const rows = await tx.$queryRaw`
+          SELECT * FROM "LoyaltyAccount"
+          WHERE "userId" = ${userId} AND programme = ${programme}
+          ORDER BY "createdAt" ASC LIMIT 1
+          FOR UPDATE`;
+        const account = rows[0] || null;
+        const decision = decideBalance(account, stmt);
+
+        if (decision.status === "created") {
+          await tx.loyaltyAccount.create({ data: { userId, programme, ...decision.patch } });
+          return "created";
+        }
+        await tx.loyaltyAccount.update({ where: { id: account.id }, data: decision.patch });
+        return decision.status;
+      },
+      { timeout: 10_000 }
+    );
+
+  try {
+    return await run();
+  } catch (err) {
+    // Two concurrent first-statements race the create; the partial unique index (§27e-1) rejects the loser
+    // with P2002 — re-run so it takes the existing row's locked update path instead of a lost insert.
+    if (err.code === "P2002") return run();
+    throw err;
+  }
 }
 
 // A programme we checked but found no statement for → not_checked (unless the user overrode it). Clear
@@ -81,14 +124,17 @@ async function markNotChecked(userId, seen) {
 async function readStatement(userId, programme, { mock, provider, accessToken }) {
   if (mock) {
     const info = emailSync.mockBalances(userId)[programme];
-    return info ? { balance: info.balance, date: new Date(), source: null } : null;
+    return info ? { balance: info.balance, date: new Date(), receivedAt: new Date(), source: null } : null;
   }
   const impl = emailSync.EMAIL_PROVIDERS[provider];
   const patterns = emailSync.PROGRAMME_PATTERNS[programme];
   if (!impl || !patterns) return null;
   const body = await impl.fetchLatestBody(accessToken, patterns, DEEP_LOOKBACK_DAYS);
   const balance = emailSync.extractBalance(body, patterns);
-  return balance == null ? null : { balance, date: new Date(), source: null };
+  // receivedAt is the message delivery time (§27e-2). Until the fetcher surfaces the mailbox internalDate we
+  // use read-time as a safe proxy; it is still later than any pre-existing manual override, so a real
+  // statement correctly wins over a stale override.
+  return balance == null ? null : { balance, date: new Date(), receivedAt: new Date(), source: null };
 }
 
 // Sync one programme (a deep-sync "step"). Returns the outcome for run counting.
@@ -122,21 +168,26 @@ async function findDuplicates(userId) {
 
 // User edits a balance by hand — holds until a newer statement arrives (manualOverrideAt lifecycle).
 async function setManualBalance(userId, accountId, balance) {
-  const account = await prisma.loyaltyAccount.findFirst({ where: { id: accountId, userId } });
-  if (!account) return null;
   const bal = parseInt(balance, 10);
   if (!Number.isFinite(bal) || bal < 0) throw new Error("balance must be a non-negative number");
 
-  return prisma.loyaltyAccount.update({
-    where: { id: account.id },
-    data: {
-      balance: bal,
-      previousBalance: account.balance,
-      manualOverrideAt: new Date(),
-      syncMethod: "manual",
-      lastSynced: new Date(),
-    },
-  });
+  // §27a — lock the row so a manual override and a concurrent statement can't clobber each other.
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw`
+      SELECT * FROM "LoyaltyAccount" WHERE id = ${accountId} AND "userId" = ${userId} FOR UPDATE`;
+    const account = rows[0] || null;
+    if (!account) return null;
+    return tx.loyaltyAccount.update({
+      where: { id: account.id },
+      data: {
+        balance: bal,
+        previousBalance: account.balance,
+        manualOverrideAt: new Date(),
+        syncMethod: "manual",
+        lastSynced: new Date(),
+      },
+    });
+  }, { timeout: 10_000 });
 }
 
 module.exports = {
@@ -144,6 +195,7 @@ module.exports = {
   setManualBalance,
   emailVerifiableProgrammes,
   applyStatementBalance,
+  decideBalance,
   markNotChecked,
   syncOneProgramme,
 };

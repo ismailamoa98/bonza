@@ -36,14 +36,29 @@ describe("applyStatementBalance", () => {
     expect(a.syncState).toBe("updated");
   });
 
-  it("holds a manual override newer than the statement (balance unchanged, statement recorded)", async () => {
+  it("holds a manual override made after the statement was delivered (§27e-2)", async () => {
     const u = await makeUser();
-    await makeLoyaltyAccount(u.id, { balance: 50000, manualOverrideAt: new Date("2026-03-10") });
-    const status = await applyStatementBalance(u.id, "ba_avios", { balance: 42000, date: new Date("2026-03-01"), source: "a@b.com" });
+    // Override on the 10th; statement delivered the 5th → override is newer than delivery → it wins.
+    await makeLoyaltyAccount(u.id, { balance: 50000, manualOverrideAt: new Date("2026-03-10T09:00:00Z") });
+    const status = await applyStatementBalance(u.id, "ba_avios", {
+      balance: 42000, date: new Date("2026-03-01"), receivedAt: new Date("2026-03-05T08:00:00Z"), source: "a@b.com",
+    });
     expect(status).toBe("override_held");
     const a = await acct(u.id);
     expect(a.balance).toBe(50000); // override wins
     expect(a.statementDate.toISOString().slice(0, 10)).toBe("2026-03-01"); // but we record what we saw
+  });
+
+  it("statement dated 1st, delivered 4th, override made the 2nd → statement wins (§27e-2)", async () => {
+    const u = await makeUser();
+    await makeLoyaltyAccount(u.id, { balance: 50000, manualOverrideAt: new Date("2026-03-02T12:00:00Z") });
+    const status = await applyStatementBalance(u.id, "ba_avios", {
+      balance: 42000, date: new Date("2026-03-01"), receivedAt: new Date("2026-03-04T06:00:00Z"), source: "a@b.com",
+    });
+    expect(status).toBe("updated"); // delivery (4th) is after the override (2nd) → statement authoritative
+    const a = await acct(u.id);
+    expect(a.balance).toBe(42000);
+    expect(a.manualOverrideAt).toBeNull();
   });
 
   it("clears an override when a newer statement arrives", async () => {
@@ -58,12 +73,13 @@ describe("applyStatementBalance", () => {
 });
 
 describe("findDuplicates", () => {
-  it("returns the second row for a repeated programme+number (two null-numbered BA rows)", async () => {
+  it("§27e-1: the partial index prevents a second null-numbered row, so no duplicate can exist", async () => {
     const u = await makeUser();
     await makeLoyaltyAccount(u.id, { programme: "ba_avios" }); // accountNumber null
-    await makeLoyaltyAccount(u.id, { programme: "ba_avios" }); // same programme+number key → duplicate
+    // The second null-numbered BA row is now rejected at the DB (loyalty_account_no_number_uniq).
+    await expect(makeLoyaltyAccount(u.id, { programme: "ba_avios" })).rejects.toMatchObject({ code: "P2002" });
     const dupes = await findDuplicates(u.id);
-    expect(dupes.length).toBe(1);
+    expect(dupes.length).toBe(0); // nothing slipped through
   });
 
   it("returns an empty array when every programme is unique", async () => {

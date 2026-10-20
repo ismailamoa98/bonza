@@ -29,6 +29,7 @@ async function writeBooking(userId, data) {
     serviceFeeGbp,
     confirmationMethod,
     idempotencyKey,
+    paymentIntentId,
   } = data;
 
   const booking = await prisma.booking.create({
@@ -56,6 +57,7 @@ async function writeBooking(userId, data) {
       confirmedAt: new Date(),
       confirmationMethod,
       idempotencyKey: idempotencyKey || null,
+      paymentIntentId: paymentIntentId || null,
       status: "confirmed",
     },
   });

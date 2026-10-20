@@ -55,8 +55,15 @@ async function refreshValuations() {
     repriced++;
   }
 
-  logger.info("[valuationRefreshJob] complete", { programmesUpdated: updated, accountsRepriced: repriced });
-  return { updated, repriced };
+  // §27e-7 — re-verify transfer ratios nightly: stamp ratioFetchedAt so active ratios stay fresh (< 24h) and
+  // recommendable. A stalled job stops stamping → ratios age out → recommendations fall back to cash safely.
+  const ratiosVerified = (await prisma.transferPartner.updateMany({
+    where: { isActive: true },
+    data: { ratioFetchedAt: new Date() },
+  })).count;
+
+  logger.info("[valuationRefreshJob] complete", { programmesUpdated: updated, accountsRepriced: repriced, ratiosVerified });
+  return { updated, repriced, ratiosVerified };
 }
 
 module.exports = { refreshValuations, CURRENT_VALUATIONS };

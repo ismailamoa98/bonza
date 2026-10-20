@@ -46,32 +46,46 @@ async function snapshotContext(userId, userAgent) {
 // createTicket({ userId, email, name, urgency, category, subject, message, bookingId, userAgent, transcript })
 async function createTicket(input) {
   const urgency = SLA[input.urgency] ? input.urgency : "general";
-  const reference = await uniqueTicketRef();
   const slaTarget = new Date(Date.now() + SLA[urgency] * 3600 * 1000);
   const contextJson = await snapshotContext(input.userId, input.userAgent);
 
-  const ticket = await prisma.supportTicket.create({
-    data: {
-      reference,
-      userId: input.userId || null,
-      email: input.email,
-      name: input.name || null,
-      urgency,
-      category: input.category || "general",
-      subject: input.subject || "Support request",
-      message: input.message || "",
-      bookingId: input.bookingId || null,
-      contextJson,
-      slaTarget,
-      messages: {
-        create: [
-          // An assistant transcript (on escalation) seeds the thread so the user never repeats themselves.
-          ...(input.transcript || []).map((m) => ({ author: m.author, authorName: m.authorName || null, body: m.body })),
-          { author: "user", authorName: input.name || null, body: input.message || "(no message)" },
-        ],
-      },
-    },
-  });
+  const messagesData = {
+    create: [
+      // An assistant transcript (on escalation) seeds the thread so the user never repeats themselves.
+      ...(input.transcript || []).map((m) => ({ author: m.author, authorName: m.authorName || null, body: m.body })),
+      { author: "user", authorName: input.name || null, body: input.message || "(no message)" },
+    ],
+  };
+
+  // §27e-12 — the pre-check narrows collisions; the unique constraint is authoritative. On a concurrent clash
+  // (P2002 on `reference`) regenerate and retry rather than 500ing.
+  let reference;
+  let ticket;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    reference = await uniqueTicketRef();
+    try {
+      ticket = await prisma.supportTicket.create({
+        data: {
+          reference,
+          userId: input.userId || null,
+          email: input.email,
+          name: input.name || null,
+          urgency,
+          category: input.category || "general",
+          subject: input.subject || "Support request",
+          message: input.message || "",
+          bookingId: input.bookingId || null,
+          contextJson,
+          slaTarget,
+          messages: messagesData,
+        },
+      });
+      break;
+    } catch (err) {
+      if (err.code === "P2002" && attempt < 4) continue;
+      throw err;
+    }
+  }
 
   // Confirmation email — transactional, sent regardless of notification prefs (works logged-out too).
   const html = supportTicketEmail({

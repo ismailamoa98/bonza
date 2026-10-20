@@ -5,7 +5,8 @@
 > external is mock behind an `env` flag, and much reference/seed data is placeholder. This file is the
 > single place to track what has to become real, correct, and legally clear at cutover.
 >
-> Last updated: 2026-09-28. Owner: _unassigned_. Legend — 🔴 blocker · 🟠 important · 🟡 nice-to-have.
+> Last updated: 2026-10-16 (Phase 25 legal/compliance landed — see §9; migration baseline regenerated — §5).
+> Owner: _unassigned_. Legend — 🔴 blocker · 🟠 important · 🟡 nice-to-have.
 
 ---
 
@@ -180,9 +181,15 @@ All are mocked offline; each needs real credentials and an end-to-end test in st
 | Unsplash | `UNSPLASH_ACCESS_KEY` | high-quality Explore photos (see §1) |
 
 - 🔴 **Clerk** (auth) requires real (production) keys to boot — no offline fallback.
-- 🔴 **Prod DB migrations:** local dev uses `prisma db push` and the migrations dir is empty. Before cutover,
-  **commit a baseline migration** so `prisma migrate deploy` (gated to prod/staging, fatal on failure) is a
-  real no-op → real migration path.
+- 🟠 **Prod DB migrations — baseline regenerated (2026-10-16).** Local dev uses `prisma db push`. A full
+  baseline migration has now been generated from the current **39-model** schema at
+  `src/backend/db/migrations/0_init/migration.sql`; it applies cleanly to an empty database and shows **zero
+  drift** against the schema. (The previous `0_init` was stale — 19 tables from August, ~20 behind.) Cutover
+  rules: a **fresh** prod/staging DB → `prisma migrate deploy` (gated to prod/staging, fatal on failure)
+  applies the baseline and is correct as-is; a DB **already created via `db push`** must be baselined first
+  with `prisma migrate resolve --applied 0_init`, or `migrate deploy` will try to recreate existing tables and
+  fail. **Re-generate the baseline (and this note) on any schema change made before the first real migration**
+  — `prisma migrate diff --from-empty --to-schema-datamodel src/backend/db/schema.prisma --script`.
 
 ---
 
@@ -198,20 +205,22 @@ All are mocked offline; each needs real credentials and an end-to-end test in st
   against the real Resend integration.
 - **Cashback / first-booking fraud guard** — `deviceFingerprint`-based hold is inert until device capture
   exists; wire before enabling paid cashback.
-- **Legal pages are draft templates.** `/privacy`, `/terms`, `/cookies` now exist (`pages/PrivacyPolicy.jsx`,
-  `TermsOfService.jsx`, `CookiePolicy.jsx` via `components/LegalPage.jsx`) with Bonza-specific **draft** content
-  carrying a visible "not legal advice" banner. Before launch they **must be reviewed by counsel** and completed
-  with the real registered entity, jurisdiction and contact emails (placeholders used: "Bonza", England & Wales,
-  `privacy@bonza.travel` / `legal@bonza.travel`). The whole **Company** footer column (About / Careers / Partners /
-  Help) remains `#` placeholders; the locale/currency chip ("United Kingdom · English (UK) · £ GBP") is
-  presentational — no switcher yet.
-- **Cookie consent — mechanism in place, enforcement pending.** A consent banner + preferences modal now exists
-  (`components/CookieConsent.jsx`, `utils/consent.js`; footer "Privacy settings" reopens it), storing a per-
-  category choice (strictly-necessary always on; functional; analytics) in `localStorage`. **Still to do before
-  launch:** actually **gate non-essential cookies/scripts on the stored choice** (nothing sets functional/
-  analytics cookies today, so there's a mechanism but nothing yet consuming it — wire real analytics/functional
-  loaders to check `getConsent()` before running), and confirm the banner meets UK PECR (equal-prominence
-  accept/reject is implemented; have counsel confirm wording + that no non-essential cookie fires pre-consent).
+- **Legal pages — replaced by Phase 25.** The Phase 21 stubs (`PrivacyPolicy.jsx`/`TermsOfService.jsx`/
+  `CookiePolicy.jsx` via `components/LegalPage.jsx`) were **removed** and superseded by the versioned
+  **`/legal/*`** document set (`pages/LegalDoc.jsx` + `src/frontend/src/content/legal/*`): **7 documents** as
+  versioned markdown, each carrying the "not legal advice" draft banner; `/privacy`, `/terms`, `/cookies` now
+  redirect there. Counsel review + real registered entity / jurisdiction / ICO number / contact details are the
+  launch blocker — **§9 below is the authoritative list** (see also `docs/compliance.md`). The locale/currency
+  chip ("United Kingdom · English (UK) · £ GBP") is presentational — no switcher yet.
+- **Cookie consent — hardened by Phase 25 §25b.** The consent banner + preferences modal
+  (`components/CookieConsent.jsx`, `utils/consent.js`; footer "Privacy settings" reopens it) is now **opt-in and
+  pre-rejected**, with categories strictly-necessary (always on) / functional / **analytics** / **marketing**, a
+  **365-day TTL** (re-ask on lapse), equal-prominence Accept/Reject, and a **server mirror** of the choice onto
+  `User.consentAnalytics`/`consentMarketing` for signed-in users (so the §9 email sender respects marketing
+  consent server-side). Analytics (PostHog) is gated on `hasAnalyticsConsent()` (Phase 24 §24a). **Still to do
+  before launch:** audit that **every** non-essential script/cookie actually checks consent before firing as real
+  analytics/marketing loaders are wired, and have counsel confirm PECR wording + that nothing non-essential fires
+  pre-consent.
 - 🔴 **ATOL claim is live but unsubstantiated.** The search UI already asserts financial protection — an **"ATOL"**
   badge on every result (`components/search/SearchResultCard.jsx`, ~line 107) and **"ATOL protected · Your money
   is safe if we fail"** in the detail panel's "Why book with Bonza" grid (`components/search/DetailPanel.jsx`,

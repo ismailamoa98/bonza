@@ -240,7 +240,8 @@ model LoyaltyAccount {
   // Phase 15: statement-authoritative sync state (presentation — seeded in dev).
   syncState        String    @default("not_checked") // 'verified' | 'updated' | 'not_checked'
   previousBalance  Int? // value before the last statement update (only when it changed)
-  statementDate    DateTime? // date of the statement the balance came from
+  statementDate    DateTime? @db.Date // date PRINTED on the statement (date-only; BST never shifts it) — display
+  statementReceivedAt DateTime? // Phase 27 §27e-2 — email delivery timestamp; the override race compares against THIS
   statementSource  String? // mailbox address the statement was sent to
   manualOverrideAt DateTime? // user edited by hand; holds until a newer statement arrives
 
@@ -314,6 +315,7 @@ model Booking {
   propertyPlaceId   String? // Google Places place_id (resolved at booking time)
   supplierReference String? // Duffel booking reference / loyalty confirmation number
   idempotencyKey    String? @unique // Phase 24 §24g — hash of {userId,offerId,quotedTotal}; set before the order call so a user-triggered retry replays instead of double-booking
+  paymentIntentId   String? // Phase 27 §27e-3 — Stripe PI that paid for this leg; maps a charge.refunded back to the booking
   description       String? // e.g. "LHR → NCE · British Airways · Economy"
 
   cashValueGbp    Float?
@@ -599,6 +601,8 @@ model TransferPartner {
   isActive        Boolean @default(true) // false when a partnership ends
   bonusActive     Boolean @default(false) // true during a transfer bonus promotion
   bonusPercent    Int? // e.g. 30 for a 30% transfer bonus
+
+  ratioFetchedAt  DateTime? // Phase 27 §27e-7 — when this ratio was last verified; >24h → excluded from recs
 
   updatedAt DateTime @updatedAt
 
@@ -908,4 +912,26 @@ model LegalAcceptance {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, document])
+}
+
+// Phase 27 §27a — inbound-webhook idempotency. The handler inserts this row FIRST inside the effect's
+// transaction; a P2002 on the unique pair is the duplicate signal → return 200 without reprocessing.
+model ProcessedWebhook {
+  id          String   @id @default(cuid())
+  provider    String // 'stripe' | 'clerk' | 'duffel' | 'resend' | 'affiliate'
+  eventId     String
+  processedAt DateTime @default(now())
+  outcome     String // 'applied' | 'ignored' | 'failed'
+
+  @@unique([provider, eventId])
+}
+
+// Phase 27 §27e-9 — traceability for a Stripe customer after the user row is hard-deleted (§25e). The Pro
+// subscription is cancelled immediately on delete; this keeps the customer id so a stray invoice is traceable.
+model DeletedCustomer {
+  id               String   @id @default(cuid())
+  userHash         String   @unique // sha256(userId + APP_SALT) — never the raw id
+  stripeCustomerId String?
+  deletedAt        DateTime @default(now())
+  note             String?
 }

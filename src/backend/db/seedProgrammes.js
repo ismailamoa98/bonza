@@ -142,8 +142,8 @@ async function seedProgrammes() {
   for (const [from, to, rFrom, rTo] of TRANSFERS) {
     await prisma.transferPartner.upsert({
       where: { fromProgramme_toProgramme: { fromProgramme: from, toProgramme: to } },
-      update: { ratioFrom: rFrom, ratioTo: rTo, isActive: true },
-      create: { fromProgramme: from, toProgramme: to, ratioFrom: rFrom, ratioTo: rTo },
+      update: { ratioFrom: rFrom, ratioTo: rTo, isActive: true, ratioFetchedAt: new Date() },
+      create: { fromProgramme: from, toProgramme: to, ratioFrom: rFrom, ratioTo: rTo, ratioFetchedAt: new Date() },
     });
   }
 

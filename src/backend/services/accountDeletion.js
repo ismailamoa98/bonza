@@ -39,7 +39,21 @@ async function startDeletion(userId) {
     },
   });
 
-  // Cancel Pro at period end — best-effort; never block the deletion on a billing hiccup.
+  // §27e-9 — capture the Stripe customer mapping BEFORE the subscription row is removed at hard-delete, so a
+  // stray invoice after deletion is still traceable; the user id is hashed (never stored raw).
+  try {
+    const sub = await prisma.subscription.findUnique({ where: { userId } });
+    const userHash = crypto.createHash("sha256").update(`${userId}${env.APP_SALT}`).digest("hex");
+    await prisma.deletedCustomer.upsert({
+      where: { userHash },
+      update: { stripeCustomerId: sub?.stripeCustomerId || null },
+      create: { userHash, stripeCustomerId: sub?.stripeCustomerId || null, note: "delete requested" },
+    });
+  } catch (err) {
+    logger.error("[accountDeletion] DeletedCustomer mapping failed", err);
+  }
+
+  // Cancel Pro immediately (§27e-9) — best-effort; never block the deletion on a billing hiccup.
   try {
     const { cancelSubscription } = require("./stripeService");
     await cancelSubscription(userId);

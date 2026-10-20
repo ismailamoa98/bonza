@@ -7,6 +7,7 @@ const router = express.Router();
 const prisma = require("../config/database");
 const { ownedOr403 } = require("../utils/ownedOr403");
 const { getCreditBalance } = require("../services/creditsService");
+const { isRatioFresh, ratioAgeHours } = require("../services/ratioFreshness");
 const { EMAIL_VERIFIABLE } = require("../services/emailLoyaltySync");
 const { findDuplicates, setManualBalance } = require("../services/balanceSync");
 
@@ -142,7 +143,10 @@ router.get("/programme/:accountId", async (req, res, next) => {
 
     const heldValue = (account.balance * (valuation?.centsPerPoint || 0)) / 100;
 
+    // §27e-7 — a transfer recommendation on a ratio we haven't verified in 24h is excluded entirely.
+    const now = Date.now();
     const options = partners
+      .filter((p) => isRatioFresh(p, now))
       .map((p) => {
         const resulting = Math.floor(
           account.balance * (p.ratioTo / p.ratioFrom) * (p.bonusActive ? 1 + (p.bonusPercent || 0) / 100 : 1)
@@ -162,6 +166,7 @@ router.get("/programme/:accountId", async (req, res, next) => {
           transferTimeHrs: p.transferTimeHrs,
           bonusActive: p.bonusActive,
           bonusPercent: p.bonusPercent,
+          ratioAgeHours: ratioAgeHours(p, now), // §27e-7 — surface the ratio's age on the card
         };
       })
       .sort((a, b) => b.valueGbp - a.valueGbp);

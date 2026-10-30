@@ -106,7 +106,7 @@ model Scenario {
 
   benefits        Json
   reasoning       String
-  valueMultiplier Float // 1.41 for "+41% Value"
+  valueMultiplier Decimal @db.Decimal(6, 4) // 1.41 for "+41% Value" — §27b non-money ratio
   savingsAmount   Int
 
   isRecommended Boolean @default(false)
@@ -168,7 +168,7 @@ model AffiliateLink {
   vendor         String // "United", "Marriott", "Hertz"
   affiliateUrl   String
   trackingId     String
-  commissionRate Float
+  commissionRate Decimal @db.Decimal(6, 4) // §27b non-money rate (e.g. 0.03)
 
   createdAt DateTime @default(now())
 }
@@ -419,7 +419,7 @@ model PersonalisedRecommendation {
   origin          String
   imageUrl        String?
   specLine        String // "5 NTS · 5-STAR · LHR → LIS"
-  rating          Float?
+  rating          Decimal? @db.Decimal(4, 2) // §27b non-money rating
 
   pointsOption Json? // { programme, pointsCost, cabin, availableDates[], valueGbp, centsPerPoint, aboveBenchmark, bookingUrl, seatsAvailable, source }
   cashOption   Json? // { priceGbp, supplier, creditsEarned, offerId }
@@ -431,7 +431,7 @@ model PersonalisedRecommendation {
 
   bestOptionType    String // 'points' | 'cash' | 'hybrid'
   pointsValueRating String // 'excellent' | 'good' | 'typical' | 'below_average'
-  centsPerPoint     Float?
+  centsPerPoint     Decimal? @db.Decimal(8, 4) // §27b non-money rate
   cashSavingGbp     Float?
   creditsIfCash     Float? // 3% of the cash package — always populated
 
@@ -492,12 +492,12 @@ model PropertyInsight {
   name    String?
   city    String?
 
-  location   Float // 0–10
-  comfort    Float // 0–10
-  facilities Float // 0–10
+  location   Decimal @db.Decimal(4, 2) // 0–10 — §27b non-money score
+  comfort    Decimal @db.Decimal(4, 2) // 0–10
+  facilities Decimal @db.Decimal(4, 2) // 0–10
   summary    String? // one-line Bonza summary of the property's status
   sampleSize Int     @default(0)
-  rating     Float? // overall rating at time of analysis
+  rating     Decimal? @db.Decimal(4, 2) // overall rating at time of analysis
   source     String  @default("claude") // 'claude' | 'keyword'
 
   createdAt DateTime @default(now())
@@ -542,8 +542,8 @@ model ProgrammeValuation {
   logoUrl  String? // Phase 14: CloudFront path, e.g. "/logos/ba.svg"; null → initials fallback
   initials String  @default("?") // Phase 14: fallback mark — "BA", "AX", "M", "IHG"
 
-  centsPerPoint Float // current valuation, e.g. 0.8
-  benchmarkCpp  Float // programme's typical rate for comparison
+  centsPerPoint Decimal @db.Decimal(8, 4) // current valuation, e.g. 0.8 — §27b non-money rate
+  benchmarkCpp  Decimal @db.Decimal(8, 4) // programme's typical rate for comparison
   currency      String @default("pts") // 'pts' | 'miles' | 'Avios'
 
   isTransferable     Boolean @default(false) // Amex MR, Chase UR, Marriott
@@ -667,8 +667,8 @@ model ExploreCountry {
   code         String  @unique // ISO 3166-1 alpha-2, e.g. 'es'
   name         String // 'Spain'
   continent    String  @default("") // grouping label (reuses the 6 discovery regions) — for the map + grid
-  latitude     Float? // pin anchor — country centroid
-  longitude    Float?
+  latitude     Decimal? @db.Decimal(9, 6) // pin anchor — country centroid (§27b)
+  longitude    Decimal? @db.Decimal(9, 6)
   imageUrl     String? // '/explore/es.jpg' — null for directory-only countries
   heroImageUrl String? // Phase 19 — wide 1400×500 country hero; null → falls back to imageUrl then gradient
   blurb        String? // Phase 19 — one-line country blurb for the meta description (optional)

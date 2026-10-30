@@ -20,6 +20,17 @@ module.exports = [
     },
   },
 
+  // Shared money/format module + build scripts — CommonJS, Node globals. (src/shared is authored CJS so the
+  // backend can `require` it; Vite transpiles it for the frontend.)
+  {
+    files: ["src/shared/**/*.js", "scripts/**/*.js"],
+    languageOptions: { ecmaVersion: 2022, sourceType: "commonjs", globals: { ...globals.node } },
+    rules: {
+      "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+      "no-empty": ["warn", { allowEmptyCatch: true }],
+    },
+  },
+
   // Frontend — ESM + JSX, browser globals.
   {
     files: ["src/frontend/**/*.{js,jsx}"],

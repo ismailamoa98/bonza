@@ -941,3 +941,20 @@ model DeletedCustomer {
   deletedAt        DateTime @default(now())
   note             String?
 }
+
+// Phase 27 §27b — persisted daily FX rates (GBP-base). The display-FX layer (fxService / frontend money.js)
+// converts GBP amounts to the viewer's currency; this table persists what was previously an in-memory cache
+// so there's a durable history and an offline source. A daily job (jobs/fxRefreshJob.js) upserts one row per
+// quote currency per date. FX is NEVER called in a request path — the rate is read from here / the 6h cache.
+model FxRate {
+  id        String   @id @default(cuid())
+  base      String   @default("GBP") // ISO-4217 base currency
+  quote     String // ISO-4217 quote currency
+  rate      Decimal  @db.Decimal(18, 8) // units of `quote` per 1 `base`
+  date      DateTime @db.Date // the rate's calendar date (UTC)
+  source    String   @default("live") // 'live' (ECB/Frankfurter) | 'fallback' (bundled)
+  fetchedAt DateTime @default(now())
+
+  @@unique([base, quote, date])
+  @@index([base, quote, date])
+}

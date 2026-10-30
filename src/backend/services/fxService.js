@@ -27,9 +27,28 @@ async function getRates() {
       return { rates, source: "live", asOf: cache.at };
     }
   } catch (err) {
-    logger.warn("FX rate fetch failed — using fallback", { error: err.message });
+    logger.warn("FX rate fetch failed — trying persisted rates, then fallback", { error: err.message });
   }
+
+  // §27b — when the live API is unreachable, prefer the most recent persisted snapshot (fxRefreshJob) over
+  // the bundled fallback, so we serve the freshest rates we have. Best-effort — never throws into the caller.
+  const persisted = await getPersistedRates().catch(() => null);
+  if (persisted) return { rates: persisted, source: "persisted", asOf: Date.now() };
+
   return { rates: { ...FALLBACK }, source: "fallback", asOf: Date.now() };
 }
 
-module.exports = { getRates, FALLBACK };
+// Read the latest persisted FxRate rows (one date) as a GBP-base {quote: rate} map, merged over the bundled
+// fallback so any missing currency still resolves. Lazily requires prisma to keep this module import-cheap.
+async function getPersistedRates() {
+  const prisma = require("../config/database");
+  const latest = await prisma.fxRate.findFirst({ where: { base: "GBP" }, orderBy: { date: "desc" }, select: { date: true } });
+  if (!latest) return null;
+  const rows = await prisma.fxRate.findMany({ where: { base: "GBP", date: latest.date } });
+  if (!rows.length) return null;
+  const rates = { ...FALLBACK, GBP: 1 };
+  for (const r of rows) rates[r.quote] = Number(r.rate);
+  return rates;
+}
+
+module.exports = { getRates, getPersistedRates, FALLBACK };

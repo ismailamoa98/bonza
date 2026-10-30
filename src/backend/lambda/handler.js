@@ -7,6 +7,7 @@ const { refreshExplore } = require("../jobs/exploreRefreshJob");
 const { runRetention } = require("../jobs/retentionJob");
 const { runHardDeleteJob } = require("../jobs/hardDeleteJob");
 const { runExportJob } = require("../jobs/exportJob");
+const { refreshFxRates } = require("../jobs/fxRefreshJob");
 
 exports.handler = async (event) => {
   const { jobType } = event || {};
@@ -22,6 +23,9 @@ exports.handler = async (event) => {
       break;
     case "valuation_refresh":
       await refreshValuations();
+      break;
+    case "fx_refresh": // Phase 27 §27b — daily GBP-base FX snapshot persisted to FxRate
+      await refreshFxRates();
       break;
     case "hero_destinations":
       await refreshHeroDestinations();

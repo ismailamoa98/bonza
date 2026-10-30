@@ -55,10 +55,10 @@ async function assembleExport(userId) {
       loyalty
     ),
     "bookings.csv": toCsv(
-      ["id", "leg", "bookingType", "supplier", "origin", "destination", "checkIn", "checkOut", "description", "cashValueGbp", "pointsUsed", "pointsProgramme", "status", "confirmedAt", "creditsAwarded"],
+      ["id", "leg", "bookingType", "supplier", "origin", "destination", "checkIn", "checkOut", "description", "cashAmount", "cashCurrency", "pointsUsed", "pointsProgramme", "status", "confirmedAt", "creditsAwardedPence"],
       bookings
     ),
-    "credits.csv": toCsv(["id", "amount", "source", "bookingId", "createdAt", "expiresAt"], credits),
+    "credits.csv": toCsv(["id", "amountPence", "source", "bookingId", "createdAt", "expiresAt"], credits),
     "events.csv": toCsv(["type", "metadata", "sessionId", "createdAt"], events),
     "support.csv": toCsv(
       ["reference", "urgency", "category", "subject", "message", "status", "bookingId", "createdAt", "resolvedAt"],

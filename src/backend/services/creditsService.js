@@ -1,6 +1,7 @@
 // services/creditsService.js — double-entry cashback ledger (balance = non-expired rows). §27a: balance-reading
 // writes run at SERIALIZABLE with a 40001 retry (txSerializable). §27e-3: a refund posts a compensating
 // (negative) entry; the balance may go negative and redemption is blocked until it clears.
+// §27b: all amounts are integer pence (BonzaCredit.amountPence). No Float money anywhere in the ledger.
 const prisma = require("../config/database");
 const { isProActive } = require("../middleware/requirePro");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
@@ -9,16 +10,15 @@ const { cashbackRateFor, CREDIT_EXPIRY_MONTHS } = require("../config/constants")
 
 const NEVER_EXPIRES = new Date("9999-12-31T00:00:00.000Z");
 
-const round2 = (n) => Math.round(n * 100) / 100;
-
 function expiryFromNow(months) {
   const d = new Date();
   d.setMonth(d.getMonth() + months);
   return d;
 }
 
-async function awardCashback({ userId, bookingId, cashValueGbp, leg }) {
-  if (!(cashValueGbp > 0)) return null;
+// §27b — `cashAmountPence` is integer pence. Returns the created BonzaCredit (amountPence) or null.
+async function awardCashback({ userId, bookingId, cashAmountPence, leg }) {
+  if (!(cashAmountPence > 0)) return null;
 
   // Cashback only on higher-margin legs (hotels/cars) — flights earn no Credits (see config/constants).
   const rate = cashbackRateFor(leg);
@@ -51,7 +51,7 @@ async function awardCashback({ userId, bookingId, cashValueGbp, leg }) {
     const credit = await tx.bonzaCredit.create({
       data: {
         userId,
-        amount: round2(cashValueGbp * rate),
+        amountPence: Math.round(cashAmountPence * rate), // integer pence × rate → nearest penny
         source: isFirstBooking ? "first_booking_bonus" : `cashback_${leg}`,
         bookingId,
         expiresAt: expiryFromNow(CREDIT_EXPIRY_MONTHS),
@@ -69,7 +69,7 @@ async function awardCashback({ userId, bookingId, cashValueGbp, leg }) {
   recordEvent(userId, EVENT_TYPES.CREDIT_AWARDED, {
     bookingId,
     leg,
-    amount: result.credit.amount,
+    amountPence: result.credit.amountPence,
     isFirstBooking: result.isFirstBooking,
   });
   return result.credit;
@@ -82,45 +82,46 @@ async function reverseCredits({ userId, bookingId, proportion = 1 }) {
   if (!(p > 0)) return null;
 
   const entry = await txSerializable(async (tx) => {
-    const awarded = await tx.bonzaCredit.findMany({ where: { userId, bookingId, amount: { gt: 0 } } });
-    const totalAwarded = awarded.reduce((s, c) => s + c.amount, 0);
-    const clawback = round2(totalAwarded * p);
+    const awarded = await tx.bonzaCredit.findMany({ where: { userId, bookingId, amountPence: { gt: 0 } } });
+    const totalAwarded = awarded.reduce((s, c) => s + c.amountPence, 0);
+    const clawback = Math.round(totalAwarded * p); // integer pence
     if (!(clawback > 0)) return null;
     return tx.bonzaCredit.create({
-      data: { userId, amount: -clawback, source: "refund_reversal", bookingId, expiresAt: NEVER_EXPIRES },
+      data: { userId, amountPence: -clawback, source: "refund_reversal", bookingId, expiresAt: NEVER_EXPIRES },
     });
   });
 
-  if (entry) recordEvent(userId, EVENT_TYPES.CREDIT_AWARDED, { bookingId, amount: entry.amount, reversal: true });
+  if (entry) recordEvent(userId, EVENT_TYPES.CREDIT_AWARDED, { bookingId, amountPence: entry.amountPence, reversal: true });
   return entry;
 }
 
-// Raw sum (may be negative after a refund) and the clamped display balance.
+// Raw sum (may be negative after a refund) and the clamped display balance — all integer pence.
 async function getCreditBalance(userId) {
   const credits = await prisma.bonzaCredit.findMany({
     where: { userId, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
   });
-  const raw = credits.reduce((sum, c) => sum + c.amount, 0);
-  return { totalCreditsGbp: round2(Math.max(0, raw)), rawBalanceGbp: round2(raw), credits };
+  const raw = credits.reduce((sum, c) => sum + c.amountPence, 0);
+  return { totalCreditsPence: Math.max(0, raw), rawBalancePence: raw, credits };
 }
 
-async function redeemCredits(userId, amountToRedeem) {
-  const amount = Number(amountToRedeem);
+// §27b — `amountToRedeemPence` is integer pence.
+async function redeemCredits(userId, amountToRedeemPence) {
+  const amount = Math.round(Number(amountToRedeemPence));
   if (!(amount > 0)) throw httpError(400, "Redemption amount must be positive");
 
   // §27a — read-decide-write under serializable so two redemptions can't both pass the balance check.
   return txSerializable(async (tx) => {
     const rows = await tx.bonzaCredit.findMany({ where: { userId, expiresAt: { gt: new Date() } } });
-    const raw = round2(rows.reduce((s, c) => s + c.amount, 0));
+    const raw = rows.reduce((s, c) => s + c.amountPence, 0);
     // §27e-3 — a negative balance (unsettled refund) blocks redemption until it clears.
     if (raw <= 0) throw httpError(409, "Your Credits are on hold while a recent refund settles.");
     if (amount > raw) throw httpError(400, "Insufficient credits");
 
     await tx.bonzaCredit.create({
-      data: { userId, amount: -amount, source: "redeemed", expiresAt: NEVER_EXPIRES },
+      data: { userId, amountPence: -amount, source: "redeemed", expiresAt: NEVER_EXPIRES },
     });
-    return { redeemed: round2(amount), remainingBalance: round2(raw - amount) };
+    return { redeemedPence: amount, remainingBalancePence: raw - amount };
   });
 }
 

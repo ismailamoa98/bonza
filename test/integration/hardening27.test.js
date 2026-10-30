@@ -51,32 +51,32 @@ describe("§27a — inbound webhook idempotency", () => {
 describe("§27e-3 — refund reverses credits", () => {
   async function awardOnBooking() {
     const u = await makeUser();
-    const booking = await makeBooking(u.id, { leg: "hotel", cashValueGbp: 400 });
-    const credit = await awardCashback({ userId: u.id, bookingId: booking.id, cashValueGbp: 400, leg: "hotel" });
+    const booking = await makeBooking(u.id, { leg: "hotel", cashAmount: 40000 });
+    const credit = await awardCashback({ userId: u.id, bookingId: booking.id, cashAmountPence: 40000, leg: "hotel" });
     return { u, booking, credit };
   }
 
   it("a partial refund posts a proportional compensating entry", async () => {
     const { u, booking, credit } = await awardOnBooking();
-    expect(credit.amount).toBeGreaterThan(0);
+    expect(credit.amountPence).toBeGreaterThan(0);
     await reverseCredits({ userId: u.id, bookingId: booking.id, proportion: 0.5 });
-    const { rawBalanceGbp } = await getCreditBalance(u.id);
-    expect(rawBalanceGbp).toBeCloseTo(credit.amount * 0.5, 2);
+    const { rawBalancePence } = await getCreditBalance(u.id);
+    expect(rawBalancePence).toBeCloseTo(credit.amountPence * 0.5, 0);
   });
 
   it("a full refund zeroes the balance", async () => {
     const { u, booking } = await awardOnBooking();
     await reverseCredits({ userId: u.id, bookingId: booking.id, proportion: 1 });
-    const { rawBalanceGbp } = await getCreditBalance(u.id);
-    expect(rawBalanceGbp).toBeCloseTo(0, 2);
+    const { rawBalancePence } = await getCreditBalance(u.id);
+    expect(rawBalancePence).toBe(0);
   });
 
   it("a refund after the credits are spent leaves a negative balance and blocks redemption", async () => {
     const { u, booking, credit } = await awardOnBooking();
-    await redeemCredits(u.id, credit.amount); // spend it all
+    await redeemCredits(u.id, credit.amountPence); // spend it all
     await reverseCredits({ userId: u.id, bookingId: booking.id, proportion: 1 });
-    const { rawBalanceGbp } = await getCreditBalance(u.id);
-    expect(rawBalanceGbp).toBeLessThan(0);
+    const { rawBalancePence } = await getCreditBalance(u.id);
+    expect(rawBalancePence).toBeLessThan(0);
     await expect(redeemCredits(u.id, 1)).rejects.toMatchObject({ status: 409 });
   });
 });
@@ -84,7 +84,7 @@ describe("§27e-3 — refund reverses credits", () => {
 describe("§27e-1 — partial unique indexes", () => {
   it("rejects a second no-number membership for the same programme", async () => {
     const u = await makeUser();
-    const base = { userId: u.id, programme: "amex_mr", accountNumber: null, balance: 1, valueGbp: 0, syncState: "verified", lastSynced: new Date(), syncMethod: "manual" };
+    const base = { userId: u.id, programme: "amex_mr", accountNumber: null, balance: 1, valuePence: 0, syncState: "verified", lastSynced: new Date(), syncMethod: "manual" };
     await prisma.loyaltyAccount.create({ data: base });
     await expect(prisma.loyaltyAccount.create({ data: base })).rejects.toMatchObject({ code: "P2002" });
   });

@@ -5,6 +5,7 @@
 const express = require("express");
 const prisma = require("../config/database");
 const { ownedOr403 } = require("../utils/ownedOr403");
+const { toMinor } = require("../../shared/format");
 
 const router = express.Router();
 
@@ -27,7 +28,7 @@ router.post("/conversion", async (req, res, next) => {
         type,
         vendor,
         bookingId: bookingId || null,
-        commissionAmount: commissionAmount != null ? Number(commissionAmount) : null,
+        commissionAmountPence: commissionAmount != null ? toMinor(Number(commissionAmount), "GBP") : null,
       },
     });
 

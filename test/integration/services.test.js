@@ -40,13 +40,13 @@ describe("eventTracker.recordEvent", () => {
 });
 
 describe("valuationRefreshJob.refreshValuations", () => {
-  it("reprices every LoyaltyAccount.valueGbp from the current cents-per-point", async () => {
+  it("reprices every LoyaltyAccount.valuePence from the current cents-per-point", async () => {
     const u = await makeUser();
-    const acct = await makeLoyaltyAccount(u.id, { programme: "world_of_hyatt", balance: 100000, valueGbp: 1 });
+    const acct = await makeLoyaltyAccount(u.id, { programme: "world_of_hyatt", balance: 100000, valuePence: 100 });
     const result = await refreshValuations();
     expect(result.repriced).toBeGreaterThanOrEqual(1);
     const after = await prisma.loyaltyAccount.findUnique({ where: { id: acct.id } });
-    // world_of_hyatt = 1.8¢/pt → £1.80/1000pt → 100,000 pts = £1,800
-    expect(after.valueGbp).toBeCloseTo(1800, 2);
+    // world_of_hyatt = 1.8p/pt → 100,000 pts = £1,800 = 180,000 pence
+    expect(after.valuePence).toBeCloseTo(180000, 0);
   });
 });

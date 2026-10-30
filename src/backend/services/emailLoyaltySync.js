@@ -278,7 +278,7 @@ async function parseEmailsForUser(userId, accessToken, provider = "gmail") {
 
       const statusMatch = patterns.statusRegex ? body.match(patterns.statusRegex) : null;
       const statusTier = statusMatch ? statusMatch[0].trim() : null;
-      const valueGbp = Math.round(balance * PROGRAMME_VALUATIONS[programme] * 100) / 100;
+      const valuePence = Math.round(balance * PROGRAMME_VALUATIONS[programme] * 100); // §27b — £/pt → pence
 
       // Identifiers used to detect cross-account linking. The current parse extracts
       // neither yet, so these are null and the conflict check is inert; persisting them
@@ -301,7 +301,7 @@ async function parseEmailsForUser(userId, accessToken, provider = "gmail") {
 
       const fields = {
         balance,
-        valueGbp,
+        valuePence,
         statusTier,
         programmeAccountId,
         loyaltyEmailAddress,
@@ -314,7 +314,7 @@ async function parseEmailsForUser(userId, accessToken, provider = "gmail") {
         await prisma.loyaltyAccount.create({ data: { userId, programme, ...fields } });
       }
 
-      updatedAccounts.push({ programme, balance, valueGbp, statusTier });
+      updatedAccounts.push({ programme, balance, valuePence, statusTier });
     } catch (err) {
       logger.error(`[emailLoyaltySync] parse failed for ${programme} (${provider})`, err);
     }
@@ -347,15 +347,15 @@ async function mockSyncForUser(userId) {
   const updatedAccounts = [];
   for (const [programme, info] of Object.entries(balances)) {
     const { balance, accountNumber, statusTier } = info;
-    const valueGbp = Math.round(balance * PROGRAMME_VALUATIONS[programme] * 100) / 100;
-    const fields = { balance, valueGbp, statusTier, accountNumber, lastSynced: new Date(), syncMethod: "manual" };
+    const valuePence = Math.round(balance * PROGRAMME_VALUATIONS[programme] * 100); // §27b — £/pt → pence
+    const fields = { balance, valuePence, statusTier, accountNumber, lastSynced: new Date(), syncMethod: "manual" };
     const existing = await prisma.loyaltyAccount.findFirst({ where: { userId, programme } });
     if (existing) {
       await prisma.loyaltyAccount.update({ where: { id: existing.id }, data: fields });
     } else {
       await prisma.loyaltyAccount.create({ data: { userId, programme, ...fields } });
     }
-    updatedAccounts.push({ programme, balance, valueGbp, statusTier });
+    updatedAccounts.push({ programme, balance, valuePence, statusTier });
   }
   return updatedAccounts;
 }

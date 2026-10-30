@@ -5,7 +5,6 @@ const emailSync = require("./emailLoyaltySync");
 const { logger } = require("../utils/logger");
 
 const DEEP_LOOKBACK_DAYS = 365;
-const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 // The email-verifiable programmes that actually have parse patterns (hotels + major airlines), with names.
 async function emailVerifiableProgrammes() {
@@ -24,7 +23,7 @@ function decideBalance(account, stmt) {
     return {
       status: "created",
       patch: {
-        balance: stmt.balance, valueGbp: stmt.valueGbp,
+        balance: stmt.balance, valuePence: stmt.valuePence,
         statementDate: stmt.statementDate, statementReceivedAt: stmt.statementReceivedAt,
         statementSource: stmt.source, syncState: "verified",
         lastSynced: stmt.now, syncMethod: "email_parse",
@@ -47,7 +46,7 @@ function decideBalance(account, stmt) {
   return {
     status: matches ? "verified" : "updated",
     patch: {
-      balance: stmt.balance, valueGbp: stmt.valueGbp,
+      balance: stmt.balance, valuePence: stmt.valuePence,
       previousBalance: matches ? null : account.balance,
       statementDate: stmt.statementDate, statementReceivedAt: stmt.statementReceivedAt,
       statementSource: stmt.source,
@@ -64,8 +63,8 @@ function decideBalance(account, stmt) {
 async function applyStatementBalance(userId, programme, { balance, date, receivedAt, source }) {
   const statementDate = date ? new Date(date) : new Date();
   const statementReceivedAt = receivedAt ? new Date(receivedAt) : new Date();
-  const valueGbp = round2(balance * (emailSync.PROGRAMME_VALUATIONS[programme] || 0));
-  const stmt = { balance, valueGbp, statementDate, statementReceivedAt, source: source || null, now: new Date() };
+  const valuePence = Math.round(balance * (emailSync.PROGRAMME_VALUATIONS[programme] || 0) * 100); // £/pt → pence
+  const stmt = { balance, valuePence, statementDate, statementReceivedAt, source: source || null, now: new Date() };
 
   const run = () =>
     prisma.$transaction(

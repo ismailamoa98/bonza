@@ -7,6 +7,7 @@ const { writeBooking } = require("../utils/bookingWriter");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
 const { recordSignupAcceptance } = require("../services/legalAcceptance");
 const { oncePerEvent } = require("../utils/webhookIdempotency");
+const { toMinor } = require("../../shared/format");
 const { logger } = require("../utils/logger");
 
 async function clerkWebhook(req, res) {
@@ -68,7 +69,7 @@ async function affiliateWebhook(req, res) {
         where: { id: click.id },
         data: {
           convertedAt: new Date(),
-          commissionEst: commission != null ? parseFloat(commission) : click.commissionEst,
+          commissionEstPence: commission != null ? toMinor(parseFloat(commission), "GBP") : click.commissionEstPence,
         },
       });
 

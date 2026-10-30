@@ -7,6 +7,7 @@ const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
 const { isProActive } = require("../middleware/requirePro");
 const { PROGRAMME_VALUATIONS } = require("../services/emailLoyaltySync");
 const { CASHBACK_RATE, CLAUDE_MODEL } = require("../config/constants");
+const { toMinor } = require("../../shared/format");
 const {
   triggerAwardAlert,
   triggerExpiryWarning,
@@ -214,7 +215,7 @@ async function claudeRecommendations({ awardRows, loyaltyAccounts, homeAirport }
   const loyaltySummary = loyaltyAccounts.map((a) => ({
     programme: a.programme,
     balance: a.balance,
-    valueGbp: a.valueGbp,
+    valueGbp: Math.round((a.valuePence || 0) / 100), // §27b — column is pence; prompt reads whole £
     statusTier: a.statusTier,
   }));
 
@@ -318,7 +319,7 @@ async function runJobForUser(userId, { force = false } = {}) {
             cabin: r.cabin,
             pointsCost: r.pointsCost,
             seatsAvail: r.seatsAvailable ?? null,
-            taxesGbp: r.taxesGbp ?? null,
+            taxesPence: r.taxesGbp != null ? toMinor(r.taxesGbp, "GBP") : null,
             bookingUrl: r.affiliateUrl || r.bookingUrl || null,
             expiresAt: new Date(Date.now() + DAY_MS),
           },
@@ -376,8 +377,8 @@ async function runJobForUser(userId, { force = false } = {}) {
         bestOptionType: rec.bestOptionType,
         pointsValueRating: rec.pointsValueRating,
         centsPerPoint: rec.centsPerPoint ?? null,
-        cashSavingGbp: rec.cashSavingGbp ?? null,
-        creditsIfCash: rec.creditsIfCash ?? null,
+        cashSavingPence: rec.cashSavingGbp != null ? toMinor(rec.cashSavingGbp, "GBP") : null,
+        creditsIfCashPence: rec.creditsIfCash != null ? toMinor(rec.creditsIfCash, "GBP") : null,
         expiresAt: new Date(Date.now() + 2 * DAY_MS),
       },
     });

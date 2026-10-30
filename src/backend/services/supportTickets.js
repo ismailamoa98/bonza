@@ -25,13 +25,13 @@ async function snapshotContext(userId, userAgent) {
   try {
     const [accounts, credits, subscription, lastSync] = await Promise.all([
       prisma.loyaltyAccount.findMany({ where: { userId }, select: { programme: true, balance: true, syncState: true } }),
-      prisma.bonzaCredit.aggregate({ where: { userId, expiresAt: { gt: new Date() } }, _sum: { amount: true } }),
+      prisma.bonzaCredit.aggregate({ where: { userId, expiresAt: { gt: new Date() } }, _sum: { amountPence: true } }),
       prisma.subscription.findUnique({ where: { userId }, select: { status: true, currentPeriodEnd: true } }),
       prisma.balanceSyncRun.findFirst({ where: { userId }, orderBy: { startedAt: "desc" }, select: { startedAt: true } }),
     ]);
     return {
       balances: accounts,
-      creditBalance: credits._sum.amount ?? 0,
+      creditBalancePence: credits._sum.amountPence ?? 0,
       pro: subscription?.status ?? null,
       lastSyncAt: lastSync?.startedAt ?? null,
       userAgent: userAgent || null,

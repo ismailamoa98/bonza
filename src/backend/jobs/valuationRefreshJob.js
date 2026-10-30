@@ -50,7 +50,7 @@ async function refreshValuations() {
     if (cpp == null) continue;
     await prisma.loyaltyAccount.update({
       where: { id: account.id },
-      data: { valueGbp: Math.round(account.balance * (cpp / 100) * 100) / 100 },
+      data: { valuePence: Math.round(account.balance * cpp) }, // §27b — cpp is pence/point
     });
     repriced++;
   }

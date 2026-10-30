@@ -31,7 +31,7 @@ export default function ProgrammeDetailPanel({ accountId, rowAccount, onEdit }) 
   }
   if (!detail) return null;
 
-  const { account, heldValueGbp, bestTransfer, holdIsBetter, transferOptions, ratesLastRefreshed } = detail;
+  const { account, bestTransfer, holdIsBetter, transferOptions, ratesLastRefreshed } = detail;
   const visible = showAll ? transferOptions : transferOptions.slice(0, 7);
   const hidden = transferOptions.length - visible.length;
 
@@ -42,13 +42,13 @@ export default function ProgrammeDetailPanel({ accountId, rowAccount, onEdit }) 
         <Stat label="Balance" value={`${account.balance.toLocaleString()} ${account.currency}`} sub={account.displayName} />
         <Stat
           label="Best transfer"
-          value={bestTransfer ? `£${bestTransfer.valueGbp.toFixed(0)}` : "—"}
+          value={bestTransfer ? `£${(bestTransfer.valuePence / 100).toFixed(0)}` : "—"}
           valueClass={holdIsBetter ? "text-[#96450A]" : "text-[#186334]"}
           sub={
             bestTransfer
               ? holdIsBetter
                 ? "worse than holding"
-                : `${bestTransfer.displayName} · +£${bestTransfer.upliftGbp.toFixed(0)}`
+                : `${bestTransfer.displayName} · +£${(bestTransfer.upliftPence / 100).toFixed(0)}`
               : "no transfer partners"
           }
         />
@@ -119,9 +119,9 @@ export default function ProgrammeDetailPanel({ accountId, rowAccount, onEdit }) 
                   {opt === transferOptions[0] && !holdIsBetter && (
                     <span className="text-[8.5px] font-bold text-[#186334] bg-[#DCEBE1] px-1.5 py-px rounded flex-shrink-0">BEST</span>
                   )}
-                  {opt.upliftGbp < 0 && (
+                  {opt.upliftPence < 0 && (
                     <span className="text-[8.5px] font-bold text-[#96450A] bg-[#FBF0DC] px-1.5 py-px rounded flex-shrink-0">
-                      −£{Math.abs(opt.upliftGbp).toFixed(0)}
+                      −£{Math.abs(opt.upliftPence / 100).toFixed(0)}
                     </span>
                   )}
                   {opt.bonusActive && (
@@ -139,7 +139,7 @@ export default function ProgrammeDetailPanel({ accountId, rowAccount, onEdit }) 
                 >
                   {opt.centsPerPoint.toFixed(1)}¢
                 </span>
-                <span className="text-[12px] font-semibold text-ink-900 text-right">£{opt.valueGbp.toFixed(0)}</span>
+                <span className="text-[12px] font-semibold text-ink-900 text-right">£{(opt.valuePence / 100).toFixed(0)}</span>
               </div>
             ))}
           </div>

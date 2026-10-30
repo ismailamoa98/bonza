@@ -13,6 +13,7 @@
     "db:seed": "node src/backend/db/seed.js",
     "db:seed:e2e": "node src/backend/db/seedE2e.js",
     "check:no-float": "node scripts/check-no-float.js",
+    "pretest": "npm run check:no-float",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:unit": "vitest run --project backend --project frontend",

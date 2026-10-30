@@ -1,6 +1,10 @@
-// utils/money.js — display-currency conversion. All amounts in the app are GBP (that's what Duffel/Stripe
-// charge); this converts them to the user's local currency for DISPLAY only, using live FX rates (fetched
-// into the singleton) with a bundled fallback so it works instantly/offline. The actual charge stays GBP.
+// utils/money.js — display-currency conversion. §27b: the MONEY OF RECORD is integer pence in the DB and the
+// API emits stored money as `*Pence` fields; this display layer works in GBP major units (£) and converts to
+// the viewer's local currency for DISPLAY only, using live FX (singleton) with a bundled fallback so it works
+// instantly/offline. The actual charge stays GBP. Callers reading a `*Pence` field pass `pence / 100`.
+// Formatting itself goes through the one shared formatter (src/shared/format.js) so GBP/display rendering is
+// identical to the backend's.
+import fmt from "@shared/format";
 
 // Approx GBP→X fallback so the first paint is already localised before live rates load.
 const FALLBACK = {
@@ -41,14 +45,16 @@ let _locale = browserLocale();
 
 const rateFor = (ccy) => _rates[ccy] || 1;
 
-// Format a GBP amount in the active display currency (no minor units — matches the app's rounded style).
-export function money(gbp) {
-  const value = (Number(gbp) || 0) * rateFor(_currency);
-  try {
-    return new Intl.NumberFormat(_locale, { style: "currency", currency: _currency, maximumFractionDigits: 0 }).format(value);
-  } catch {
-    return `£${Math.round(value).toLocaleString()}`;
-  }
+// Format a GBP-MAJOR (£) amount in the active display currency. `precise` keeps the currency's natural minor
+// digits (e.g. a credits balance "£12.34"); the default shows whole units, matching the app's rounded style.
+// (A value read from a `*Pence` API field is passed as `pence / 100`.)
+export function money(gbpMajor, { precise = false } = {}) {
+  const displayMajor = (Number(gbpMajor) || 0) * rateFor(_currency); // £ → viewer currency (major)
+  const displayMinor = fmt.toMinor(displayMajor, _currency);
+  return fmt.formatMoney(displayMinor, _currency, {
+    locale: _locale,
+    ...(precise ? {} : { maximumFractionDigits: 0 }),
+  });
 }
 
 export function currentFx() {

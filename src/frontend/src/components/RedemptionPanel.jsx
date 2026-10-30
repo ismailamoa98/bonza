@@ -234,7 +234,7 @@ export function RedemptionAccounts({ accounts = [] }) {
               <span className="text-ink">{programmeName(a.programme)}</span>
             </span>
             <span className="text-right text-ink-muted">
-              {formatPoints(a.balance)} · <b className="text-ink">{formatGbp(a.valueGbp)}</b>
+              {formatPoints(a.balance)} · <b className="text-ink">{formatGbp((a.valuePence || 0) / 100)}</b>
             </span>
           </li>
         ))}

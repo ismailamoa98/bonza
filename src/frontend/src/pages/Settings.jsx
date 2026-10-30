@@ -235,7 +235,7 @@ function LoyaltyTab() {
                 <div className="min-w-0">
                   <p className="text-[13px] font-semibold text-ink">{programmeLabel(a.programme)}</p>
                   <p className="text-[11px] text-ink-muted tabular-nums">
-                    {Number(a.balance).toLocaleString("en-GB")} pts · {formatGbp(a.valueGbp)}
+                    {Number(a.balance).toLocaleString("en-GB")} pts · {formatGbp((a.valuePence || 0) / 100)}
                     {a.statusTier ? ` · ${a.statusTier}` : ""} · {a.syncMethod}
                     {a.lastSynced ? ` · ${shortDate(a.lastSynced)}` : ""}
                   </p>

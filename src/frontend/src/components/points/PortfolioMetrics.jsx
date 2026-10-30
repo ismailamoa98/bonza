@@ -7,7 +7,7 @@ export default function PortfolioMetrics({ metrics, loading }) {
     return <div className="h-[132px] rounded-2xl bg-white/50 animate-pulse mb-1" />;
   }
 
-  const { creditBalance, transferableBalance, transferableProgrammes, expiring } = metrics;
+  const { creditBalancePence = 0, transferableBalance, transferableProgrammes, expiring } = metrics;
 
   return (
     <div className="rounded-2xl bg-white/60 border border-ink-900/[0.06] shadow-[0_10px_40px_rgba(120,80,50,0.06)] px-2 py-7 md:py-8">
@@ -15,7 +15,7 @@ export default function PortfolioMetrics({ metrics, loading }) {
         <Metric
           icon={<WalletIcon width="17" height="17" />}
           label="Bonza Credits"
-          value={`£${creditBalance.toFixed(2)}`}
+          value={`£${(creditBalancePence / 100).toFixed(2)}`}
           sub="Applied automatically at checkout"
         />
         <Metric

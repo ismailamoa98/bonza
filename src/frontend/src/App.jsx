@@ -126,7 +126,7 @@ function AuthSync() {
       getSubscriptionStatus()
         .then((s) => { setProStatus(s.isPro); identify({ id: user.id, plan: s.isPro ? "pro" : "free" }); })
         .catch(() => {});
-      getCredits().then((c) => setCreditBalance(c.totalCreditsGbp)).catch(() => {});
+      getCredits().then((c) => setCreditBalance((c.totalCreditsPence || 0) / 100)).catch(() => {});
       getLoyaltyAccounts()
         .then((a) => { setLoyaltyAccounts(a); identify({ id: user.id, programmeCount: a?.length ?? 0 }); })
         .catch(() => {});

@@ -51,10 +51,14 @@ export const formatUpdatedAt = (iso, { withTime = false } = {}) => {
   });
 };
 
-// All amounts are GBP values; both helpers convert to the user's display currency (see utils/money).
-export const formatMoney = (n) => money(n);
+// §27b — all money crosses as GBP minor units (pence). Both helpers convert pence to the viewer's display
+// currency via utils/money (which formats through the one shared formatter). `formatGbpExact` keeps the
+// natural minor digits (e.g. a credits balance "£12.34"); the default shows whole units.
+export const formatMoney = (pence) => money(pence);
 
-export const formatGbp = (n) => money(n);
+export const formatGbp = (pence) => money(pence);
+
+export const formatGbpExact = (pence) => money(pence, { precise: true });
 
 export const cppRating = (cpp, benchmark) => {
   const c = Number(cpp) || 0;

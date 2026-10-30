@@ -58,7 +58,7 @@ export default function AdminUserPage() {
       </Section>
 
       <Section title={`Credits (${data.credits.length})`}>
-        {data.credits.length ? data.credits.map((c, i) => <Row key={i} cells={[`${c.source} · ${date(c.createdAt)}`, `${money(c.amount)} · exp ${date(c.expiresAt)}`]} />) : <Row cells={["No credits", ""]} />}
+        {data.credits.length ? data.credits.map((c, i) => <Row key={i} cells={[`${c.source} · ${date(c.createdAt)}`, `${money((c.amountPence || 0) / 100)} · exp ${date(c.expiresAt)}`]} />) : <Row cells={["No credits", ""]} />}
       </Section>
 
       <Section title={`Sync history (${data.syncRuns.length})`}>

@@ -61,11 +61,11 @@ export default function BookingsHistory() {
               <div className="shrink-0 text-right tabular-nums">
                 <p className="text-[14px] font-bold text-ink">
                   {b.bookingType === "cash"
-                    ? formatGbp(b.cashValueGbp || 0)
+                    ? formatGbp((b.cashAmount || 0) / 100)
                     : `${Number(b.pointsUsed || 0).toLocaleString("en-GB")} pts`}
                 </p>
-                {b.creditsAwarded > 0 && (
-                  <p className="text-[11px] font-semibold text-bonza">+{formatGbp(b.creditsAwarded)} credits</p>
+                {b.creditsAwardedPence > 0 && (
+                  <p className="text-[11px] font-semibold text-bonza">+{formatGbp(b.creditsAwardedPence / 100)} credits</p>
                 )}
               </div>
             </li>

@@ -4,8 +4,10 @@
 // globalSetup; truncate-reset per test). E2E lives in Playwright (playwright.config.js), run separately.
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath, URL } from "node:url";
 
 const TEST_DATABASE_URL = "postgresql://bonza:bonza_dev@localhost:5432/bonza_test";
+const SHARED_ALIAS = { "@shared": fileURLToPath(new URL("./src/shared", import.meta.url)) }; // §27b money formatter
 
 export default defineConfig({
   test: {
@@ -39,7 +41,7 @@ export default defineConfig({
         // Components resolve `react` from src/frontend/node_modules while Testing Library resolves it from
         // the root — two copies break hooks. Dedupe to a single React instance. (Tests needing react-router
         // mock it rather than rendering a real Router, whose UMD build pulls a second React copy.)
-        resolve: { dedupe: ["react", "react-dom", "react/jsx-runtime"] },
+        resolve: { dedupe: ["react", "react-dom", "react/jsx-runtime"], alias: SHARED_ALIAS },
         test: {
           name: "frontend",
           environment: "jsdom",

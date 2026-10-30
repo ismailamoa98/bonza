@@ -39,10 +39,10 @@ router.get("/user/:userId", async (req, res, next) => {
         createdAt: user.createdAt,
         pro: subscription ? { status: subscription.status, currentPeriodEnd: subscription.currentPeriodEnd } : null,
       },
-      bookings: bookings.map((b) => ({ id: b.id, description: b.description, leg: b.leg, supplier: b.supplier, supplierReference: b.supplierReference, confirmationMethod: b.confirmationMethod, status: b.status, cashValueGbp: b.cashValueGbp, pointsUsed: b.pointsUsed, creditsAwarded: b.creditsAwarded, confirmedAt: b.confirmedAt })),
+      bookings: bookings.map((b) => ({ id: b.id, description: b.description, leg: b.leg, supplier: b.supplier, supplierReference: b.supplierReference, confirmationMethod: b.confirmationMethod, status: b.status, cashAmount: b.cashAmount, cashCurrency: b.cashCurrency, pointsUsed: b.pointsUsed, creditsAwardedPence: b.creditsAwardedPence, confirmedAt: b.confirmedAt })),
       balances: balances.map((a) => ({ programme: a.programme, balance: a.balance, statusTier: a.statusTier, syncState: a.syncState, statementDate: a.statementDate, lastSynced: a.lastSynced })),
       syncRuns: syncRuns.map((r) => ({ startedAt: r.startedAt, mailbox: r.mailbox, programmesChecked: r.programmesChecked, statementsFound: r.statementsFound, balancesUpdated: r.balancesUpdated, balancesVerified: r.balancesVerified, notChecked: r.notChecked })),
-      credits: credits.map((c) => ({ amount: c.amount, source: c.source, createdAt: c.createdAt, expiresAt: c.expiresAt })),
+      credits: credits.map((c) => ({ amountPence: c.amountPence, source: c.source, createdAt: c.createdAt, expiresAt: c.expiresAt })),
       tickets,
       events: events.map((e) => ({ type: e.type, createdAt: e.createdAt, metadata: e.metadata })),
     });

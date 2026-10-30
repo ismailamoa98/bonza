@@ -18,7 +18,6 @@ const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
 const router = express.Router();
 
 const SUPPORTED_PROVIDERS = ["gmail", "outlook"];
-const round2 = (n) => Math.round(Number(n) * 100) / 100;
 // Column names for each provider's connection flag + stored refresh token on User.
 const CONN_FLAG = { gmail: "gmailConnected", outlook: "outlookConnected" };
 const REFRESH_COL = { gmail: "gmailRefreshToken", outlook: "outlookRefreshToken" };
@@ -68,7 +67,7 @@ router.get("/accounts", async (req, res, next) => {
   try {
     const accounts = await prisma.loyaltyAccount.findMany({
       where: { userId: req.userId },
-      orderBy: { valueGbp: "desc" },
+      orderBy: { valuePence: "desc" },
     });
     res.json({ accounts });
   } catch (err) {
@@ -171,7 +170,7 @@ router.post("/accounts", async (req, res, next) => {
     if (!Number.isFinite(bal) || bal < 0) {
       return sendError(res, "VALIDATION_FAILED", { message: "balance must be a non-negative number" });
     }
-    const valueGbp = round2(bal * (valuation.centsPerPoint / 100));
+    const valuePence = Math.round(bal * valuation.centsPerPoint); // §27b — centsPerPoint is pence/point
     const number = accountNumber?.trim() || null;
     // Optional user-supplied expiry date — drives the "Expiring soon" tile and the expiry-warning emails.
     let expireAt = null;
@@ -180,7 +179,7 @@ router.post("/accounts", async (req, res, next) => {
       if (!Number.isNaN(d.getTime())) expireAt = d;
     }
     const fields = {
-      balance: bal, valueGbp, statusTier: statusTier || null, lastSynced: new Date(), syncMethod: "manual",
+      balance: bal, valuePence, statusTier: statusTier || null, lastSynced: new Date(), syncMethod: "manual",
       accountNumber: number, loyaltyEmailAddress: loyaltyEmailAddress?.trim() || null,
       pointsExpireAt: expireAt,
     };

@@ -17,14 +17,14 @@ describe("generateRedemptionOptions", () => {
 
   it("always includes a cash scenario", async () => {
     const u = await makeUser();
-    await makeLoyaltyAccount(u.id, { programme: "ba_avios", balance: 500000, valueGbp: 5500 });
+    await makeLoyaltyAccount(u.id, { programme: "ba_avios", balance: 500000, valuePence: 550000 });
     const out = await generateRedemptionOptions(u.id, trip);
     expect(out.all.some((s) => s.type === "cash")).toBe(true);
   });
 
   it("surfaces a direct points scenario when a programme can afford the redemption", async () => {
     const u = await makeUser();
-    await makeLoyaltyAccount(u.id, { programme: "world_of_hyatt", balance: 500000, valueGbp: 9000 });
+    await makeLoyaltyAccount(u.id, { programme: "world_of_hyatt", balance: 500000, valuePence: 900000 });
     const out = await generateRedemptionOptions(u.id, trip);
     const points = out.all.find((s) => s.type === "points");
     expect(points).toBeTruthy();
@@ -34,7 +34,7 @@ describe("generateRedemptionOptions", () => {
 
   it("includes a transfer scenario when a transferable currency can reach a partner", async () => {
     const u = await makeUser();
-    await makeLoyaltyAccount(u.id, { programme: "amex_mr", balance: 500000, valueGbp: 9000 });
+    await makeLoyaltyAccount(u.id, { programme: "amex_mr", balance: 500000, valuePence: 900000 });
     const out = await generateRedemptionOptions(u.id, trip);
     const transfer = out.all.find((s) => s.type === "transfer");
     expect(transfer).toBeTruthy();
@@ -44,15 +44,15 @@ describe("generateRedemptionOptions", () => {
 
   it("does not offer a transfer when the only programme has no partner path", async () => {
     const u = await makeUser();
-    await makeLoyaltyAccount(u.id, { programme: "ihg_one", balance: 500000, valueGbp: 3000 });
+    await makeLoyaltyAccount(u.id, { programme: "ihg_one", balance: 500000, valuePence: 300000 });
     const out = await generateRedemptionOptions(u.id, trip);
     expect(out.all.some((s) => s.type === "transfer")).toBe(false);
   });
 
   it("ranks the best scenario first by value score", async () => {
     const u = await makeUser();
-    await makeLoyaltyAccount(u.id, { programme: "world_of_hyatt", balance: 500000, valueGbp: 9000 });
-    await makeLoyaltyAccount(u.id, { programme: "ihg_one", balance: 500000, valueGbp: 3000 });
+    await makeLoyaltyAccount(u.id, { programme: "world_of_hyatt", balance: 500000, valuePence: 900000 });
+    await makeLoyaltyAccount(u.id, { programme: "ihg_one", balance: 500000, valuePence: 300000 });
     const out = await generateRedemptionOptions(u.id, trip);
     expect(out.best).toBe(out.all[0]);
     const scores = out.all.map((s) => s.valueScore || 0);

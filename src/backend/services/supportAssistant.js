@@ -54,11 +54,11 @@ async function buildContext(userId) {
     prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, homeAirport: true, createdAt: true } }),
     prisma.booking.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 10 }),
     prisma.loyaltyAccount.findMany({ where: { userId } }),
-    prisma.bonzaCredit.aggregate({ where: { userId, expiresAt: { gt: new Date() } }, _sum: { amount: true } }),
+    prisma.bonzaCredit.aggregate({ where: { userId, expiresAt: { gt: new Date() } }, _sum: { amountPence: true } }),
     prisma.subscription.findUnique({ where: { userId } }),
     prisma.balanceSyncRun.findFirst({ where: { userId }, orderBy: { startedAt: "desc" } }),
   ]);
-  return { user, bookings, accounts, creditBalance: credits._sum.amount ?? 0, subscription, lastSync };
+  return { user, bookings, accounts, creditBalance: (credits._sum.amountPence ?? 0) / 100, subscription, lastSync };
 }
 
 function contextBlock(ctx) {

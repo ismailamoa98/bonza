@@ -10,6 +10,7 @@ const { createBookingPaymentIntent, retrievePaymentIntent } = require("../servic
 const { bookCashFlight } = require("../services/duffelService");
 const { getPropertyReviews } = require("../services/googlePlacesService");
 const { COMMISSION_RATES } = require("../config/constants");
+const { toMinor } = require("../../shared/format");
 const env = require("../config/env");
 const { buildAffiliateUrl, hotelAffiliateProgramme, recordClick } = require("../services/affiliateService");
 const { hotelAwardLink, buyPointsLink, issuerTransferLink } = require("../services/awardLinks");
@@ -59,7 +60,7 @@ router.post("/points-handoff", async (req, res, next) => {
         recommendedScenario: "points",
         recommendedProgramme: programme,
         pointsRecommended: totalPoints ? Math.round(totalPoints) : null,
-        bookingValueGbp: cashGbp != null ? Number(cashGbp) : null,
+        bookingValuePence: cashGbp != null ? toMinor(Number(cashGbp), "GBP") : null,
         deepLinkLeg: "hotel",
       },
     });
@@ -248,7 +249,7 @@ router.post("/confirm-cash", async (req, res, next) => {
             type,
             vendor: leg.vendor || LEG_SUPPLIER[type],
             bookingId: booking.id,
-            commissionAmount: leg.commissionAmount != null ? Number(leg.commissionAmount) : null,
+            commissionAmountPence: leg.commissionAmount != null ? toMinor(Number(leg.commissionAmount), "GBP") : null,
           },
         }).catch(() => {});
       }
@@ -305,7 +306,7 @@ router.get("/:id", async (req, res, next) => {
         journey: true,
         credits: {
           where: { expiresAt: { gt: new Date() } },
-          select: { amount: true, source: true, createdAt: true },
+          select: { amountPence: true, source: true, createdAt: true },
         },
       },
     });
@@ -334,11 +335,11 @@ router.post("/:id/cancel", async (req, res, next) => {
       },
     });
 
-    if (booking.creditsAwarded) {
+    if (booking.creditsAwardedPence) {
       await prisma.bonzaCredit.create({
         data: {
           userId: req.userId,
-          amount: -booking.creditsAwarded,
+          amountPence: -booking.creditsAwardedPence,
           source: "redeemed",
           bookingId: booking.id,
           expiresAt: NEVER_EXPIRES,
@@ -349,7 +350,7 @@ router.post("/:id/cancel", async (req, res, next) => {
     await recordEvent(req.userId, EVENT_TYPES.BOOKING_CANCELLED, {
       bookingId: booking.id,
       reason: req.body?.reason || null,
-      reversedCredits: booking.creditsAwarded || 0,
+      reversedCreditsPence: booking.creditsAwardedPence || 0,
     });
 
     res.json({ booking: updated });

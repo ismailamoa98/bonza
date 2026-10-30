@@ -25,26 +25,26 @@ describe("writeBooking", () => {
     expect(await prisma.booking.count({ where: { userId: u.id } })).toBe(1);
   });
 
-  it("awards 3% cashback on a first cash hotel booking and stamps creditsAwarded", async () => {
+  it("awards 3% cashback on a first cash hotel booking and stamps creditsAwardedPence", async () => {
     const u = await makeUser();
     const b = await writeBooking(u.id, hotelLeg);
-    expect(b.creditsAwarded).toBeCloseTo(9, 5); // 3% of £300
+    expect(b.creditsAwardedPence).toBe(900); // 3% of £300 = 900p
     const credits = await prisma.bonzaCredit.findMany({ where: { userId: u.id } });
     expect(credits).toHaveLength(1);
-    expect(credits[0].amount).toBeCloseTo(9, 5);
+    expect(credits[0].amountPence).toBe(900);
   });
 
   it("earns no cashback on a flight leg (flights don't earn Credits)", async () => {
     const u = await makeUser();
     const b = await writeBooking(u.id, { ...hotelLeg, leg: "flight", supplier: "duffel", confirmationMethod: "duffel" });
-    expect(b.creditsAwarded == null).toBe(true);
+    expect(b.creditsAwardedPence == null).toBe(true);
     expect(await prisma.bonzaCredit.count({ where: { userId: u.id } })).toBe(0);
   });
 
   it("earns no cashback on a points booking (no cash paid)", async () => {
     const u = await makeUser();
     const b = await writeBooking(u.id, { leg: "hotel", bookingType: "points", supplier: "world_of_hyatt", pointsUsed: 40000, pointsProgramme: "world_of_hyatt", confirmationMethod: "self_reported" });
-    expect(b.creditsAwarded == null).toBe(true);
+    expect(b.creditsAwardedPence == null).toBe(true);
     expect(await prisma.bonzaCredit.count({ where: { userId: u.id } })).toBe(0);
   });
 
@@ -52,7 +52,7 @@ describe("writeBooking", () => {
     const u = await makeUser();
     await writeBooking(u.id, hotelLeg); // first — free
     const second = await writeBooking(u.id, hotelLeg);
-    expect(second.creditsAwarded == null).toBe(true);
+    expect(second.creditsAwardedPence == null).toBe(true);
     expect(await prisma.bonzaCredit.count({ where: { userId: u.id } })).toBe(1);
   });
 
@@ -60,7 +60,7 @@ describe("writeBooking", () => {
     const u = await makeProUser();
     await writeBooking(u.id, hotelLeg);
     const second = await writeBooking(u.id, hotelLeg);
-    expect(second.creditsAwarded).toBeCloseTo(9, 5);
+    expect(second.creditsAwardedPence).toBe(900);
   });
 
   it("records an append-only booking_confirmed event", async () => {

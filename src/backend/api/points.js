@@ -11,15 +11,16 @@ const { isRatioFresh, ratioAgeHours } = require("../services/ratioFreshness");
 const { EMAIL_VERIFIABLE } = require("../services/emailLoyaltySync");
 const { findDuplicates, setManualBalance } = require("../services/balanceSync");
 
-const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+// §27b — centsPerPoint is pennies-per-point, so value_in_pence = points × centsPerPoint (rounded).
+const valuePence = (points, cpp) => Math.round((Number(points) || 0) * (Number(cpp) || 0));
 
 // GET /api/v1/points/portfolio — everything the page needs in one call.
 router.get("/portfolio", async (req, res, next) => {
   try {
     const [accounts, valuations, creditBalance, user] = await Promise.all([
-      prisma.loyaltyAccount.findMany({ where: { userId: req.userId }, orderBy: { valueGbp: "desc" } }),
+      prisma.loyaltyAccount.findMany({ where: { userId: req.userId }, orderBy: { valuePence: "desc" } }),
       prisma.programmeValuation.findMany(),
-      getCreditBalance(req.userId).catch(() => 0),
+      getCreditBalance(req.userId).catch(() => ({ totalCreditsPence: 0 })),
       prisma.user.findUnique({
         where: { id: req.userId },
         select: { gmailConnected: true, outlookConnected: true },
@@ -40,7 +41,7 @@ router.get("/portfolio", async (req, res, next) => {
         initials: v.initials || "?",
         currency: v.currency || "pts",
         balance: a.balance,
-        valueGbp: a.valueGbp,
+        valuePence: a.valuePence,
         centsPerPoint: v.centsPerPoint || 0,
         benchmarkCpp: v.benchmarkCpp || 0,
         aboveBenchmark: (v.centsPerPoint || 0) > (v.benchmarkCpp || 0),
@@ -103,7 +104,7 @@ router.get("/portfolio", async (req, res, next) => {
     res.json({
       catalog,
       metrics: {
-        creditBalance: round2(creditBalance),
+        creditBalancePence: creditBalance.totalCreditsPence || 0,
         creditExpiresAt: null,
         transferableBalance: transferable.reduce((s, a) => s + a.balance, 0),
         transferableProgrammes: transferable.map((a) => a.displayName),
@@ -141,7 +142,7 @@ router.get("/programme/:accountId", async (req, res, next) => {
       }),
     ]);
 
-    const heldValue = (account.balance * (valuation?.centsPerPoint || 0)) / 100;
+    const heldValuePence = valuePence(account.balance, valuation?.centsPerPoint || 0);
 
     // §27e-7 — a transfer recommendation on a ratio we haven't verified in 24h is excluded entirely.
     const now = Date.now();
@@ -151,7 +152,7 @@ router.get("/programme/:accountId", async (req, res, next) => {
         const resulting = Math.floor(
           account.balance * (p.ratioTo / p.ratioFrom) * (p.bonusActive ? 1 + (p.bonusPercent || 0) / 100 : 1)
         );
-        const value = (resulting * p.to.centsPerPoint) / 100;
+        const optValuePence = valuePence(resulting, p.to.centsPerPoint);
         return {
           programme: p.toProgramme,
           displayName: p.to.displayName,
@@ -159,17 +160,17 @@ router.get("/programme/:accountId", async (req, res, next) => {
           ratio: `${p.ratioFrom} : ${p.ratioTo}`,
           resultingBalance: resulting,
           centsPerPoint: p.to.centsPerPoint,
-          valueGbp: round2(value),
-          upliftGbp: round2(value - heldValue),
-          upliftPercent: heldValue > 0 ? Math.round(((value - heldValue) / heldValue) * 100) : 0,
-          isBetterThanHolding: value > heldValue,
+          valuePence: optValuePence,
+          upliftPence: optValuePence - heldValuePence,
+          upliftPercent: heldValuePence > 0 ? Math.round(((optValuePence - heldValuePence) / heldValuePence) * 100) : 0,
+          isBetterThanHolding: optValuePence > heldValuePence,
           transferTimeHrs: p.transferTimeHrs,
           bonusActive: p.bonusActive,
           bonusPercent: p.bonusPercent,
           ratioAgeHours: ratioAgeHours(p, now), // §27e-7 — surface the ratio's age on the card
         };
       })
-      .sort((a, b) => b.valueGbp - a.valueGbp);
+      .sort((a, b) => b.valuePence - a.valuePence);
 
     const best = options[0] || null;
 
@@ -186,10 +187,10 @@ router.get("/programme/:accountId", async (req, res, next) => {
         accountMasked: account.programmeAccountId,
         expiresAt: account.pointsExpireAt,
       },
-      heldValueGbp: round2(heldValue),
+      heldValuePence,
       centsPerPoint: valuation?.centsPerPoint || 0,
       bestTransfer: best,
-      holdIsBetter: best ? best.valueGbp <= heldValue : true,
+      holdIsBetter: best ? best.valuePence <= heldValuePence : true,
       transferOptions: options,
       ratesLastRefreshed: valuation?.lastRefreshedAt || null,
     });

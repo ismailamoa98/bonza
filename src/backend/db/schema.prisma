@@ -181,7 +181,7 @@ model Conversion {
   type             String // "flight", "hotel", "car"
   vendor           String
   bookingId        String?
-  commissionAmount Float?
+  commissionAmountPence Int? // §27b — commission in pence
 
   createdAt DateTime @default(now())
 }
@@ -206,7 +206,7 @@ model BonzaCredit {
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
-  amount    Float // in GBP, e.g. 24.00
+  amountPence Int // §27b — credit amount in pence (GBP minor units), e.g. 2400 = £24.00
   source    String // 'cashback_hotel' | 'cashback_flight' | 'cashback_car' | 'first_booking_bonus' | 'redeemed'
   bookingId String? // reference to the booking that generated this credit
   booking   Booking? @relation(fields: [bookingId], references: [id])
@@ -227,7 +227,7 @@ model LoyaltyAccount {
   loyaltyEmailAddress String?
 
   balance    Int // points
-  valueGbp   Float // estimated £ value at current programme rate
+  valuePence Int @default(0) // §27b — estimated value at current programme rate, in pence
   statusTier String? // 'Silver' | 'Gold' | 'Platinum' | 'Globalist' etc.
 
   pointsExpireAt DateTime?
@@ -288,7 +288,7 @@ model AffiliateClick {
 
   clickedAt     DateTime  @default(now())
   convertedAt   DateTime?
-  commissionEst Float? // estimated £ commission if known
+  commissionEstPence Int? // §27b — estimated commission in pence if known
 }
 
 model Booking {
@@ -318,11 +318,17 @@ model Booking {
   paymentIntentId   String? // Phase 27 §27e-3 — Stripe PI that paid for this leg; maps a charge.refunded back to the booking
   description       String? // e.g. "LHR → NCE · British Airways · Economy"
 
-  cashValueGbp    Float?
+  cashAmount      Int? // §27b — cash paid, in minor units (pence) of cashCurrency
+  cashCurrency    String? @default("GBP")
   pointsUsed      Int?
   pointsProgramme String?
-  pointsValueGbp  Float?
-  serviceFeeGbp   Float? // Bonza service fee (cash bookings only)
+  pointsValuePence Int? // §27b — £ value of the points leg, in pence
+  serviceFeePence  Int? // §27b — Bonza service fee (cash bookings only), in pence
+
+  // §27b forward-use: the FX rate captured at quote time for a non-GBP settlement. Unused today (all GBP→GBP).
+  fxRate   Decimal? @db.Decimal(18, 8)
+  fxRateAt DateTime?
+  fxBase   String?  @default("GBP")
 
   confirmedAt        DateTime
   confirmationMethod String // 'duffel' | 'affiliate_postback' | 'self_reported' | 'transfer_proxy'
@@ -331,7 +337,7 @@ model Booking {
   cancelledAt        DateTime?
   cancellationReason String?
 
-  creditsAwarded Float? // Bonza Credits issued for this booking
+  creditsAwardedPence Int? // §27b — Bonza Credits issued for this booking, in pence
   credits        BonzaCredit[]
   supportTickets SupportTicket[]
 
@@ -366,9 +372,9 @@ model UserJourney {
   bookingConfirmed   Boolean   @default(false)
   bookingMethod      String? // 'duffel' | 'self_reported' | 'affiliate_postback' | 'transfer_proxy'
   bookingConfirmedAt DateTime?
-  bookingValueGbp    Float?
+  bookingValuePence  Int? // §27b — booking value in pence
 
-  creditsAwarded   Float?
+  creditsAwardedPence Int? // §27b — credits awarded in pence
   creditsAwardedAt DateTime?
   isFirstBooking   Boolean   @default(false)
 
@@ -400,7 +406,7 @@ model AwardAvailability {
   cabin       String
   pointsCost  Int
   seatsAvail  Int?
-  taxesGbp    Float?
+  taxesPence  Int? // §27b — taxes/fees in pence
   bookingUrl  String? // deep-link to the loyalty portal
   fetchedAt   DateTime @default(now())
   expiresAt   DateTime // 24h TTL
@@ -432,8 +438,8 @@ model PersonalisedRecommendation {
   bestOptionType    String // 'points' | 'cash' | 'hybrid'
   pointsValueRating String // 'excellent' | 'good' | 'typical' | 'below_average'
   centsPerPoint     Decimal? @db.Decimal(8, 4) // §27b non-money rate
-  cashSavingGbp     Float?
-  creditsIfCash     Float? // 3% of the cash package — always populated
+  cashSavingPence   Int? // §27b — cash saving in pence
+  creditsIfCashPence Int? // §27b — 3% of the cash package in pence — always populated
 
   isActive    Boolean   @default(true)
   viewedAt    DateTime?

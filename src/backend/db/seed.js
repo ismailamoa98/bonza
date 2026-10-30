@@ -58,13 +58,13 @@ async function seedBalanceReview(userId) {
   const at = (d) => new Date(Date.now() - d * day);
   const email = "ismail@gmail.com";
   const accounts = [
-    { programme: "marriott_bonvoy", balance: 124000, valueGbp: 992, statusTier: "Gold Elite", accountNumber: "9007", syncState: "verified", statementDate: at(4), statementSource: email, syncMethod: "email_parse" },
-    { programme: "ba_avios", balance: 35000, valueGbp: 385, statusTier: "Bronze", accountNumber: "7788", syncState: "verified", statementDate: at(5), statementSource: email, syncMethod: "email_parse" },
-    { programme: "ihg_one", balance: 72400, valueGbp: 362, statusTier: "Gold Elite", accountNumber: "1180", syncState: "updated", previousBalance: 60000, statementDate: at(2), statementSource: email, syncMethod: "email_parse" },
-    { programme: "world_of_hyatt", balance: 120000, valueGbp: 2040, statusTier: "Explorist", accountNumber: "5520", syncState: "updated", previousBalance: 110000, statementDate: at(3), statementSource: email, syncMethod: "email_parse" },
-    { programme: "amex_mr", balance: 50000, valueGbp: 700, accountNumber: "4521", syncState: "not_checked", syncMethod: "manual" },
-    { programme: "united_mp", balance: 15000, valueGbp: 180, statusTier: "Silver", accountNumber: "3391", syncState: "not_checked", syncMethod: "manual" },
-    { programme: "hilton_honors", balance: 88000, valueGbp: 440, statusTier: "Gold", accountNumber: "3344", syncState: "not_checked", previousBalance: 92000, manualOverrideAt: at(1), syncMethod: "manual" },
+    { programme: "marriott_bonvoy", balance: 124000, valuePence: 99200, statusTier: "Gold Elite", accountNumber: "9007", syncState: "verified", statementDate: at(4), statementSource: email, syncMethod: "email_parse" },
+    { programme: "ba_avios", balance: 35000, valuePence: 38500, statusTier: "Bronze", accountNumber: "7788", syncState: "verified", statementDate: at(5), statementSource: email, syncMethod: "email_parse" },
+    { programme: "ihg_one", balance: 72400, valuePence: 36200, statusTier: "Gold Elite", accountNumber: "1180", syncState: "updated", previousBalance: 60000, statementDate: at(2), statementSource: email, syncMethod: "email_parse" },
+    { programme: "world_of_hyatt", balance: 120000, valuePence: 204000, statusTier: "Explorist", accountNumber: "5520", syncState: "updated", previousBalance: 110000, statementDate: at(3), statementSource: email, syncMethod: "email_parse" },
+    { programme: "amex_mr", balance: 50000, valuePence: 70000, accountNumber: "4521", syncState: "not_checked", syncMethod: "manual" },
+    { programme: "united_mp", balance: 15000, valuePence: 18000, statusTier: "Silver", accountNumber: "3391", syncState: "not_checked", syncMethod: "manual" },
+    { programme: "hilton_honors", balance: 88000, valuePence: 44000, statusTier: "Gold", accountNumber: "3344", syncState: "not_checked", previousBalance: 92000, manualOverrideAt: at(1), syncMethod: "manual" },
   ];
 
   await prisma.loyaltyAccount.deleteMany({ where: { userId } });

@@ -39,7 +39,7 @@ async function makeLoyaltyAccount(userId, overrides = {}) {
       userId,
       programme: "ba_avios",
       balance: 25000,
-      valueGbp: 275,
+      valuePence: 27500, // §27b — pence
       syncState: "verified",
       lastSynced: new Date(),
       syncMethod: "email_parse",
@@ -57,8 +57,9 @@ async function makeBooking(userId, overrides = {}) {
       supplier: "duffel",
       supplierReference: "ABC123",
       description: "LHR → LIS return",
-      cashValueGbp: 280,
-      serviceFeeGbp: 8.4,
+      cashAmount: 28000, // §27b — pence
+      cashCurrency: "GBP",
+      serviceFeePence: 840,
       confirmedAt: new Date(),
       confirmationMethod: "duffel",
       status: "confirmed",
@@ -67,12 +68,12 @@ async function makeBooking(userId, overrides = {}) {
   });
 }
 
-// A credit ledger row. amount may be negative (a redemption). Defaults to a 24-month expiry.
+// A credit ledger row. amountPence may be negative (a redemption). Defaults to a 24-month expiry. §27b — pence.
 async function makeCredit(userId, overrides = {}) {
   return prisma.bonzaCredit.create({
     data: {
       userId,
-      amount: 10,
+      amountPence: 1000,
       source: "cashback_hotel",
       expiresAt: new Date(Date.now() + 24 * 30 * 86400000),
       ...overrides,

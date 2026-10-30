@@ -31,9 +31,9 @@ async function main() {
   await prisma.loyaltyAccount.deleteMany({ where: { userId: user.id } });
   await prisma.loyaltyAccount.createMany({
     data: [
-      { userId: user.id, programme: "world_of_hyatt", balance: 120000, valueGbp: 2160, syncState: "verified", syncMethod: "email_parse", lastSynced: new Date(), accountNumber: "5520" },
-      { userId: user.id, programme: "amex_mr", balance: 90000, valueGbp: 1260, syncState: "not_checked", syncMethod: "manual", lastSynced: new Date(), accountNumber: "4521" },
-      { userId: user.id, programme: "ba_avios", balance: 45000, valueGbp: 495, syncState: "verified", syncMethod: "email_parse", lastSynced: new Date(), accountNumber: "7788" },
+      { userId: user.id, programme: "world_of_hyatt", balance: 120000, valuePence: 216000, syncState: "verified", syncMethod: "email_parse", lastSynced: new Date(), accountNumber: "5520" },
+      { userId: user.id, programme: "amex_mr", balance: 90000, valuePence: 126000, syncState: "not_checked", syncMethod: "manual", lastSynced: new Date(), accountNumber: "4521" },
+      { userId: user.id, programme: "ba_avios", balance: 45000, valuePence: 49500, syncState: "verified", syncMethod: "email_parse", lastSynced: new Date(), accountNumber: "7788" },
     ],
   });
 
@@ -43,7 +43,7 @@ async function main() {
     data: {
       userId: user.id, leg: "hotel", bookingType: "points", supplier: "world_of_hyatt",
       supplierReference: "WOH-E2E-1", description: "Hyatt Regency Lisbon · 4 nights",
-      pointsUsed: 48000, pointsProgramme: "world_of_hyatt", pointsValueGbp: 864,
+      pointsUsed: 48000, pointsProgramme: "world_of_hyatt", pointsValuePence: 86400,
       origin: "LHR", destination: "LIS",
       checkIn: new Date(Date.now() + 7 * 86400000), checkOut: new Date(Date.now() + 11 * 86400000),
       confirmedAt: new Date(), confirmationMethod: "self_reported", status: "confirmed",

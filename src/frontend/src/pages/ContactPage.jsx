@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { getBookings, createTicket, getStatus, getHelpTopPicks, getOpenTickets, searchHelp, apiErrorMessage } from "../utils/api";
+import TurnstileWidget, { TURNSTILE_DISABLED } from "../components/security/TurnstileWidget";
 import { useAppStore } from "../store/appStore";
 import BookingBoundary from "../components/support/BookingBoundary";
 import SupportAssistant from "../components/support/SupportAssistant";
@@ -50,6 +51,7 @@ export default function ContactPage() {
   const [sending, setSending] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
+  const [turnstileToken, setTurnstileToken] = useState(null); // §27d — bot challenge (null until solved)
 
   useEffect(() => {
     const q = query.trim();
@@ -75,7 +77,8 @@ export default function ContactPage() {
     setSending(true);
     setError(null);
     try {
-      const res = await createTicket({ email: form.email || undefined, name: form.name || undefined, urgency: route || "general", category: "booking-and-payment", subject: form.subject || "Support request", message: form.message, bookingId: bookingId || undefined });
+      const token = turnstileToken && turnstileToken !== TURNSTILE_DISABLED ? turnstileToken : undefined;
+      const res = await createTicket({ email: form.email || undefined, name: form.name || undefined, urgency: route || "general", category: "booking-and-payment", subject: form.subject || "Support request", message: form.message, bookingId: bookingId || undefined, turnstileToken: token });
       setSubmitted(res);
     } catch (err) {
       setError(apiErrorMessage(err));
@@ -189,8 +192,9 @@ export default function ContactPage() {
                 )}
                 <input required placeholder="Subject" value={form.subject} onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))} className={inputCls} />
                 <textarea required rows={4} placeholder="What's going on?" value={form.message} onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))} className={inputCls} />
+                <TurnstileWidget onToken={setTurnstileToken} action="support_ticket" />
                 {error && <p className="text-[13px] text-red-500">{error}</p>}
-                <button type="submit" disabled={sending} className="rounded-lg bg-[#141210] px-4 py-2.5 text-[13.5px] font-semibold text-white hover:bg-[#332B25] disabled:opacity-50">{sending ? "Sending…" : "Send request"}</button>
+                <button type="submit" disabled={sending || !turnstileToken} className="rounded-lg bg-[#141210] px-4 py-2.5 text-[13.5px] font-semibold text-white hover:bg-[#332B25] disabled:opacity-50">{sending ? "Sending…" : "Send request"}</button>
               </form>
             )}
           </div>

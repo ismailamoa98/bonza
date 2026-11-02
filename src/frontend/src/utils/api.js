@@ -321,6 +321,8 @@ export const getHelpArticle = (slug) => client.get(`/help/articles/${slug}`).the
 export const voteHelpful = (slug, helpful) => client.post(`/help/articles/${slug}/helpful`, { helpful }).then((r) => r.data);
 
 export const createTicket = (payload) => client.post("/support/tickets", payload).then((r) => r.data);
+// §27d — verify a Cloudflare Turnstile token (used by the signup pre-gate). Offline the server accepts.
+export const verifyTurnstile = (token) => client.post("/security/turnstile/verify", { token }).then((r) => r.data);
 export const getTickets = () => client.get("/support/tickets").then((r) => r.data.tickets || []);
 export const getTicket = (ref, email) => client.get(`/support/tickets/${ref}`, { params: email ? { email } : {} }).then((r) => r.data.ticket);
 export const postTicketMessage = (id, body) => client.post(`/support/tickets/${id}/messages`, { body }).then((r) => r.data);

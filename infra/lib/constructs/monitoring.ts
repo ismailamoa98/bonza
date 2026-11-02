@@ -68,9 +68,9 @@ export class Monitoring extends Construct {
       "RdsConnectionsAlarm",
       dbInstance.metricDatabaseConnections({ period: Duration.minutes(5), statistic: "Maximum" }),
       {
-        threshold: 80, // t3.micro max_connections = 100
+        threshold: 70, // §27h — 70% of max_connections (100); the RDS Proxy should keep us well under this
         evaluationPeriods: 2,
-        alarmDescription: "RDS connections > 80 - connection pool exhaustion risk",
+        alarmDescription: "RDS connections > 70% of max - check RDS Proxy pooling / for a connection leak",
       },
     );
 

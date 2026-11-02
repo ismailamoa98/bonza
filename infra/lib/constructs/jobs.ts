@@ -29,15 +29,13 @@ export class Jobs extends Construct {
       description: "Bonza background-jobs Lambda",
       allowAllOutbound: true,
     });
-    network.dbSecurityGroup.addIngressRule(
-      jobsSecurityGroup,
-      ec2.Port.tcp(5432),
-      "Allow jobs Lambda access to RDS",
-    );
+    // §27h — jobs connect through the RDS Proxy, not the instance directly.
+    database.proxy.connections.allowFrom(jobsSecurityGroup, ec2.Port.tcp(5432), "Jobs Lambda → RDS Proxy");
 
+    // §27h — a single Lambda invocation does modest DB work; one connection per invocation, via the proxy.
     const databaseUrl =
       `postgresql://bonza:${database.secret.secretValueFromJson("password").unsafeUnwrap()}` +
-      `@${database.instance.dbInstanceEndpointAddress}:5432/bonza`;
+      `@${database.proxyEndpoint}:5432/bonza?connection_limit=2&pool_timeout=20&sslmode=require`;
 
     const jobsFunction = new lambda.DockerImageFunction(this, "JobsFunction", {
       code: lambda.DockerImageCode.fromImageAsset("../", {

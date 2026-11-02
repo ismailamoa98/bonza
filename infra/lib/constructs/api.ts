@@ -2,6 +2,7 @@
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ecs_patterns from "aws-cdk-lib/aws-ecs-patterns";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Platform } from "aws-cdk-lib/aws-ecr-assets";
 import { Duration, CfnOutput } from "aws-cdk-lib";
@@ -30,10 +31,13 @@ export class Api extends Construct {
       containerInsightsV2: ecs.ContainerInsights.ENABLED,
     });
 
-    // Build DATABASE_URL from the RDS-generated secret (mirrors the jobs Lambda).
+    // §27h — connect through the RDS Proxy (not the instance) with a bounded per-task connection_limit, so a
+    // scale-out of Fargate tasks multiplexes onto the proxy pool instead of exhausting Postgres max_connections.
+    // requireTLS on the proxy ⇒ sslmode=require. (The app connects as the master user until the go-live cutover
+    // to the bonza_app role credentials — see docs/DB_ROLES.md.)
     const databaseUrl =
       `postgresql://bonza:${database.secret.secretValueFromJson("password").unsafeUnwrap()}` +
-      `@${database.instance.dbInstanceEndpointAddress}:5432/bonza`;
+      `@${database.proxyEndpoint}:5432/bonza?connection_limit=5&pool_timeout=20&sslmode=require`;
 
     const service = new ecs_patterns.ApplicationLoadBalancedFargateService(this, "Service", {
       cluster,
@@ -75,8 +79,8 @@ export class Api extends Construct {
       timeout: Duration.seconds(10),
     });
 
-    // Let the Fargate tasks reach RDS, and read the secrets they need at boot.
-    database.instance.connections.allowDefaultPortFrom(service.service, "API Fargate tasks");
+    // Let the Fargate tasks reach the RDS Proxy, and read the secrets they need at boot.
+    database.proxy.connections.allowFrom(service.service, ec2.Port.tcp(5432), "API Fargate tasks → RDS Proxy");
     appSecret.grantRead(service.taskDefinition.taskRole);
     database.secret.grantRead(service.taskDefinition.taskRole);
 

@@ -1002,3 +1002,33 @@ model ParseAttempt {
   @@index([programme, createdAt])
   @@index([outcome, createdAt])
 }
+
+// Phase 27 §27f — a mutual-exclusion lease so a scheduled job runs on exactly one worker at a time (two
+// EventBridge deliveries, or a manual re-trigger racing the schedule, must not both run). Acquired by a
+// conditional upsert that only wins when no live lease exists (expiresAt < now); renewed mid-run; released
+// in a finally. TTL is set to ~2× the job's expected runtime so a crashed holder's lease self-expires.
+model JobLease {
+  name       String   @id // the lease key (usually the jobType; per-entity jobs append an id)
+  holder     String // opaque id of the worker that holds it
+  acquiredAt DateTime @default(now())
+  expiresAt  DateTime
+}
+
+// Phase 27 §27f — one row per job execution (including lease-held skips), for the /admin/jobs view and the
+// liveness / external-call-count alarms. `name` is the jobType (so runs aggregate across per-entity lease keys).
+model JobRun {
+  id            String    @id @default(cuid())
+  name          String // jobType
+  holder        String?
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  outcome       String    @default("running") // 'running' | 'success' | 'error' | 'lease_held'
+  items         Int       @default(0) // units processed (best-effort; jobs opt in)
+  externalCalls Int       @default(0) // outbound third-party calls (best-effort)
+  errors        Int       @default(0)
+  error         String? // last error message (truncated)
+  requestId     String? // §27i correlation id (forward-use)
+
+  @@index([name, startedAt])
+  @@index([outcome, startedAt])
+}

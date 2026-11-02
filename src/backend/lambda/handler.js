@@ -1,4 +1,7 @@
-// lambda/handler.js — Lambda entry dispatching nightly_personalisation / monthly_summary jobs.
+// lambda/handler.js — Lambda entry. Every scheduled jobType runs through the §27f jobRunner, which leases
+// the job (single-runner), records a JobRun, and releases in a finally. The JOBS table maps a jobType to its
+// body, its lease TTL (~2× expected runtime so a crashed holder self-expires), and — for per-entity jobs — a
+// lease key that includes the entity id so concurrent exports/continents don't block each other.
 const { runNightlyJobs } = require("../jobs/personalisationJob");
 const { runMonthlySummaries } = require("../jobs/monthlySummaryJob");
 const { refreshValuations } = require("../jobs/valuationRefreshJob");
@@ -9,47 +12,45 @@ const { runHardDeleteJob } = require("../jobs/hardDeleteJob");
 const { runExportJob } = require("../jobs/exportJob");
 const { refreshFxRates } = require("../jobs/fxRefreshJob");
 const { runParseStats } = require("../jobs/parseStatsJob");
+const { runJob } = require("../utils/jobRunner");
+
+const MIN = 60 * 1000;
+
+// run(event, ctx) — ctx carries best-effort counters + renew(); leaseKey(event) defaults to the jobType.
+const JOBS = {
+  nightly_personalisation: { run: () => runNightlyJobs(), ttlMs: 20 * MIN },
+  monthly_summary: { run: () => runMonthlySummaries(), ttlMs: 20 * MIN },
+  valuation_refresh: { run: () => refreshValuations(), ttlMs: 10 * MIN },
+  fx_refresh: { run: () => refreshFxRates(), ttlMs: 5 * MIN }, // §27b
+  parse_stats: { run: () => runParseStats(), ttlMs: 5 * MIN }, // §27c
+  hero_destinations: { run: () => refreshHeroDestinations(), ttlMs: 15 * MIN },
+  explore_refresh: {
+    run: (e) => refreshExplore({ continent: e.continent }),
+    ttlMs: 30 * MIN,
+    leaseKey: (e) => `explore_refresh:${e.continent || "all"}`,
+  },
+  retention: { run: () => runRetention(), ttlMs: 20 * MIN }, // §25f
+  hard_delete: { run: () => runHardDeleteJob(), ttlMs: 20 * MIN }, // §25e
+  data_export: {
+    run: (e) => runExportJob({ userId: e.userId }),
+    ttlMs: 15 * MIN,
+    leaseKey: (e) => `data_export:${e.userId}`, // per-user: one user's export never blocks another's
+  },
+};
 
 exports.handler = async (event) => {
   const { jobType } = event || {};
+  const spec = JOBS[jobType];
+  if (!spec) throw new Error(`Unknown job type: ${jobType}`);
 
-  console.log(JSON.stringify({ level: "info", message: "Lambda job starting", jobType }));
+  const leaseName = spec.leaseKey ? spec.leaseKey(event) : jobType;
+  // The AWS request id (when present) is a natural correlation id for this invocation (§27i).
+  const requestId = event.requestId || null;
 
-  switch (jobType) {
-    case "nightly_personalisation":
-      await runNightlyJobs();
-      break;
-    case "monthly_summary":
-      await runMonthlySummaries();
-      break;
-    case "valuation_refresh":
-      await refreshValuations();
-      break;
-    case "fx_refresh": // Phase 27 §27b — daily GBP-base FX snapshot persisted to FxRate
-      await refreshFxRates();
-      break;
-    case "parse_stats": // Phase 27 §27c — nightly per-programme statement-parse success-rate + alarm
-      await runParseStats();
-      break;
-    case "hero_destinations":
-      await refreshHeroDestinations();
-      break;
-    case "explore_refresh":
-      await refreshExplore({ continent: event.continent });
-      break;
-    case "retention": // Phase 25 §25f — nightly retention sweep (includes due hard-deletes)
-      await runRetention();
-      break;
-    case "hard_delete": // Phase 25 §25e — process soft-deletes past the 14-day grace
-      await runHardDeleteJob();
-      break;
-    case "data_export": // Phase 25 §25e — async DSAR export for one user
-      await runExportJob({ userId: event.userId });
-      break;
-    default:
-      throw new Error(`Unknown job type: ${jobType}`);
-  }
+  const { skipped } = await runJob(
+    { name: jobType, leaseName, ttlMs: spec.ttlMs, requestId },
+    (ctx) => spec.run(event, ctx)
+  );
 
-  console.log(JSON.stringify({ level: "info", message: "Lambda job complete", jobType }));
-  return { statusCode: 200, jobType };
+  return { statusCode: 200, jobType, skipped: !!skipped };
 };

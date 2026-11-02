@@ -9,11 +9,18 @@ const { optionalAuth } = require("../middleware/optionalAuth");
 const auth = require("../middleware/auth");
 const { createTicket, addMessage } = require("../services/supportTickets");
 const assistant = require("../services/supportAssistant");
+const { verifyToken } = require("../services/turnstile");
 
 // POST /tickets — create a ticket (logged-in or out).
 router.post("/tickets", optionalAuth, async (req, res, next) => {
   try {
-    const { email, name, urgency, category, subject, message, bookingId } = req.body || {};
+    const { email, name, urgency, category, subject, message, bookingId, turnstileToken } = req.body || {};
+
+    // §27d — the one unauthenticated write: require a passed bot challenge when Turnstile is configured
+    // (offline this is a no-op accept, so dev/tests are unaffected).
+    const challenge = await verifyToken(turnstileToken, req.ip);
+    if (!challenge.ok) return sendError(res, "BOT_CHECK_FAILED");
+
     const resolvedEmail = email || null;
     if (!resolvedEmail && !req.userId) return sendError(res, "VALIDATION_FAILED", { message: "Email is required" });
 

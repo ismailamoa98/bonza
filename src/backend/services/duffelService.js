@@ -9,6 +9,7 @@ const { resolveAirport, airportInfo } = require("../utils/airportSearch");
 const { logger } = require("../utils/logger");
 const { withRetry, withTimeout, TIMEOUTS } = require("../utils/withRetry");
 const health = require("./serviceHealth");
+const spend = require("./spendLedger");
 
 let _duffel = null;
 function getDuffel() {
@@ -338,6 +339,12 @@ function mockSearchHotels({ location, checkIn }) {
 // inventory if it throws (e.g. an invalid token) or returns nothing, so the flights grid is never empty.
 async function searchFlights(params) {
   if (!env.hasDuffel) return mockSearchFlights(params);
+  // §27d — searches (not bookings) consume the Duffel daily budget; exhausting the interactive share serves
+  // the mock inventory rather than starving the reserved nightly slice.
+  if (!(await spend.tryConsume("duffel")).allowed) {
+    logger.warn("Duffel daily budget exhausted — serving mock flights");
+    return mockSearchFlights(params);
+  }
   try {
     const real = await health.tracked("duffel", () =>
       withRetry(() => withTimeout(() => duffelSearchFlights(params), TIMEOUTS.duffel_search, "duffel_search"), { label: "duffel_search" })
@@ -367,6 +374,10 @@ function confirmFlightPrice(offerId) {
 // deterministic mock inventory. Offline (no key) goes straight to mock.
 async function searchHotels(params) {
   if (!env.hasDuffel) return mockSearchHotels(params);
+  if (!(await spend.tryConsume("duffel")).allowed) {
+    logger.warn("Duffel daily budget exhausted — serving mock hotels");
+    return mockSearchHotels(params);
+  }
   try {
     const real = await health.tracked("duffel_stays", () =>
       withRetry(() => withTimeout(() => duffelSearchHotels(params), TIMEOUTS.rooms_aero, "duffel_stays"), { label: "duffel_stays" })

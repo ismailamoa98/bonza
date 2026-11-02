@@ -4,6 +4,8 @@ const env = require("../config/env");
 const { buildAffiliateUrl } = require("./affiliateService");
 const { withRetry, withTimeout, TIMEOUTS } = require("../utils/withRetry");
 const health = require("./serviceHealth");
+const spend = require("./spendLedger");
+const { logger } = require("../utils/logger");
 
 const SEATS_AERO_BASE = "https://seats.aero/partnerapi";
 
@@ -92,8 +94,17 @@ function mockAwardFlights({ origin, destination, cabin = "business" }) {
   return awards;
 }
 
-function searchAwardFlights(params) {
-  return env.hasSeatsAero ? seatsAeroSearch(params) : Promise.resolve(mockAwardFlights(params));
+async function searchAwardFlights(params, { reserved = false } = {}) {
+  if (!env.hasSeatsAero) return mockAwardFlights(params);
+  // §27d — spend the daily Seats.aero budget; if the interactive share is exhausted, serve the mock deck
+  // (cached-style fallback) rather than burning the slice reserved for the nightly award-refresh job.
+  // Nightly jobs pass reserved:true to draw on that protected slice.
+  const { allowed } = await spend.tryConsume("seats_aero", { reserved });
+  if (!allowed) {
+    logger.warn?.("[seatsAero] daily budget exhausted — serving mock award flights");
+    return mockAwardFlights(params);
+  }
+  return seatsAeroSearch(params);
 }
 
 module.exports = { searchAwardFlights, generateLoyaltyDeepLink, wrapWithAffiliate };

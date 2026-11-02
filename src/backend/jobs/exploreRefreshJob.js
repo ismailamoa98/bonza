@@ -63,7 +63,7 @@ async function refreshExplore({ continent } = {}) {
           let awards = null;
           if (env.hasSeatsAero) {
             try {
-              awards = await searchAwardFlights({ origin: airport, destination: city.iataCode, cabin: "economy" });
+              awards = await searchAwardFlights({ origin: airport, destination: city.iataCode, cabin: "economy" }, { reserved: true });
               const best = [...(awards || [])].sort((a, b) => a.pointsCost - b.pointsCost)[0];
               if (best) {
                 points = best.pointsCost;

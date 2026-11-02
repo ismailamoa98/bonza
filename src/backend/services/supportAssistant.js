@@ -7,6 +7,7 @@ const prisma = require("../config/database");
 const env = require("../config/env");
 const { CLAUDE_MODEL } = require("../config/constants");
 const { logger } = require("../utils/logger");
+const spend = require("./spendLedger");
 
 const SYSTEM = `
 You are Bonza's support assistant. Bonza is a UK travel platform that optimises
@@ -99,7 +100,9 @@ async function reply({ userId, history = [], message }) {
 
   const ctx = await buildContext(userId);
 
-  if (!env.hasRealAnthropicKey) {
+  // §27d — the assistant is interactive; offline (or when the Claude daily budget is exhausted) it returns the
+  // deterministic canned reply rather than calling out.
+  if (!env.hasRealAnthropicKey || !(await spend.tryConsume("claude")).allowed) {
     return { escalate: false, escalationReason: null, reply: cannedReply(message, ctx) };
   }
 

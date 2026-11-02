@@ -5,6 +5,7 @@ const { generateMockScenarios } = require("./mockDataGenerator");
 const { logger } = require("./logger");
 const { withTimeout, TIMEOUTS } = require("./withRetry");
 const health = require("../services/serviceHealth");
+const spend = require("../services/spendLedger");
 
 const BONZA_SYSTEM_PROMPT = `You are Bonza, an expert AI travel optimizer. You help users get the most value
 from their loyalty points (AMEX, Chase, United, Marriott, etc.) when booking flights, hotels, and cars.
@@ -61,7 +62,8 @@ function parseJsonResponse(text) {
 }
 
 async function generateScenarios(trip, loyaltyPoints) {
-  if (env.hasRealAnthropicKey) {
+  // §27d — consume the interactive Claude budget; if exhausted (or no key), use the deterministic mock.
+  if (env.hasRealAnthropicKey && (await spend.tryConsume("claude")).allowed) {
     try {
       const userContent =
         `Generate exactly 5 travel optimization scenarios for this trip and respond with ONLY JSON ` +
@@ -124,7 +126,7 @@ function mockChatReply({ scenarios, selectedScenarioId, message }) {
 }
 
 async function chatReply({ trip, scenarios, selectedScenarioId, message, history }) {
-  if (env.hasRealAnthropicKey) {
+  if (env.hasRealAnthropicKey && (await spend.tryConsume("claude")).allowed) {
     try {
       const userContent =
         `Continue advising the traveler. Respond with ONLY JSON of shape ` +

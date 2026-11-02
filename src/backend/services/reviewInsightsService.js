@@ -6,6 +6,7 @@ const env = require("../config/env");
 const prisma = require("../config/database");
 const { CLAUDE_MODEL } = require("../config/constants");
 const { logger } = require("../utils/logger");
+const spend = require("./spendLedger");
 
 const FRESH_MS = 7 * 24 * 60 * 60 * 1000; // re-analyse at most weekly
 const ASPECTS = ["location", "comfort", "facilities"];
@@ -116,7 +117,8 @@ async function getAspectInsights({ placeId, name, city, reviews = [], rating }) 
   }
 
   let insight;
-  if (env.hasRealAnthropicKey) {
+  // §27d — review aspect analysis is interactive; skip the Claude call when the daily budget is exhausted.
+  if (env.hasRealAnthropicKey && (await spend.tryConsume("claude")).allowed) {
     try {
       insight = await claudeInsights(texts, name);
     } catch (err) {

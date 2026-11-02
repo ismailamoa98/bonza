@@ -7,8 +7,30 @@ const router = express.Router();
 const prisma = require("../config/database");
 const requireAdmin = require("../middleware/requireAdmin");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
+const { successRateByProgramme } = require("../services/statementStats");
 
 router.use(requireAdmin);
+
+// GET /parsers — Phase 27 §27c. Read-only per-programme statement-parse success-rate over a trailing window
+// (default 24h). The same figures the nightly alarm watches (< 80% with ≥5 attempts), for a human to eyeball.
+router.get("/parsers", async (req, res, next) => {
+  try {
+    const sinceHours = Math.min(Math.max(parseInt(req.query.hours, 10) || 24, 1), 720);
+    const rows = await successRateByProgramme({ sinceHours });
+    const ALARM_THRESHOLD = 0.8;
+    const MIN_ATTEMPTS = 5;
+    res.json({
+      sinceHours,
+      threshold: ALARM_THRESHOLD,
+      programmes: rows.map((p) => ({
+        ...p,
+        alarming: p.total >= MIN_ATTEMPTS && p.successRate < ALARM_THRESHOLD,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET /user/:userId — the full read-only inspector payload.
 router.get("/user/:userId", async (req, res, next) => {

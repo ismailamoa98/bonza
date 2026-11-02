@@ -65,6 +65,8 @@ model User {
   syncRuns         BalanceSyncRun[]
   supportTickets   SupportTicket[]
   legalAcceptances LegalAcceptance[]
+
+  statementQuarantines StatementQuarantine[]
 }
 
 model Trip {
@@ -957,4 +959,46 @@ model FxRate {
 
   @@unique([base, quote, date])
   @@index([base, quote, date])
+}
+
+// Phase 27 §27c — a parsed loyalty statement that statementGuard flagged as suspicious (low parse confidence
+// or an implausible jump). The user's current balance is KEPT; this row records the figure we weren't sure
+// about so the §15 discrepancy modal can ask them to confirm. The raw email body is NEVER stored — only the
+// matched pattern name and a non-reversible fingerprint.
+model StatementQuarantine {
+  id   String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  programme      String
+  parsedBalance  Int? // the figure we read (null when the read produced nothing usable)
+  confidence     Decimal @db.Decimal(4, 3) // 0..1 — extractBalance pattern confidence
+  matchedPattern String? // which extractBalance pattern won — NEVER the raw body
+  verdict        String // 'quarantine' (surfaced) — 'reject' decisions are logged, not stored here
+  reason         String // the statementGuard rule that tripped
+  statementDate  DateTime? @db.Date
+  bodyFingerprint String? // sha256(body) prefix — lets us dedupe "same email twice" without keeping PII
+
+  resolved   Boolean   @default(false) // true once the user confirmed/overrode or acknowledged
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, resolved])
+  @@index([programme, createdAt])
+}
+
+// Phase 27 §27c — one row per statement-parse decision, per programme. Powers the per-programme success-rate
+// aggregate behind the nightly alarm (< 80% over 24h, ≥5 attempts) and the read-only /admin/parsers table.
+// Append-only telemetry; carries no PII (no userId is required and no body is ever stored).
+model ParseAttempt {
+  id             String   @id @default(cuid())
+  userId         String? // nullable — the aggregate is per-programme, not per-user
+  programme      String
+  outcome        String // 'applied' | 'quarantined' | 'rejected' | 'not_found' | 'error'
+  confidence     Decimal? @db.Decimal(4, 3)
+  matchedPattern String?
+  createdAt      DateTime @default(now())
+
+  @@index([programme, createdAt])
+  @@index([outcome, createdAt])
 }

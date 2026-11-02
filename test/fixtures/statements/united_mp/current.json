@@ -1,0 +1,6 @@
+{
+  "name": "current statement (miles unit, balance context)",
+  "programme": "united_mp",
+  "body": "Your MileagePlus balance: 15,000 miles. Premier Silver.",
+  "expect": { "balance": 15000, "minConfidence": 0.9, "matchedPattern": "context_before" }
+}

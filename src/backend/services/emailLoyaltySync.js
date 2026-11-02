@@ -226,21 +226,38 @@ const EMAIL_PROVIDERS = {
 //        (\d{1,3}(?:,\d{3})+|\d{4,}) that requires real comma-grouping OR 4+ raw digits — this fixes the
 //        old token's "124000 points" → "000" → 0 mis-parse and ignores sub-1000 un-grouped promo numbers;
 //   4.   the pattern's legacy balanceRegex, only as a last resort.
-// Returns an integer, or null when nothing plausible is found. Exported for unit checks (no test runner).
+// §27c: returns `{ balance, confidence, matchedPattern }` — the confidence is how reliable the winning
+// pattern is (context-anchored matches are trusted; the loose/legacy fallbacks are not), so statementGuard
+// can quarantine a low-confidence read before it ever reaches the balance column. Returns null when nothing
+// plausible is found. Exported for the golden-file harness + unit checks.
+const BALANCE_PATTERNS = [
+  { key: "context_before", confidence: 0.95 }, // "balance … 124,000 points"
+  { key: "context_after", confidence: 0.9 }, //  "124,000 points … your balance"
+  { key: "loose_unit", confidence: 0.6 }, //     corrected loose match (un-grouped numbers)
+  { key: "legacy", confidence: 0.35 }, //        the pattern's own legacy regex — last resort
+];
+
 function extractBalance(body, patterns) {
   if (!body) return null;
   const NUM = "(\\d{1,3}(?:,\\d{3})+|\\d{4,})";
   const unit = patterns.balanceUnit || "points|pts";
   const ctx = "balance|available|current|total|you have";
-  const candidates = [
-    new RegExp(`(?:${ctx})[^\\d]{0,40}${NUM}\\s*(?:${unit})`, "i"), // "balance … 124,000 points"
-    new RegExp(`${NUM}\\s*(?:${unit})[^\\d]{0,25}(?:${ctx})`, "i"), // "124,000 points … your balance"
-    new RegExp(`${NUM}\\s*(?:${unit})`, "i"), // corrected loose match (fixes un-grouped numbers)
+  const regexes = [
+    new RegExp(`(?:${ctx})[^\\d]{0,40}${NUM}\\s*(?:${unit})`, "i"),
+    new RegExp(`${NUM}\\s*(?:${unit})[^\\d]{0,25}(?:${ctx})`, "i"),
+    new RegExp(`${NUM}\\s*(?:${unit})`, "i"),
     patterns.balanceRegex, // legacy loose regex — last resort
   ];
-  for (const re of candidates) {
+  for (let i = 0; i < regexes.length; i++) {
+    const re = regexes[i];
     const m = re && body.match(re);
-    if (m) return parseInt(m[1].replace(/,/g, ""), 10);
+    if (m) {
+      return {
+        balance: parseInt(m[1].replace(/,/g, ""), 10),
+        confidence: BALANCE_PATTERNS[i].confidence,
+        matchedPattern: BALANCE_PATTERNS[i].key,
+      };
+    }
   }
   return null;
 }
@@ -259,8 +276,9 @@ async function parseEmailsForUser(userId, accessToken, provider = "gmail") {
       const body = await impl.fetchLatestBody(accessToken, patterns);
       if (!body) continue;
 
-      const balance = extractBalance(body, patterns);
-      if (balance == null) continue;
+      const parsed = extractBalance(body, patterns);
+      if (parsed == null) continue;
+      const { balance } = parsed;
 
       // Overwrite guardrail: a parsed 0, or a sharp drop to <10% of a positive existing balance, is
       // almost certainly a mis-scrape — skip it rather than clobber a good balance and mislabel it

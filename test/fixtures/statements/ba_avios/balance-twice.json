@@ -1,0 +1,6 @@
+{
+  "name": "promo Avios before the real balance (balance-twice)",
+  "programme": "ba_avios",
+  "body": "Collect 1,000 bonus Avios on your next flight! Your available balance: 42,500 Avios.",
+  "expect": { "balance": 42500, "minConfidence": 0.9, "matchedPattern": "context_before" }
+}

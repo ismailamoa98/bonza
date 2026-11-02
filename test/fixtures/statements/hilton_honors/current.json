@@ -1,0 +1,6 @@
+{
+  "name": "current statement (un-grouped number)",
+  "programme": "hilton_honors",
+  "body": "Hilton Honors. You have 88000 points available in your account. Diamond status.",
+  "expect": { "balance": 88000, "minConfidence": 0.5 }
+}

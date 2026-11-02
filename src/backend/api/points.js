@@ -10,6 +10,8 @@ const { getCreditBalance } = require("../services/creditsService");
 const { isRatioFresh, ratioAgeHours } = require("../services/ratioFreshness");
 const { EMAIL_VERIFIABLE } = require("../services/emailLoyaltySync");
 const { findDuplicates, setManualBalance } = require("../services/balanceSync");
+const { openQuarantines, resolveQuarantines } = require("../services/statementStats");
+const { REASON_COPY } = require("../services/statementGuard");
 
 // §27b — centsPerPoint is pennies-per-point, so value_in_pence = points × centsPerPoint (rounded).
 const valuePence = (points, cpp) => Math.round((Number(points) || 0) * (Number(cpp) || 0));
@@ -247,7 +249,7 @@ router.get("/activity", async (req, res, next) => {
 // GET /api/v1/points/review — Phase 15 statement-authoritative outcome report.
 router.get("/review", async (req, res, next) => {
   try {
-    const [accounts, valuations, duplicates, lastRun, user] = await Promise.all([
+    const [accounts, valuations, duplicates, lastRun, user, quarantines] = await Promise.all([
       prisma.loyaltyAccount.findMany({ where: { userId: req.userId } }),
       prisma.programmeValuation.findMany(),
       findDuplicates(req.userId),
@@ -256,6 +258,7 @@ router.get("/review", async (req, res, next) => {
         orderBy: { startedAt: "desc" },
       }),
       prisma.user.findUnique({ where: { id: req.userId }, select: { gmailConnected: true, outlookConnected: true } }),
+      openQuarantines(req.userId),
     ]);
 
     const valMap = Object.fromEntries(valuations.map((v) => [v.programme, v]));
@@ -281,6 +284,22 @@ router.get("/review", async (req, res, next) => {
     };
     const all = accounts.map(enrich);
 
+    // §27c — suspicious parses we didn't auto-apply. Shown in the discrepancy modal as "confirm this figure".
+    // accountId lets the UI accept the parsed value (manual override, which also resolves the quarantine).
+    const primaryAccount = {};
+    for (const a of accounts) if (!(a.programme in primaryAccount)) primaryAccount[a.programme] = a;
+    const quarantined = quarantines.map((q) => ({
+      id: q.id,
+      programme: q.programme,
+      accountId: primaryAccount[q.programme]?.id || null,
+      displayName: valMap[q.programme]?.displayName || q.programme,
+      currentBalance: primaryAccount[q.programme]?.balance ?? null,
+      parsedBalance: q.parsedBalance,
+      reason: q.reason,
+      message: REASON_COPY[q.reason] || "We're not confident about a balance we read.",
+      createdAt: q.createdAt,
+    }));
+
     res.json({
       grouped: {
         updated: all.filter((a) => a.state === "updated"),
@@ -288,6 +307,7 @@ router.get("/review", async (req, res, next) => {
         duplicate: all.filter((a) => a.state === "duplicate"),
         notChecked: all.filter((a) => a.state === "not_checked"),
       },
+      quarantined,
       lastRun: lastRun
         ? {
             id: lastRun.id,
@@ -305,13 +325,15 @@ router.get("/review", async (req, res, next) => {
   }
 });
 
-// POST /api/v1/points/review/acknowledge — user dismissed the discrepancy modal.
+// POST /api/v1/points/review/acknowledge — user dismissed the discrepancy modal. §27c: dismissing the modal
+// also clears any open statement quarantines — they've seen the flagged figure and chose to keep their value.
 router.post("/review/acknowledge", async (req, res, next) => {
   try {
     await prisma.balanceSyncRun.updateMany({
       where: { userId: req.userId, modalPending: true },
       data: { modalPending: false },
     });
+    await resolveQuarantines(req.userId);
     res.json({ acknowledged: true });
   } catch (err) {
     next(err);
@@ -323,6 +345,8 @@ router.patch("/balance/:accountId", async (req, res, next) => {
   try {
     const account = await setManualBalance(req.userId, req.params.accountId, req.body.balance);
     if (!account) return sendError(res, "NOT_FOUND", { message: "Account not found" });
+    // §27c — the user set this programme's balance by hand, so any quarantined read for it is resolved.
+    await resolveQuarantines(req.userId, { programme: account.programme });
     res.json({ account });
   } catch (err) {
     if (/non-negative/.test(err.message)) return sendError(res, "VALIDATION_FAILED", { message: err.message });

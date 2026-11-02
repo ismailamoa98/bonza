@@ -8,8 +8,30 @@ const prisma = require("../config/database");
 const requireAdmin = require("../middleware/requireAdmin");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
 const { successRateByProgramme } = require("../services/statementStats");
+const { recentRuns, jobHealth, activeLeases } = require("../services/jobStats");
 
 router.use(requireAdmin);
+
+// GET /jobs — Phase 27 §27f. Read-only orchestration view: the last 50 job executions, per-job health
+// (last run / last success / stale), and the leases held right now.
+router.get("/jobs", async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+    const [runs, health, leases] = await Promise.all([recentRuns({ limit }), jobHealth(), activeLeases()]);
+    res.json({
+      runs: runs.map((r) => ({
+        id: r.id, name: r.name, outcome: r.outcome,
+        startedAt: r.startedAt, finishedAt: r.finishedAt,
+        items: r.items, externalCalls: r.externalCalls, errors: r.errors,
+        error: r.error, requestId: r.requestId,
+      })),
+      health,
+      leases: leases.map((l) => ({ name: l.name, holder: l.holder, acquiredAt: l.acquiredAt, expiresAt: l.expiresAt })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET /parsers — Phase 27 §27c. Read-only per-programme statement-parse success-rate over a trailing window
 // (default 24h). The same figures the nightly alarm watches (< 80% with ≥5 attempts), for a human to eyeball.

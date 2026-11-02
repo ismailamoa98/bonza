@@ -12,6 +12,7 @@ const { runHardDeleteJob } = require("../jobs/hardDeleteJob");
 const { runExportJob } = require("../jobs/exportJob");
 const { refreshFxRates } = require("../jobs/fxRefreshJob");
 const { runParseStats } = require("../jobs/parseStatsJob");
+const { runRateLimitCleanup } = require("../jobs/rateLimitCleanupJob");
 const { runJob } = require("../utils/jobRunner");
 
 const MIN = 60 * 1000;
@@ -23,6 +24,7 @@ const JOBS = {
   valuation_refresh: { run: () => refreshValuations(), ttlMs: 10 * MIN },
   fx_refresh: { run: () => refreshFxRates(), ttlMs: 5 * MIN }, // §27b
   parse_stats: { run: () => runParseStats(), ttlMs: 5 * MIN }, // §27c
+  rate_limit_cleanup: { run: () => runRateLimitCleanup(), ttlMs: 5 * MIN }, // §27d
   hero_destinations: { run: () => refreshHeroDestinations(), ttlMs: 15 * MIN },
   explore_refresh: {
     run: (e) => refreshExplore({ continent: e.continent }),

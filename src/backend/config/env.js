@@ -82,6 +82,22 @@ const env = {
   // flight and hotel cash paths stay separable in code regardless, so an agent-model restructure is a flow
   // change, not a rewrite.
   bundledCheckoutEnabled: process.env.BUNDLED_CHECKOUT_ENABLED !== "false",
+
+  // Phase 27 §27d — Cloudflare Turnstile (bot challenge) on the public support-contact form + the signup
+  // pre-gate. Offline (no secret) the server verify is a no-op accept so dev/tests stay frictionless.
+  TURNSTILE_SECRET_KEY: (process.env.TURNSTILE_SECRET_KEY || "").trim(),
+  hasTurnstile: Boolean((process.env.TURNSTILE_SECRET_KEY || "").trim()),
+
+  // Phase 27 §27d — per-service daily external-call budgets (global, UTC). The interactive share is capped
+  // below these so a scraper can't starve the reserved nightly-job slice. Only the REAL outbound branches
+  // consume budget, so these are inert offline. Override via SPEND_BUDGET_<SERVICE> env vars.
+  SPEND_BUDGETS: {
+    seats_aero: Number(process.env.SPEND_BUDGET_SEATS_AERO) || 5000,
+    duffel: Number(process.env.SPEND_BUDGET_DUFFEL) || 5000,
+    claude: Number(process.env.SPEND_BUDGET_CLAUDE) || 10000,
+  },
+  // Fraction of each budget reserved for nightly jobs (interactive callers are denied above the rest).
+  SPEND_RESERVE_FRACTION: Number(process.env.SPEND_RESERVE_FRACTION) || 0.15,
 };
 
 if (!env.DATABASE_URL) {

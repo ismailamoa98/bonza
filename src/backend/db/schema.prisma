@@ -1032,3 +1032,29 @@ model JobRun {
   @@index([name, startedAt])
   @@index([outcome, startedAt])
 }
+
+// Phase 27 §27d — the shared (cross-instance) fixed-window counter behind every express-rate-limit instance.
+// In-memory limits are per-process, so they're fiction on >1 worker; this makes them real. One row per
+// limiter-prefixed key for the active window; the custom store (utils/rateLimitStore.js) upserts it. Expired
+// rows are swept nightly (rate_limit_cleanup job). The store is fail-open — a DB hiccup never blocks requests.
+model RateLimitHit {
+  key     String   @id // "<limiter prefix>:<keyGenerator value>" (userId or IP)
+  count   Int      @default(0)
+  resetAt DateTime // when the current window ends; a hit past this resets count to 1
+
+  @@index([resetAt])
+}
+
+// Phase 27 §27d — global per-service daily external-call budget (UTC date key). The real outbound branches
+// (seats.aero / Duffel search / Claude) consume one unit per call via services/spendLedger.tryConsume; the
+// interactive share is capped below the full budget so a scraper can't starve the reserved nightly-job slice.
+// Global exhaustion → serve cached/mock + an incident metric; never settles money, so it's inert offline.
+model SpendLedger {
+  id      String   @id @default(cuid())
+  service String // 'seats_aero' | 'duffel' | 'claude'
+  date    DateTime @db.Date // UTC calendar date
+  count   Int      @default(0)
+
+  @@unique([service, date])
+  @@index([date])
+}

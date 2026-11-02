@@ -6,12 +6,19 @@ import ProgrammeLogo from "../common/ProgrammeLogo";
 const fmtDate = (d) =>
   d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "";
 
-export default function DiscrepancyModal({ updated = [], onClose, onReviewDetails, onResync }) {
+export default function DiscrepancyModal({ updated = [], quarantined = [], onClose, onReviewDetails, onResync }) {
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose?.();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // §27c — the modal may open for updated balances, for figures we weren't confident about (quarantined), or
+  // both. The title leads with whichever is present; an updates-only modal keeps the original wording.
+  const hasUpdated = updated.length > 0;
+  const title = hasUpdated
+    ? `We updated ${updated.length} balance${updated.length === 1 ? "" : "s"}`
+    : `Confirm ${quarantined.length} balance${quarantined.length === 1 ? "" : "s"}`;
 
   return (
     <div
@@ -35,11 +42,20 @@ export default function DiscrepancyModal({ updated = [], onClose, onReviewDetail
             <RefreshGlyph />
           </button>
           <h2 id="disc-title" className="text-[20px] font-bold text-[#141210] tracking-[-0.5px] mb-[7px]">
-            We updated {updated.length} balance{updated.length === 1 ? "" : "s"}
+            {title}
           </h2>
           <p className="text-[14px] text-[#7A7269] leading-[1.55]">
-            Your statement emails showed different figures to what you entered. We've used the{" "}
-            <strong className="text-[#141210] font-bold">statement values</strong> — they're the source of truth.
+            {hasUpdated ? (
+              <>
+                Your statement emails showed different figures to what you entered. We've used the{" "}
+                <strong className="text-[#141210] font-bold">statement values</strong> — they're the source of truth.
+              </>
+            ) : (
+              <>
+                We read a figure we're not confident about. Your balance is unchanged — confirm it below or keep
+                what you entered.
+              </>
+            )}
           </p>
         </div>
 
@@ -59,6 +75,25 @@ export default function DiscrepancyModal({ updated = [], onClose, onReviewDetail
                 <span className="text-[16px] font-extrabold text-[#1B7040] tracking-[-0.3px]">
                   {a.balance.toLocaleString()}
                 </span>
+              </div>
+            </div>
+          ))}
+
+          {/* §27c — figures we weren't confident enough to apply. The user confirms them on the review page. */}
+          {quarantined.map((q) => (
+            <div key={q.id} className="flex items-center gap-[0.9rem] py-[0.95rem] border-t border-[#F4F1EC]">
+              <ProgrammeLogo programme={q} size={36} radius={10} />
+              <div className="flex-1 min-w-0">
+                <p className="text-[14px] font-bold text-[#141210] mb-0.5 truncate">{q.displayName}</p>
+                <p className="text-[12px] text-[#B8792B] leading-snug">{q.message}</p>
+              </div>
+              <div className="flex items-center gap-[0.55rem] flex-shrink-0 text-right">
+                <div>
+                  <p className="text-[10.5px] text-[#A69C92] uppercase tracking-[0.5px]">We read</p>
+                  <p className="text-[15px] font-extrabold text-[#B8792B] tracking-[-0.3px]">
+                    {q.parsedBalance?.toLocaleString() ?? "—"}
+                  </p>
+                </div>
               </div>
             </div>
           ))}

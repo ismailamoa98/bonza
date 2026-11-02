@@ -45,7 +45,9 @@ export default function PointsReviewPage() {
     (async () => {
       try {
         const d = await load();
-        if (d.lastRun?.modalPending && d.lastRun?.balancesUpdated > 0) setModalOpen(true);
+        // Open the modal for a run that changed balances, or whenever there's a figure we weren't
+        // confident enough to apply (§27c) and the user hasn't confirmed it yet.
+        if ((d.lastRun?.modalPending && d.lastRun?.balancesUpdated > 0) || d.quarantined?.length > 0) setModalOpen(true);
         if (!d.emailConnected?.gmail && !d.emailConnected?.outlook) {
           const p = await getLoyaltyProviders().catch(() => ({}));
           setConfigurable(["gmail", "outlook"].find((x) => p[x]?.configured && !p[x]?.connected) || null);
@@ -75,6 +77,7 @@ export default function PointsReviewPage() {
   };
 
   const g = data?.grouped || { updated: [], verified: [], duplicate: [], notChecked: [] };
+  const quarantined = data?.quarantined || [];
   const lastRun = data?.lastRun;
   // The freshness that matters is the statement itself, not when the user pressed refresh. Show the most
   // recent statement date across the programmes we actually read from email.
@@ -124,6 +127,7 @@ export default function PointsReviewPage() {
           </div>
         ) : (
           <>
+            <QuarantineSection rows={quarantined} onChanged={load} />
             <Section ref={updatedRef} label="Updated from statement" rows={g.updated} onChanged={load} configurable={configurable} setConfigurable={setConfigurable} />
             <Section label="Verified from email" rows={g.verified} onChanged={load} configurable={configurable} setConfigurable={setConfigurable} />
             <Section label="Duplicate entry" rows={g.duplicate} onChanged={load} configurable={configurable} setConfigurable={setConfigurable} />
@@ -136,7 +140,7 @@ export default function PointsReviewPage() {
               setConfigurable={setConfigurable}
             />
 
-            {g.updated.length + g.verified.length + g.duplicate.length + g.notChecked.length === 0 && (
+            {g.updated.length + g.verified.length + g.duplicate.length + g.notChecked.length + quarantined.length === 0 && (
               <p className="text-[13.5px] text-[#8A8078] py-6">Nothing to review yet — add a programme on the Points page.</p>
             )}
           </>
@@ -157,7 +161,7 @@ export default function PointsReviewPage() {
       </div>
 
       {modalOpen && (
-        <DiscrepancyModal updated={g.updated} onClose={closeModal} onReviewDetails={reviewDetails} onResync={resync} />
+        <DiscrepancyModal updated={g.updated} quarantined={quarantined} onClose={closeModal} onReviewDetails={reviewDetails} onResync={resync} />
       )}
     </div>
   );
@@ -214,6 +218,69 @@ const Section = forwardRef(function Section({ label, rows, onChanged, showConnec
     </section>
   );
 });
+
+// §27c — figures the parser read but statementGuard wasn't confident enough to apply. The balance is kept;
+// the user either confirms their current figure or accepts the one we read. Either choice is a manual
+// override (POST /points/balance), which resolves the quarantine server-side.
+function QuarantineSection({ rows, onChanged }) {
+  if (!rows.length) return null;
+  return (
+    <section className="mb-8">
+      <div className="flex items-center justify-between px-1 mb-2.5">
+        <span className="text-[12px] font-bold text-[#B8792B] tracking-[1.1px] uppercase">Needs your confirmation</span>
+        <span className="text-[11.5px] text-[#A69C92]">
+          {rows.length} figure{rows.length === 1 ? "" : "s"} we're unsure about
+        </span>
+      </div>
+      <div className="rounded-2xl bg-white shadow-[0_1px_2px_rgba(20,18,16,0.04)] ring-1 ring-[#F2E3CC] divide-y divide-[#F4F1EC]">
+        {rows.map((q) => (
+          <QuarantineRow key={q.id} q={q} onChanged={onChanged} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function QuarantineRow({ q, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const choose = async (value) => {
+    if (q.accountId == null || value == null) return;
+    setBusy(true);
+    try {
+      await setManualBalance(q.accountId, Number(value));
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex items-center gap-3.5 px-[18px] py-[15px]">
+      <ProgrammeLogo programme={q} size={42} radius={12} />
+      <div className="flex-1 min-w-0">
+        <p className="text-[15px] font-bold tracking-[-0.2px] truncate" style={{ color: q.brandColor || "#141210" }}>
+          {q.displayName}
+        </p>
+        <p className="text-[12.5px] text-[#B8792B] leading-snug">{q.message}</p>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0 tabular-nums">
+        <button
+          onClick={() => choose(q.currentBalance)}
+          disabled={busy || q.currentBalance == null}
+          className="text-[12.5px] font-semibold px-3 py-2 rounded-lg border-[1.5px] border-[#EDE8E1] bg-white text-[#4A423B] hover:bg-[#FAF8F5] disabled:opacity-50"
+        >
+          Keep {q.currentBalance?.toLocaleString() ?? "mine"}
+        </button>
+        <button
+          onClick={() => choose(q.parsedBalance)}
+          disabled={busy || q.parsedBalance == null}
+          className="text-[12.5px] font-semibold px-3 py-2 rounded-lg bg-[#B8792B] text-white hover:bg-[#9A6B13] disabled:opacity-50"
+        >
+          Use {q.parsedBalance?.toLocaleString() ?? "—"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function ReviewRow({ r, onChanged }) {
   const [editing, setEditing] = useState(false);

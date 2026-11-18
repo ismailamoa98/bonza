@@ -7,7 +7,7 @@ const react = require("eslint-plugin-react");
 const reactHooks = require("eslint-plugin-react-hooks");
 
 module.exports = [
-  { ignores: ["node_modules/**", "coverage/**", "infra/**", "dist/**", "src/frontend/dist/**", "**/*.min.js", "**/.vite/**"] },
+  { ignores: ["node_modules/**", "coverage/**", "infra/**", "load/**", "dist/**", "src/frontend/dist/**", "**/*.min.js", "**/.vite/**"] },
   js.configs.recommended,
 
   // Backend — CommonJS, Node globals.

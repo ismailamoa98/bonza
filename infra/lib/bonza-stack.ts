@@ -61,7 +61,7 @@ export class BonzaStack extends Stack {
     });
 
     const alertEmail = this.node.tryGetContext("alertEmail") ?? "ismail@bonza.app";
-    new Monitoring(this, "Monitoring", { config, database, alertEmail });
+    new Monitoring(this, "Monitoring", { config, database, api, alertEmail });
 
     if (config.envName !== "development") {
       new DeployRole(this, "DeployRole", {

@@ -54,7 +54,7 @@ async function recordFailure(service, { code, status } = {}) {
   if (list.length >= THRESHOLD.failures) {
     logger.error(`[serviceHealth] ${service} degraded`, null, { service, code, status, failures: list.length });
     // structured metric line for the CloudWatch Logs metric-filter → BonzaServiceDegraded{Service=<service>}
-    logger.info?.(`[metric] BonzaServiceDegraded Service=${service} Value=1`);
+    logger.info?.(`[metric] BonzaServiceDegraded Service=${service} Value=1`, { metric: "BonzaServiceDegraded", service, value: 1 });
     await setState(service, "degraded", "We’re seeing problems with this service and are on it.");
   }
 }
@@ -66,7 +66,7 @@ async function recordSuccess(service) {
   const list = prune(failures.get(service) || [], now);
   failures.set(service, list);
   if (dbState.get(service) === "degraded" && list.length === 0) {
-    logger.info?.(`[metric] BonzaServiceDegraded Service=${service} Value=0`);
+    logger.info?.(`[metric] BonzaServiceDegraded Service=${service} Value=0`, { metric: "BonzaServiceDegraded", service, value: 0 });
     await setState(service, "operational", null);
   }
 }

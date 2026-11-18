@@ -5,6 +5,7 @@
 const { getAuth } = require("@clerk/express");
 const env = require("../config/env");
 const { DEV_USER } = require("../config/constants");
+const requestContext = require("../utils/requestContext"); // §27i — stamp userId onto the correlation context
 
 function optionalAuth(req, res, next) {
   try {
@@ -14,6 +15,7 @@ function optionalAuth(req, res, next) {
   } catch {
     req.userId = null;
   }
+  if (req.userId) requestContext.set("userId", req.userId);
   next();
 }
 

@@ -37,6 +37,22 @@ describe("runJob — single-runner lease", () => {
     expect(await lease("test_ok")).toBeNull(); // released in finally
   });
 
+  it("§27i — runs inside a correlation context and persists the requestId on the JobRun", async () => {
+    const requestContext = require("../../src/backend/utils/requestContext");
+    let seenInBody;
+    await runJob({ name: "test_reqid" }, async () => {
+      seenInBody = requestContext.getRequestId();
+    });
+    const runs = await runsFor("test_reqid");
+    expect(runs[0].requestId).toBeTruthy();
+    expect(seenInBody).toBe(runs[0].requestId); // the body's log lines would carry the same id
+
+    // an explicit requestId is honoured
+    await runJob({ name: "test_reqid2", requestId: "trace-job-9" }, async () => {});
+    const runs2 = await runsFor("test_reqid2");
+    expect(runs2[0].requestId).toBe("trace-job-9");
+  });
+
   it("exits cleanly (lease_held) without running the body when another worker holds the lease", async () => {
     await acquireLease("test_held", "other-worker", 60_000); // live lease owned by someone else
 

@@ -10,6 +10,7 @@
 const crypto = require("crypto");
 const prisma = require("../config/database");
 const { logger } = require("../utils/logger");
+const requestContext = require("./requestContext"); // §27i — one correlation id per job run
 
 const DEFAULT_TTL_MS = 10 * 60 * 1000; // 10 min — overridden per job to ~2× its expected runtime
 const MAX_ERR_LEN = 500;
@@ -49,40 +50,47 @@ async function releaseLease(name, holder) {
 // Run `fn` under the lease `leaseName`, recording a JobRun named `name` (the jobType). `fn` receives a ctx:
 //   { items, externalCalls, errors, renew() } — mutate the counters to report progress; call renew() during
 // long work. Returns { skipped, result }. On a job error the JobRun is marked 'error' and the error re-thrown.
-async function runJob({ name, leaseName = name, ttlMs = DEFAULT_TTL_MS, holder = newHolder(), requestId = null }, fn) {
-  const acquired = await acquireLease(leaseName, holder, ttlMs);
-  if (!acquired) {
-    logger.warn?.(`[jobRunner] ${name} lease '${leaseName}' held by another worker — exiting cleanly`);
-    await prisma.jobRun.create({ data: { name, holder, outcome: "lease_held", finishedAt: new Date(), requestId } });
-    return { skipped: true };
-  }
+async function runJob({ name, leaseName = name, ttlMs = DEFAULT_TTL_MS, holder = newHolder(), requestId = crypto.randomUUID() }, fn) {
+  // §27i — the whole run executes inside the correlation context, so every log line (and outbound call) the job
+  // body emits carries this request_id, which is also persisted on the JobRun for end-to-end tracing.
+  return requestContext.run({ requestId }, async () => {
+    const acquired = await acquireLease(leaseName, holder, ttlMs);
+    if (!acquired) {
+      logger.warn?.(`[jobRunner] ${name} lease '${leaseName}' held by another worker — exiting cleanly`);
+      await prisma.jobRun.create({ data: { name, holder, outcome: "lease_held", finishedAt: new Date(), requestId } });
+      return { skipped: true };
+    }
 
-  const run = await prisma.jobRun.create({ data: { name, holder, outcome: "running", requestId } });
-  const ctx = {
-    items: 0,
-    externalCalls: 0,
-    errors: 0,
-    renew: () => renewLease(leaseName, holder, ttlMs),
-  };
+    const run = await prisma.jobRun.create({ data: { name, holder, outcome: "running", requestId } });
+    const ctx = {
+      items: 0,
+      externalCalls: 0,
+      errors: 0,
+      renew: () => renewLease(leaseName, holder, ttlMs),
+    };
 
-  try {
-    const result = await fn(ctx);
-    await prisma.jobRun.update({
-      where: { id: run.id },
-      data: { outcome: "success", finishedAt: new Date(), items: ctx.items, externalCalls: ctx.externalCalls, errors: ctx.errors },
-    });
-    logger.info?.(`[jobRunner] ${name} ok`, { items: ctx.items, externalCalls: ctx.externalCalls, errors: ctx.errors });
-    return { skipped: false, result };
-  } catch (err) {
-    await prisma.jobRun.update({
-      where: { id: run.id },
-      data: { outcome: "error", finishedAt: new Date(), items: ctx.items, externalCalls: ctx.externalCalls, errors: ctx.errors + 1, error: String(err && err.message).slice(0, MAX_ERR_LEN) },
-    });
-    logger.error?.(`[jobRunner] ${name} failed`, { error: err && err.message });
-    throw err;
-  } finally {
-    await releaseLease(leaseName, holder).catch((e) => logger.warn?.(`[jobRunner] release failed for ${leaseName}`, { error: e.message }));
-  }
+    try {
+      const result = await fn(ctx);
+      await prisma.jobRun.update({
+        where: { id: run.id },
+        data: { outcome: "success", finishedAt: new Date(), items: ctx.items, externalCalls: ctx.externalCalls, errors: ctx.errors },
+      });
+      logger.info?.(`[jobRunner] ${name} ok`, { items: ctx.items, externalCalls: ctx.externalCalls, errors: ctx.errors });
+      // §27i — a metric line per outcome so a nightly-job failure/absence is alarmable (MetricFilter in monitoring.ts).
+      logger.info?.("[metric] BonzaJobOutcome", { metric: "BonzaJobOutcome", job: name, value: 1 });
+      return { skipped: false, result };
+    } catch (err) {
+      await prisma.jobRun.update({
+        where: { id: run.id },
+        data: { outcome: "error", finishedAt: new Date(), items: ctx.items, externalCalls: ctx.externalCalls, errors: ctx.errors + 1, error: String(err && err.message).slice(0, MAX_ERR_LEN) },
+      });
+      logger.error?.(`[jobRunner] ${name} failed`, { error: err && err.message });
+      logger.info?.("[metric] BonzaJobOutcome", { metric: "BonzaJobOutcome", job: name, value: 0 });
+      throw err;
+    } finally {
+      await releaseLease(leaseName, holder).catch((e) => logger.warn?.(`[jobRunner] release failed for ${leaseName}`, { error: e.message }));
+    }
+  });
 }
 
 module.exports = { runJob, acquireLease, renewLease, releaseLease, newHolder, DEFAULT_TTL_MS };

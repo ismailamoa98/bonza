@@ -10,3 +10,4 @@ build/
 
 # Test coverage output (Phase 23)
 coverage/
+sbom.cyclonedx.json

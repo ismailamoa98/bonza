@@ -2,6 +2,7 @@
 require("./instrument");
 
 const express = require("express");
+const helmet = require("helmet"); // §27j — security headers + CSP
 const { clerkMiddleware } = require("@clerk/express");
 const rateLimit = require("express-rate-limit");
 const { ipKeyGenerator } = require("express-rate-limit"); // IPv6-safe IP key helper (v8)
@@ -12,6 +13,7 @@ const corsMiddleware = require("./middleware/cors");
 const { requestId } = require("./middleware/requestId"); // §27i — correlation id → AsyncLocalStorage
 const auth = require("./middleware/auth");
 const { notFound, errorHandler } = require("./middleware/errorHandler");
+const csp = require("./config/csp"); // §27j — shared CSP directives (mirrored in infra/frontend.ts)
 
 const { clerkWebhook } = require("./api/webhooks");
 const tripsRouter = require("./api/trips");
@@ -54,6 +56,35 @@ const { oauthCallback } = require("./api/oauthCallback");
 const app = express();
 
 app.use(corsMiddleware);
+
+// §27j — security headers + CSP. The SPA (served by CloudFront) carries its own CSP via a ResponseHeadersPolicy
+// (infra/frontend.ts, same directives); this protects the API tier and anything the backend serves directly.
+// Report-only by default so violations are collected before enforcing. Clerk/Stripe use OAuth popups, so COOP
+// allows them; images come from many CDNs so CORP is cross-origin (CORS still gates the JSON API).
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: { ...csp.directives, reportUri: [csp.reportUri] },
+      reportOnly: csp.reportOnly,
+    },
+    hsts: { maxAge: 63072000, includeSubDomains: true, preload: true },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginEmbedderPolicy: false, // COEP breaks Stripe/Clerk embeds; leave off
+  })
+);
+
+// Permissions-Policy (helmet doesn't set it): deny the sensors/capabilities the app never uses; allow payment
+// for Stripe's Payment Request API.
+app.use((req, res, next) => {
+  res.setHeader(
+    "Permissions-Policy",
+    'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), usb=(), payment=(self "https://js.stripe.com")'
+  );
+  next();
+});
 
 // §27i — open the correlation context first, so every request (webhooks + json routes alike) runs inside an
 // AsyncLocalStorage holding its request_id. Everything downstream — logs, Sentry, outbound headers — inherits it.

@@ -68,6 +68,12 @@ const env = {
   SENTRY_DSN: (process.env.SENTRY_DSN || "").trim(),
   hasSentry: Boolean((process.env.SENTRY_DSN || "").trim()),
 
+  // Phase 27 §27j — CSP. Report-only by default (collect violations before blocking); set CSP_ENFORCE=true to
+  // switch to the enforcing header. CSP_REPORT_URI points violation reports at Sentry's security endpoint when
+  // set, else the local /security/csp-report sink.
+  CSP_ENFORCE: String(process.env.CSP_ENFORCE || "").toLowerCase() === "true",
+  CSP_REPORT_URI: (process.env.CSP_REPORT_URI || "").trim(),
+
   // Phase 25 §25d — salt for one-way IP hashing on legal-acceptance records (never store the raw IP).
   APP_SALT: process.env.APP_SALT || "bonza-dev-salt-change-me",
 

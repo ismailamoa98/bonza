@@ -6,6 +6,7 @@ const { withRetry, withTimeout, TIMEOUTS } = require("../utils/withRetry");
 const health = require("./serviceHealth");
 const spend = require("./spendLedger");
 const { logger } = require("../utils/logger");
+const requestContext = require("../utils/requestContext"); // §27i — propagate the correlation id upstream
 
 const SEATS_AERO_BASE = "https://seats.aero/partnerapi";
 
@@ -38,7 +39,11 @@ async function seatsAeroSearch({ origin, destination, cabin = "business", progra
                 start_date: new Date().toISOString().split("T")[0],
                 end_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
               },
-              headers: { "Partner-Authorization": process.env.SEATS_AERO_API_KEY, Accept: "application/json" },
+              headers: {
+                "Partner-Authorization": process.env.SEATS_AERO_API_KEY,
+                Accept: "application/json",
+                ...(requestContext.getRequestId() ? { "X-Request-Id": requestContext.getRequestId() } : {}),
+              },
               signal,
             }),
           TIMEOUTS.seats_aero,

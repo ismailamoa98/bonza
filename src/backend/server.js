@@ -9,6 +9,7 @@ const { PrismaRateLimitStore } = require("./utils/rateLimitStore"); // §27d —
 
 const env = require("./config/env");
 const corsMiddleware = require("./middleware/cors");
+const { requestId } = require("./middleware/requestId"); // §27i — correlation id → AsyncLocalStorage
 const auth = require("./middleware/auth");
 const { notFound, errorHandler } = require("./middleware/errorHandler");
 
@@ -53,6 +54,10 @@ const { oauthCallback } = require("./api/oauthCallback");
 const app = express();
 
 app.use(corsMiddleware);
+
+// §27i — open the correlation context first, so every request (webhooks + json routes alike) runs inside an
+// AsyncLocalStorage holding its request_id. Everything downstream — logs, Sentry, outbound headers — inherits it.
+app.use(requestId);
 
 app.post(
   "/api/v1/webhooks/clerk",

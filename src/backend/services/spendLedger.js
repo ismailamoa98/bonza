@@ -45,7 +45,7 @@ async function tryConsume(service, { reserved = false } = {}) {
     if (!alarmed.has(k)) {
       alarmed.add(k);
       logger.error?.(`[spendLedger] ${service} budget exhausted (interactive)`, { service, ceiling, reserved });
-      logger.info?.(`[metric] BonzaSpendExhausted Service=${service} Value=1`);
+      logger.info?.(`[metric] BonzaSpendExhausted Service=${service} Value=1`, { metric: "BonzaSpendExhausted", service, value: 1 });
     }
     return { allowed: false, count: 0, budget: budgetFor(service), remaining: 0, reserved };
   }
@@ -65,7 +65,7 @@ async function tryConsume(service, { reserved = false } = {}) {
       if (!alarmed.has(k)) {
         alarmed.add(k);
         logger.error?.(`[spendLedger] ${service} budget exhausted (interactive)`, { service, ceiling, reserved });
-        logger.info?.(`[metric] BonzaSpendExhausted Service=${service} Value=1`);
+        logger.info?.(`[metric] BonzaSpendExhausted Service=${service} Value=1`, { metric: "BonzaSpendExhausted", service, value: 1 });
       }
       return { allowed: false, count: ceiling, budget: budgetFor(service), remaining: 0, reserved };
     }

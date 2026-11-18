@@ -49,6 +49,7 @@
     "googleapis": "^173.0.0",
     "jsonwebtoken": "^9.0.2",
     "node-cron": "^4.5.0",
+    "pino": "^10.4.0",
     "prisma": "^5.22.0",
     "resend": "^6.18.0",
     "stripe": "^22.2.2",

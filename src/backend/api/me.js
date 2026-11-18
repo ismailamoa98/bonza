@@ -5,8 +5,9 @@ const prisma = require("../config/database");
 const { getHistory, getOutstanding, recordAcceptance, requestContext } = require("../services/legalAcceptance");
 const { currentVersion, MATERIAL_DOCS } = require("../config/legal");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
-const { deliverExport } = require("../jobs/exportJob");
+require("../jobs/exportJob"); // §27g — ensure the data_export consumer module is loadable for inline enqueue
 const { startDeletion, cancelDeletion, deleteStatus } = require("../services/accountDeletion");
+const { enqueue, QUEUES } = require("../services/queue");
 const { sendError } = require("../utils/AppError");
 
 const router = express.Router();
@@ -59,9 +60,17 @@ router.post("/export", async (req, res, next) => {
     if (recent) {
       return sendError(res, "RATE_LIMITED", { message: "You can request one export every 24 hours. Check your email for the last one." });
     }
-    const result = await deliverExport(req.userId);
+    // §27g — build + deliver the export behind the data_export queue. Offline this runs inline and returns the
+    // result (so dev still sees the mode); in a deployed env it's enqueued and delivered by email asynchronously.
+    const out = await enqueue(QUEUES.DATA_EXPORT, { userId: req.userId }, { key: `export:${req.userId}:${Date.now()}` });
+    const result = out.result;
     // Never leak a local filesystem path to the client; only surface the signed URL when there is one.
-    res.json({ requested: true, mode: result.mode, delivery: result.mode === "s3" ? "email" : "offline", expiresAt: result.expiresAt });
+    res.json({
+      requested: true,
+      mode: result ? result.mode : null,
+      delivery: result ? (result.mode === "s3" ? "email" : "offline") : "email",
+      expiresAt: result ? result.expiresAt : null,
+    });
   } catch (err) {
     next(err);
   }

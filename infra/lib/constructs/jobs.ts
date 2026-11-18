@@ -19,6 +19,9 @@ export interface JobsProps {
 }
 
 export class Jobs extends Construct {
+  /** §27g — exposed so the stack can grant it SQS send + inject the queue URLs (jobs also enqueue email). */
+  public readonly fn: lambda.DockerImageFunction;
+
   constructor(scope: Construct, id: string, props: JobsProps) {
     super(scope, id);
 
@@ -57,6 +60,7 @@ export class Jobs extends Construct {
 
     appSecret.grantRead(jobsFunction);
     database.secret.grantRead(jobsFunction);
+    this.fn = jobsFunction;
 
     new events.Rule(this, "NightlyPersonalisationRule", {
       schedule: events.Schedule.cron({ minute: "0", hour: "2" }),

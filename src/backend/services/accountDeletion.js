@@ -13,6 +13,7 @@ const env = require("../config/env");
 const { logger } = require("../utils/logger");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
 const { recordAudit, ACTIONS } = require("./auditService");
+const { enqueue, QUEUES } = require("./queue"); // §27g — analytics person-delete behind a queue
 const { createAndSend } = require("./emailService");
 
 const SOFT_DELETE_DAYS = 14;
@@ -165,8 +166,13 @@ async function hardDeleteUser(userId) {
     }),
   ]);
 
-  // External systems — env-gated, best-effort. Stripe customer is intentionally retained (HMRC record);
-  // PostHog/Sentry person-deletes run client-side (posthog.reset on sign-out) — no server SDK is wired here.
+  // §27g — erase the analytics person server-side (GDPR), behind the person_delete queue (inline + no-op
+  // offline). Deduped per user so a retry can't double-fire. Stripe customer is intentionally retained (HMRC).
+  await enqueue(QUEUES.PERSON_DELETE, { userId }, { key: `person_delete:${userId}` }).catch((err) =>
+    logger.error("[accountDeletion] person-delete enqueue failed", err),
+  );
+
+  // External systems — env-gated, best-effort. Stripe customer is intentionally retained (HMRC record).
   try {
     if (process.env.CLERK_SECRET_KEY) {
       const { clerkClient } = require("@clerk/express");

@@ -958,6 +958,19 @@ model ProcessedWebhook {
   @@unique([provider, eventId])
 }
 
+// Phase 27 §27g — queue-consumer idempotency. A message carries a stable dedupe `key` that travels with it, so
+// a redelivered SQS message (or a double enqueue) is processed at-most-once: the consumer inserts (queue,key)
+// first and skips on a conflict, and deletes the row if the handler throws so SQS can legitimately retry.
+model ProcessedMessage {
+  id          String   @id @default(cuid())
+  queue       String // logical queue name, e.g. 'email' | 'data_export' | 'person_delete'
+  key         String // stable dedupe id for this message
+  processedAt DateTime @default(now())
+
+  @@unique([queue, key])
+  @@index([processedAt])
+}
+
 // Phase 27 §27e-9 — traceability for a Stripe customer after the user row is hard-deleted (§25e). The Pro
 // subscription is cancelled immediately on delete; this keeps the customer id so a stray invoice is traceable.
 model DeletedCustomer {

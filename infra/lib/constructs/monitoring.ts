@@ -17,23 +17,33 @@ export interface MonitoringProps {
   api: Api;
   /** Where alarm notifications go. Overridable per deploy via `-c alertEmail=...`. */
   alertEmail: string;
+  /** §27g — a shared SNS alert topic (so the queue DLQ alarms notify the same place). Created here if absent. */
+  alertTopic?: sns.ITopic;
 }
 
 const ALB_NAMESPACE = "AWS/ApplicationELB";
 const LAMBDA_NAMESPACE = "AWS/Lambda";
 
 export class Monitoring extends Construct {
+  /** §27g — exposed so the Queues construct's DLQ alarms publish to the same topic. */
+  public readonly alertTopic: sns.ITopic;
+
   constructor(scope: Construct, id: string, props: MonitoringProps) {
     super(scope, id);
 
     const { config, database, api, alertEmail } = props;
     const dbInstance = database.instance;
 
-    const alertTopic = new sns.Topic(this, "AlertTopic", {
-      topicName: `bonza-${config.envName}-alerts`,
-      displayName: `Bonza ${config.envName} Alerts`,
-    });
-    alertTopic.addSubscription(new sns_subscriptions.EmailSubscription(alertEmail));
+    let alertTopic = props.alertTopic;
+    if (!alertTopic) {
+      const created = new sns.Topic(this, "AlertTopic", {
+        topicName: `bonza-${config.envName}-alerts`,
+        displayName: `Bonza ${config.envName} Alerts`,
+      });
+      created.addSubscription(new sns_subscriptions.EmailSubscription(alertEmail));
+      alertTopic = created;
+    }
+    this.alertTopic = alertTopic;
 
     const alarm = (
       alarmId: string,

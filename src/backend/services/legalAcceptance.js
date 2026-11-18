@@ -23,9 +23,15 @@ function requestContext(req) {
 // Record one acceptance row. `version` defaults to the current version of the document.
 async function recordAcceptance({ userId, document, version, ipHash = "unknown", userAgent = "server", context = "signup" }) {
   if (!LEGAL_CURRENT_VERSIONS[document]) return null;
-  return prisma.legalAcceptance.create({
-    data: { userId, document, version: version || currentVersion(document), ipHash, userAgent, context },
+  const resolvedVersion = version || currentVersion(document);
+  const row = await prisma.legalAcceptance.create({
+    data: { userId, document, version: resolvedVersion, ipHash, userAgent, context },
   });
+  // §27k — a consent change is an auditable event. Lazy require to avoid a load-time cycle (requestId
+  // middleware → legalAcceptance for hashIp).
+  const { recordAudit, ACTIONS } = require("./auditService");
+  await recordAudit({ action: ACTIONS.CONSENT_ACCEPTED, subjectUserId: userId, entity: "LegalAcceptance", entityId: row.id, after: { document, version: resolvedVersion, context } });
+  return row;
 }
 
 // Record the signup docs (terms + privacy) at their current versions, idempotently — skips any the user has

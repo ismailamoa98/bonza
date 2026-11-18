@@ -4,6 +4,7 @@ const prisma = require("../config/database");
 const emailSync = require("./emailLoyaltySync");
 const guard = require("./statementGuard");
 const stats = require("./statementStats");
+const { recordAudit, ACTIONS } = require("./auditService");
 const { logger } = require("../utils/logger");
 
 const DEEP_LOOKBACK_DAYS = 365;
@@ -81,10 +82,21 @@ async function applyStatementBalance(userId, programme, { balance, date, receive
         const decision = decideBalance(account, stmt);
 
         if (decision.status === "created") {
-          await tx.loyaltyAccount.create({ data: { userId, programme, ...decision.patch } });
+          const created = await tx.loyaltyAccount.create({ data: { userId, programme, ...decision.patch } });
+          await recordAudit(
+            { action: ACTIONS.BALANCE_STATEMENT_APPLIED, actorType: "system", subjectUserId: userId, entity: "LoyaltyAccount", entityId: created.id, after: { balance: created.balance }, source: stmt.source },
+            { tx },
+          );
           return "created";
         }
-        await tx.loyaltyAccount.update({ where: { id: account.id }, data: decision.patch });
+        const updated = await tx.loyaltyAccount.update({ where: { id: account.id }, data: decision.patch });
+        // §27k — audit only an actual balance change (a no-op "verified" re-read isn't a change).
+        if (account.balance !== updated.balance) {
+          await recordAudit(
+            { action: ACTIONS.BALANCE_STATEMENT_APPLIED, actorType: "system", subjectUserId: userId, entity: "LoyaltyAccount", entityId: account.id, before: { balance: account.balance }, after: { balance: updated.balance }, source: stmt.source },
+            { tx },
+          );
+        }
         return decision.status;
       },
       { timeout: 10_000 }
@@ -193,6 +205,10 @@ async function syncOneProgramme(userId, programme, ctx) {
         bodyFingerprint: statement.bodyFingerprint,
       });
       await stats.recordAttempt({ userId, programme, outcome: "quarantined", confidence: statement.confidence, matchedPattern: statement.matchedPattern });
+      await recordAudit({
+        action: ACTIONS.BALANCE_QUARANTINED, actorType: "system", subjectUserId: userId, entity: "LoyaltyAccount",
+        after: { programme, parsedBalance: statement.balance, confidence: statement.confidence, reason }, source: statement.matchedPattern,
+      });
       logger.warn(`[balanceSync] quarantined ${programme} statement`, { reason, matchedPattern: statement.matchedPattern, fingerprint: statement.bodyFingerprint });
       return "quarantined";
     }
@@ -234,7 +250,7 @@ async function setManualBalance(userId, accountId, balance) {
       SELECT * FROM "LoyaltyAccount" WHERE id = ${accountId} AND "userId" = ${userId} FOR UPDATE`;
     const account = rows[0] || null;
     if (!account) return null;
-    return tx.loyaltyAccount.update({
+    const updated = await tx.loyaltyAccount.update({
       where: { id: account.id },
       data: {
         balance: bal,
@@ -244,6 +260,12 @@ async function setManualBalance(userId, accountId, balance) {
         lastSynced: new Date(),
       },
     });
+    // §27k — a user-driven balance edit (actor resolved from the request context).
+    await recordAudit(
+      { action: ACTIONS.BALANCE_MANUAL_OVERRIDE, subjectUserId: userId, entity: "LoyaltyAccount", entityId: account.id, before: { balance: account.balance }, after: { balance: bal } },
+      { tx },
+    );
+    return updated;
   }, { timeout: 10_000 });
 }
 

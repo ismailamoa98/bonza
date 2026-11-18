@@ -12,6 +12,7 @@ const prisma = require("../config/database");
 const env = require("../config/env");
 const { logger } = require("../utils/logger");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
+const { recordAudit, ACTIONS } = require("./auditService");
 const { createAndSend } = require("./emailService");
 
 const SOFT_DELETE_DAYS = 14;
@@ -62,6 +63,7 @@ async function startDeletion(userId) {
   }
 
   await recordEvent(userId, EVENT_TYPES.ACCOUNT_DELETE_REQUESTED, { hardDeleteAt: hardDeleteDate(now) }).catch(() => {});
+  await recordAudit({ action: ACTIONS.ACCOUNT_DELETE_REQUESTED, subjectUserId: userId, entity: "User", entityId: userId, after: { deletedAt: now, hardDeleteAt: hardDeleteDate(now) } });
 
   const undoUrl = `${env.FRONTEND_URL}/settings?undo-delete=1`;
   await createAndSend({
@@ -86,6 +88,7 @@ async function cancelDeletion(userId) {
 
   await prisma.user.update({ where: { id: userId }, data: { lockedAt: null, deletedAt: null } });
   await recordEvent(userId, EVENT_TYPES.ACCOUNT_DELETE_CANCELLED, {}).catch(() => {});
+  await recordAudit({ action: ACTIONS.ACCOUNT_DELETE_CANCELLED, subjectUserId: userId, entity: "User", entityId: userId });
   await createAndSend({
     userId,
     type: "account_deletion_cancelled",
@@ -173,6 +176,8 @@ async function hardDeleteUser(userId) {
     logger.error("[accountDeletion] Clerk delete failed", err);
   }
 
+  // §27k — the append-only audit row survives the hard-delete (no User FK), so there's a record the erasure ran.
+  await recordAudit({ action: ACTIONS.ACCOUNT_HARD_DELETED, actorType: "system", subjectUserId: userId, entity: "User", entityId: userId });
   logger.info(`[accountDeletion] hard-deleted user ${userId} (financial records retained, pseudonymised)`);
   return { deleted: true };
 }

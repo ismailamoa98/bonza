@@ -5,12 +5,14 @@ const prisma = require("../config/database");
 const { createExport } = require("../services/dataExport");
 const { createAndSend } = require("../services/emailService");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
+const { recordAudit, ACTIONS } = require("../services/auditService");
 const { logger } = require("../utils/logger");
 
 async function deliverExport(userId) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
   const result = await createExport(userId);
   await recordEvent(userId, EVENT_TYPES.DATA_EXPORT_REQUESTED, { mode: result.mode, expiresAt: result.expiresAt }).catch(() => {});
+  await recordAudit({ action: ACTIONS.DATA_EXPORT_REQUESTED, subjectUserId: userId, entity: "User", entityId: userId, after: { mode: result.mode } });
 
   if (result.mode === "s3" && user?.email) {
     await createAndSend({

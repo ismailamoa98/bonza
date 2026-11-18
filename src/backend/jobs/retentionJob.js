@@ -10,6 +10,7 @@ const { runHardDeletes } = require("../services/accountDeletion");
 const DAY_MS = 24 * 60 * 60 * 1000;
 const daysAgo = (n) => new Date(Date.now() - n * DAY_MS);
 const monthsAgo = (n) => daysAgo(n * 30);
+const yearsAgo = (n) => daysAgo(n * 365);
 
 async function runRetention(now = new Date()) {
   const counts = {};
@@ -32,6 +33,11 @@ async function runRetention(now = new Date()) {
       where: { status: { in: ["resolved", "closed"] }, resolvedAt: { not: null, lt: monthsAgo(24) } },
     })
   ).count;
+
+  // §27k — append-only audit trail: 7-year retention (UK tax / dispute window), then pruned. NOTE: in prod the
+  // AuditEvent DELETE is REVOKEd from bonza_app, so this sweep must run under bonza_migrate (see docs/DB_ROLES.md);
+  // dev/db-push is unenforced, so it runs as-is.
+  counts.auditEvent = (await prisma.auditEvent.deleteMany({ where: { at: { lt: yearsAgo(7) } } })).count;
 
   // Soft-deleted accounts past the 14-day grace → hard delete.
   const hard = await runHardDeletes(now);

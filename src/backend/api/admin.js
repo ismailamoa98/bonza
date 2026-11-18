@@ -7,6 +7,7 @@ const router = express.Router();
 const prisma = require("../config/database");
 const requireAdmin = require("../middleware/requireAdmin");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
+const { recordAudit, ACTIONS } = require("../services/auditService");
 const { successRateByProgramme } = require("../services/statementStats");
 const { recentRuns, jobHealth, activeLeases } = require("../services/jobStats");
 
@@ -73,6 +74,7 @@ router.get("/user/:userId", async (req, res, next) => {
 
     // Audit: an admin opened this account.
     recordEvent(req.userId, EVENT_TYPES.ADMIN_VIEWED_ACCOUNT, { viewedUserId: userId, devAdmin: !!req.isDevAdmin }).catch(() => {});
+    recordAudit({ action: ACTIONS.ADMIN_VIEWED_ACCOUNT, actorType: "admin", actorId: req.userId, subjectUserId: userId, entity: "User", entityId: userId, after: { devAdmin: !!req.isDevAdmin } });
 
     res.json({
       account: {
@@ -89,6 +91,32 @@ router.get("/user/:userId", async (req, res, next) => {
       credits: credits.map((c) => ({ amountPence: c.amountPence, source: c.source, createdAt: c.createdAt, expiresAt: c.expiresAt })),
       tickets,
       events: events.map((e) => ({ type: e.type, createdAt: e.createdAt, metadata: e.metadata })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /audit — Phase 27 §27k. Read-only append-only audit trail for a subject user (newest first), optionally
+// filtered by action. Reading the trail is itself audited (admin.viewed_audit).
+router.get("/audit", async (req, res, next) => {
+  try {
+    const { subjectUserId, action } = req.query;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
+    const where = {
+      ...(subjectUserId ? { subjectUserId: String(subjectUserId) } : {}),
+      ...(action ? { action: String(action) } : {}),
+    };
+    const events = await prisma.auditEvent.findMany({ where, orderBy: { at: "desc" }, take: limit });
+    if (subjectUserId) {
+      recordAudit({ action: ACTIONS.ADMIN_VIEWED_AUDIT, actorType: "admin", actorId: req.userId, subjectUserId: String(subjectUserId), entity: "AuditEvent" });
+    }
+    res.json({
+      events: events.map((e) => ({
+        id: e.id, at: e.at, actorType: e.actorType, actorId: e.actorId, subjectUserId: e.subjectUserId,
+        action: e.action, entity: e.entity, entityId: e.entityId, before: e.before, after: e.after,
+        requestId: e.requestId, source: e.source,
+      })),
     });
   } catch (err) {
     next(err);

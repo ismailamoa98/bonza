@@ -11,6 +11,7 @@ const { isRatioFresh, ratioAgeHours } = require("../services/ratioFreshness");
 const { EMAIL_VERIFIABLE } = require("../services/emailLoyaltySync");
 const { findDuplicates, setManualBalance } = require("../services/balanceSync");
 const { openQuarantines, resolveQuarantines } = require("../services/statementStats");
+const { recordAudit, ACTIONS } = require("../services/auditService");
 const { REASON_COPY } = require("../services/statementGuard");
 
 // §27b — centsPerPoint is pennies-per-point, so value_in_pence = points × centsPerPoint (rounded).
@@ -333,7 +334,10 @@ router.post("/review/acknowledge", async (req, res, next) => {
       where: { userId: req.userId, modalPending: true },
       data: { modalPending: false },
     });
-    await resolveQuarantines(req.userId);
+    const resolved = await resolveQuarantines(req.userId);
+    if (resolved.count > 0) {
+      await recordAudit({ action: ACTIONS.BALANCE_QUARANTINE_RESOLVED, subjectUserId: req.userId, entity: "StatementQuarantine", after: { resolution: "keep_mine", count: resolved.count } });
+    }
     res.json({ acknowledged: true });
   } catch (err) {
     next(err);
@@ -346,7 +350,10 @@ router.patch("/balance/:accountId", async (req, res, next) => {
     const account = await setManualBalance(req.userId, req.params.accountId, req.body.balance);
     if (!account) return sendError(res, "NOT_FOUND", { message: "Account not found" });
     // §27c — the user set this programme's balance by hand, so any quarantined read for it is resolved.
-    await resolveQuarantines(req.userId, { programme: account.programme });
+    const resolved = await resolveQuarantines(req.userId, { programme: account.programme });
+    if (resolved.count > 0) {
+      await recordAudit({ action: ACTIONS.BALANCE_QUARANTINE_RESOLVED, subjectUserId: req.userId, entity: "StatementQuarantine", after: { resolution: "manual_override", programme: account.programme, count: resolved.count } });
+    }
     res.json({ account });
   } catch (err) {
     if (/non-negative/.test(err.message)) return sendError(res, "VALIDATION_FAILED", { message: err.message });

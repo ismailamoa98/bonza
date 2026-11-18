@@ -6,6 +6,7 @@ const { sendError } = require("../utils/AppError");
 const { isProActive } = require("../middleware/requirePro");
 const { createSubscription, cancelSubscription, handleWebhook } = require("../services/stripeService");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
+const { recordAudit, ACTIONS } = require("../services/auditService");
 const { triggerProActivated } = require("../services/notificationTriggers");
 
 const router = express.Router();
@@ -20,6 +21,7 @@ router.post("/create", async (req, res, next) => {
     }
     const result = await createSubscription(req.userId, user.email);
     recordEvent(req.userId, EVENT_TYPES.PRO_UPGRADED, { mock: !env.hasStripe });
+    recordAudit({ action: ACTIONS.PLAN_UPGRADED, subjectUserId: req.userId, entity: "Subscription", after: { plan: "pro", mock: !env.hasStripe } });
     if (!env.hasStripe || result.mock) triggerProActivated(req.userId);
     res.json(result);
   } catch (err) {
@@ -31,6 +33,7 @@ router.post("/cancel", async (req, res, next) => {
   try {
     const result = await cancelSubscription(req.userId);
     recordEvent(req.userId, EVENT_TYPES.PRO_CANCELLED, { mock: !env.hasStripe });
+    recordAudit({ action: ACTIONS.PLAN_CANCELLED, subjectUserId: req.userId, entity: "Subscription", after: { plan: "cancelled", mock: !env.hasStripe } });
     res.json(result);
   } catch (err) {
     next(err);

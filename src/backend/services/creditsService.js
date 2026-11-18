@@ -5,6 +5,7 @@
 const prisma = require("../config/database");
 const { isProActive } = require("../middleware/requirePro");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
+const { recordAudit, ACTIONS } = require("./auditService");
 const { txSerializable } = require("../utils/txSerializable");
 const { cashbackRateFor, CREDIT_EXPIRY_MONTHS } = require("../config/constants");
 
@@ -57,6 +58,11 @@ async function awardCashback({ userId, bookingId, cashAmountPence, leg }) {
         expiresAt: expiryFromNow(CREDIT_EXPIRY_MONTHS),
       },
     });
+    // §27k — audit the money movement atomically with the ledger write (automatic, so actor = system).
+    await recordAudit(
+      { action: ACTIONS.CREDIT_AWARDED, actorType: "system", subjectUserId: userId, entity: "BonzaCredit", entityId: credit.id, after: { amountPence: credit.amountPence, source: credit.source, bookingId } },
+      { tx },
+    );
     return { credit, isFirstBooking };
   });
 
@@ -86,9 +92,14 @@ async function reverseCredits({ userId, bookingId, proportion = 1 }) {
     const totalAwarded = awarded.reduce((s, c) => s + c.amountPence, 0);
     const clawback = Math.round(totalAwarded * p); // integer pence
     if (!(clawback > 0)) return null;
-    return tx.bonzaCredit.create({
+    const row = await tx.bonzaCredit.create({
       data: { userId, amountPence: -clawback, source: "refund_reversal", bookingId, expiresAt: NEVER_EXPIRES },
     });
+    await recordAudit(
+      { action: ACTIONS.CREDIT_REVERSED, actorType: "system", subjectUserId: userId, entity: "BonzaCredit", entityId: row.id, after: { amountPence: row.amountPence, proportion: p, bookingId }, source: "refund_reversal" },
+      { tx },
+    );
+    return row;
   });
 
   if (entry) recordEvent(userId, EVENT_TYPES.CREDIT_AWARDED, { bookingId, amountPence: entry.amountPence, reversal: true });
@@ -118,9 +129,14 @@ async function redeemCredits(userId, amountToRedeemPence) {
     if (raw <= 0) throw httpError(409, "Your Credits are on hold while a recent refund settles.");
     if (amount > raw) throw httpError(400, "Insufficient credits");
 
-    await tx.bonzaCredit.create({
+    const row = await tx.bonzaCredit.create({
       data: { userId, amountPence: -amount, source: "redeemed", expiresAt: NEVER_EXPIRES },
     });
+    // §27k — the user actively redeems: actor = the user (resolved from the request context).
+    await recordAudit(
+      { action: ACTIONS.CREDIT_REDEEMED, subjectUserId: userId, entity: "BonzaCredit", entityId: row.id, before: { rawBalancePence: raw }, after: { amountPence: -amount, remainingBalancePence: raw - amount } },
+      { tx },
+    );
     return { redeemedPence: amount, remainingBalancePence: raw - amount };
   });
 }

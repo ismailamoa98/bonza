@@ -6,6 +6,7 @@
 const crypto = require("node:crypto");
 const env = require("../config/env");
 const requestContext = require("../utils/requestContext");
+const { hashIp } = require("../services/legalAcceptance"); // §25d — sha256(ip+APP_SALT); raw IP never stored
 
 // Accept only a sane, bounded, token-ish id from the client; otherwise mint our own (prevents header
 // injection / log forging via a crafted x-request-id).
@@ -28,7 +29,11 @@ function requestId(req, res, next) {
     }
   }
 
-  requestContext.run({ requestId: id }, () => next());
+  // §27k — carry a hashed client ip on the context so auditService can record provenance without threading req.
+  const fwd = (req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  const ipHash = hashIp(fwd || req.ip || req.socket?.remoteAddress || "");
+
+  requestContext.run({ requestId: id, ipHash }, () => next());
 }
 
 module.exports = { requestId };

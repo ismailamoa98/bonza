@@ -34,6 +34,9 @@ async function runRetention(now = new Date()) {
     })
   ).count;
 
+  // §27g — queue dedupe markers are only needed for the redelivery window; 30 days is ample.
+  counts.processedMessage = (await prisma.processedMessage.deleteMany({ where: { processedAt: { lt: daysAgo(30) } } })).count;
+
   // §27k — append-only audit trail: 7-year retention (UK tax / dispute window), then pruned. NOTE: in prod the
   // AuditEvent DELETE is REVOKEd from bonza_app, so this sweep must run under bonza_migrate (see docs/DB_ROLES.md);
   // dev/db-push is unenforced, so it runs as-is.

@@ -77,6 +77,33 @@ const env = {
   S3_EXPORT_BUCKET: (process.env.S3_EXPORT_BUCKET || "").trim(),
   hasS3Export: Boolean((process.env.S3_EXPORT_BUCKET || "").trim()),
 
+  // Phase 27 §27g — SQS queues. A queue has a real URL only in a deployed env; offline (no URL) the queue
+  // abstraction runs the consumer inline, so dev/tests behave identically without any AWS. Per-queue URLs are
+  // read by logical name (SQS_EMAIL_QUEUE_URL, SQS_DATA_EXPORT_QUEUE_URL, …). `hasSqs` is true once any is set.
+  QUEUE_URLS: {
+    email: (process.env.SQS_EMAIL_QUEUE_URL || "").trim(),
+    data_export: (process.env.SQS_DATA_EXPORT_QUEUE_URL || "").trim(),
+    person_delete: (process.env.SQS_PERSON_DELETE_QUEUE_URL || "").trim(),
+    statement_parse: (process.env.SQS_STATEMENT_PARSE_QUEUE_URL || "").trim(),
+    og_image: (process.env.SQS_OG_IMAGE_QUEUE_URL || "").trim(),
+  },
+  hasSqs: Boolean(
+    (process.env.SQS_EMAIL_QUEUE_URL || "").trim() ||
+      (process.env.SQS_DATA_EXPORT_QUEUE_URL || "").trim() ||
+      (process.env.SQS_PERSON_DELETE_QUEUE_URL || "").trim() ||
+      (process.env.SQS_STATEMENT_PARSE_QUEUE_URL || "").trim() ||
+      (process.env.SQS_OG_IMAGE_QUEUE_URL || "").trim()
+  ),
+
+  // Phase 27 §27g — server-side analytics person-delete (PostHog) on account erasure. Env-gated; offline it's a
+  // no-op log, so no network in dev/tests.
+  POSTHOG_PERSONAL_API_KEY: (process.env.POSTHOG_PERSONAL_API_KEY || "").trim(),
+  POSTHOG_PROJECT_ID: (process.env.POSTHOG_PROJECT_ID || "").trim(),
+  POSTHOG_HOST: (process.env.POSTHOG_HOST || "https://eu.i.posthog.com").trim(),
+  hasPosthogAdmin: Boolean(
+    (process.env.POSTHOG_PERSONAL_API_KEY || "").trim() && (process.env.POSTHOG_PROJECT_ID || "").trim()
+  ),
+
   // Phase 25 §25i — the bundled flight+hotel single-total cash checkout. Defaults ON for the build; must be
   // flipped OFF at go-live (BUNDLED_CHECKOUT_ENABLED=false) until the ATOL question (§25h) is answered. The
   // flight and hotel cash paths stay separable in code regardless, so an agent-model restructure is a flow

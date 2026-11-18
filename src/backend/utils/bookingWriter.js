@@ -4,6 +4,7 @@
 const prisma = require("../config/database");
 const { awardCashback } = require("../services/creditsService");
 const { recordEvent, EVENT_TYPES } = require("./eventTracker");
+const { recordAudit, ACTIONS } = require("../services/auditService");
 const { triggerBookingConfirmation } = require("../services/notificationTriggers");
 const { toMinor } = require("../../shared/format");
 
@@ -65,6 +66,12 @@ async function writeBooking(userId, data) {
       paymentIntentId: paymentIntentId || null,
       status: "confirmed",
     },
+  });
+
+  // §27k — audit the booking state transition (actor resolved from the request context; system for webhooks).
+  await recordAudit({
+    action: ACTIONS.BOOKING_CREATED, subjectUserId: userId, entity: "Booking", entityId: booking.id,
+    after: { leg, bookingType, confirmationMethod, status: "confirmed", cashAmountPence: pence(cashValueGbp), pointsUsed: pointsUsed != null ? Number(pointsUsed) : null },
   });
 
   if (journeyId) {

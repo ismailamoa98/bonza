@@ -6,6 +6,7 @@ const prisma = require("../config/database");
 const { ownedOr403 } = require("../utils/ownedOr403");
 const { writeBooking } = require("../utils/bookingWriter");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
+const { recordAudit, ACTIONS } = require("../services/auditService");
 const { createBookingPaymentIntent, retrievePaymentIntent } = require("../services/paymentService");
 const { bookCashFlight } = require("../services/duffelService");
 const { getPropertyReviews } = require("../services/googlePlacesService");
@@ -351,6 +352,10 @@ router.post("/:id/cancel", async (req, res, next) => {
       bookingId: booking.id,
       reason: req.body?.reason || null,
       reversedCreditsPence: booking.creditsAwardedPence || 0,
+    });
+    await recordAudit({
+      action: ACTIONS.BOOKING_CANCELLED, subjectUserId: req.userId, entity: "Booking", entityId: booking.id,
+      before: { status: booking.status }, after: { status: "cancelled", reason: req.body?.reason || null, reversedCreditsPence: booking.creditsAwardedPence || 0 },
     });
 
     res.json({ booking: updated });

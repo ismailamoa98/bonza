@@ -398,6 +398,30 @@ model UserEvent {
   createdAt DateTime @default(now())
 }
 
+// Phase 27 §27k — append-only compliance audit trail: who changed what, when, from where, and from→to, for
+// every trust-sensitive mutation (money, balances, bookings, consent, plan, account lifecycle). Deliberately
+// has NO User relation so the trail survives a user hard-delete (§25f); actorId/subjectUserId are plain
+// strings. DB-level append-only: the §27k migration GRANTs SELECT/INSERT and REVOKEs UPDATE/DELETE from
+// bonza_app (mirrors BonzaCredit). Corrections are new rows, never edits. 7-year retention (§25f).
+model AuditEvent {
+  id            String   @id @default(cuid())
+  at            DateTime @default(now())
+  actorType     String // 'user' | 'admin' | 'system'
+  actorId       String? // the acting user/admin id, or null for system/job actors
+  subjectUserId String? // the user whose data was affected
+  action        String // dotted verb, e.g. 'balance.manual_override' | 'credit.awarded'
+  entity        String? // affected model, e.g. 'LoyaltyAccount' | 'BonzaCredit' | 'Booking'
+  entityId      String?
+  before        Json? // changed fields only (pre-image)
+  after         Json? // changed fields only (post-image)
+  requestId     String? // §27i correlation id
+  ipHash        String? // §25d sha256(ip + APP_SALT) — raw IP never stored
+  source        String? // optional provenance, e.g. a statement source or 'stripe_webhook'
+
+  @@index([subjectUserId, at])
+  @@index([action, at])
+}
+
 model AwardAvailability {
   id          String   @id @default(cuid())
   userId      String

@@ -13,7 +13,10 @@ connects as the `bonza` master user.
 | `bonza_readonly` | SELECT only (+ future tables)                                              | analytics / debugging       |
 
 Append-only tables are enforced at the database, not just in code: a bug or a compromised app credential
-**cannot** rewrite the credits ledger. Corrections are posted as new (negative) `BonzaCredit` rows.
+**cannot** rewrite the credits ledger. Corrections are posted as new (negative) `BonzaCredit` rows. The §27k
+`AuditEvent` trail is the same — `bonza_app` has SELECT/INSERT but not UPDATE/DELETE (migration
+`20261102...27k`). Its **7-year retention prune** (`jobs/retentionJob.js`) therefore cannot run as `bonza_app`;
+schedule that sweep to connect as `bonza_migrate`. (Dev/`db push` doesn't enforce roles, so it runs as-is.)
 
 ### Credential store + go-live cutover
 

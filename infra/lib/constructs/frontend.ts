@@ -7,9 +7,33 @@ import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import { RemovalPolicy, CfnOutput } from "aws-cdk-lib";
+import { RemovalPolicy, CfnOutput, Duration } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { EnvConfig } from "../config";
+
+// §27j — the SPA's Content-Security-Policy. MUST mirror src/backend/config/csp.js (the TS infra can't import
+// that CJS module at synth time). Shipped REPORT-ONLY first (Content-Security-Policy-Report-Only below) so
+// violations surface before enforcing. No nonce: the built SPA has only an external hashed module script.
+const CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'self'",
+  "form-action 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.bonza.app",
+  "script-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.bonza.app https://js.stripe.com https://api.stripe.com https://hooks.stripe.com https://challenges.cloudflare.com https://eu.i.posthog.com https://eu-assets.i.posthog.com",
+  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.bonza.app https://js.stripe.com https://api.stripe.com https://hooks.stripe.com https://eu.i.posthog.com https://eu-assets.i.posthog.com https://*.basemaps.cartocdn.com https://basemaps.cartocdn.com https://*.ingest.sentry.io https://*.ingest.de.sentry.io https://api.unsplash.com",
+  "frame-src 'self' https://js.stripe.com https://api.stripe.com https://hooks.stripe.com https://*.clerk.accounts.dev https://*.clerk.com https://clerk.bonza.app https://challenges.cloudflare.com",
+  "worker-src 'self' blob:",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "img-src 'self' data: blob: https:",
+  "manifest-src 'self'",
+  "upgrade-insecure-requests",
+  "report-uri /api/v1/security/csp-report",
+].join("; ");
+
+const PERMISSIONS_POLICY =
+  'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), usb=(), payment=(self "https://js.stripe.com")';
 
 export interface FrontendProps {
   config: EnvConfig;
@@ -74,11 +98,30 @@ export class Frontend extends Construct {
       };
     }
 
+    // §27j — security headers for every SPA response (CSP report-only during rollout, HSTS, nosniff, frame
+    // DENY, referrer policy, Permissions-Policy).
+    const securityHeaders = new cloudfront.ResponseHeadersPolicy(this, "SecurityHeaders", {
+      responseHeadersPolicyName: `bonza-${config.envName}-security-headers`,
+      securityHeadersBehavior: {
+        strictTransportSecurity: { accessControlMaxAge: Duration.days(730), includeSubdomains: true, preload: true, override: true },
+        contentTypeOptions: { override: true },
+        frameOptions: { frameOption: cloudfront.HeadersFrameOption.DENY, override: true },
+        referrerPolicy: { referrerPolicy: cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN, override: true },
+      },
+      customHeadersBehavior: {
+        customHeaders: [
+          { header: "content-security-policy-report-only", value: CSP, override: true },
+          { header: "permissions-policy", value: PERMISSIONS_POLICY, override: true },
+        ],
+      },
+    });
+
     this.distribution = new cloudfront.Distribution(this, "Distribution", {
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(bucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        responseHeadersPolicy: securityHeaders,
         compress: true,
       },
       additionalBehaviors,

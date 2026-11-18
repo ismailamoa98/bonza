@@ -39,14 +39,21 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high # §27j — fail the build on high/critical vulns in prod deps
       - run: npm run lint # Phase 23 — ESLint (backend CommonJS + frontend JSX)
       - run: npx prisma generate
       - run: npm run test:coverage # unit + integration + frontend (Phase 23)
+      - run: npm run sbom # §27j — CycloneDX SBOM of production deps
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: coverage
           path: coverage/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sbom
+          path: sbom.cyclonedx.json
 
   e2e:
     name: E2E

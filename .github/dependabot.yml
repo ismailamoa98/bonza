@@ -1,0 +1,40 @@
+# .github/dependabot.yml — Phase 27 §27j supply chain. Weekly dependency updates across every manifest in the
+# repo (root backend, the frontend workspace, the CDK infra, and the GitHub Actions themselves). Patch + minor
+# bumps are grouped into one PR per ecosystem to cut noise; majors come as their own PRs for a human to weigh.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      backend-patch-minor:
+        update-types: ["minor", "patch"]
+    labels: ["dependencies"]
+
+  - package-ecosystem: npm
+    directory: "/src/frontend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-patch-minor:
+        update-types: ["minor", "patch"]
+    labels: ["dependencies", "frontend"]
+
+  - package-ecosystem: npm
+    directory: "/infra"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      infra-patch-minor:
+        update-types: ["minor", "patch"]
+    labels: ["dependencies", "infra"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "ci"]

@@ -21,13 +21,21 @@ schedule that sweep to connect as `bonza_migrate`. (Dev/`db push` doesn't enforc
 ### Credential store + go-live cutover
 
 Per-role passwords live in Secrets Manager (`/bonza/<env>/db-bonza_app|bonza_migrate|bonza_readonly`, created
-by the `Database` construct). They are **not** set in the migration. Cutover (once, at go-live, after the roles
-migration has run):
+by the `Database` construct). They are **not** set in the migration. The cutover is now a **script + a deploy
+flag** (once, at go-live, after the roles migration has run):
 
-1. Apply each secret's password to its role: `ALTER ROLE bonza_app WITH PASSWORD '<from secret>'` (etc.).
-2. Point the app's `DATABASE_URL` at the `bonza_app` secret and the migrate step at `bonza_migrate`
-   (the Dockerfile entrypoint runs `migrate deploy` before starting the app — give that step the migrate URL).
-3. Enable rotation on the three secrets (hosted PostgreSQL single-user rotation against the RDS Proxy endpoint).
+1. **Set the role passwords** from the secrets — run once, connected as the master user:
+   ```bash
+   DATABASE_URL="postgresql://bonza:<master-pw>@<proxy-host>:5432/bonza?sslmode=require" \
+   BONZA_ENV=production AWS_REGION=eu-west-2 npm run db:set-role-passwords
+   ```
+   (`scripts/set-db-role-passwords.js` — idempotent `ALTER ROLE … WITH LOGIN PASSWORD` for all three roles.)
+2. **Flip the app to `bonza_app`**: deploy with `-c dbRole=bonza_app`. `Database.databaseUrlFor()` then builds
+   the API/jobs/consumer `DATABASE_URL` from the `bonza_app` secret via the proxy (the proxy already holds all
+   role secrets). The migrate step (`migrate deploy`) still runs as the master/migrate role — give that step the
+   migrate credentials separately.
+3. Enable rotation on the three secrets (hosted PostgreSQL single-user rotation against the RDS Proxy endpoint);
+   re-run step 1 if you rotate out of band.
 
 Until cutover, both the app and migrations connect as the `bonza` master user **through the RDS Proxy** — the
 roles/grants exist and are testable, but the privilege separation isn't load-bearing yet.

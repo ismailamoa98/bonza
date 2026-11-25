@@ -9,6 +9,7 @@
     "dev": "nodemon src/backend/index.js",
     "db:setup": "prisma db push",
     "db:migrate": "prisma migrate deploy",
+    "db:set-role-passwords": "node scripts/set-db-role-passwords.js",
     "db:generate": "prisma generate",
     "db:seed": "node src/backend/db/seed.js",
     "db:seed:e2e": "node src/backend/db/seedE2e.js",

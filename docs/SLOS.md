@@ -27,7 +27,7 @@ scrubs `authorization`/`cookie`/`password`/`token`/`secret`/`email`/`membershipN
 |-----|-----------|--------|--------|-------|
 | **Search/API availability** | ≥ 99.5% non-5xx | 30-day budget, multi-window burn | ALB `HTTPCode_ELB_5XX_Count` / `RequestCount` | burn-rate composites (below) |
 | **API latency** | p95 < 4s | 5-min, 3 periods | ALB `TargetResponseTime` p95 | `ApiLatencySloAlarm` |
-| **Booking → confirm** | > 97% success | — | app `[metric]` line (follow-up) | pending a `BonzaBookingOutcome` emit |
+| **Booking → confirm** | > 97% success | 15 min | app `[metric] BonzaBookingOutcome` → `BookingSuccess`/`BookingFailure` filters | `BookingConfirmSloAlarm` (failure rate > 3%) |
 | **Statement parse** | > 95% / programme | 24h, ≥ 5 attempts | §27c `parseStatsJob` + `ParseAttempt` | §27c parse-stats alarm (< 80%/24h) |
 | **Nightly jobs** | 100% success | per run | app `[metric] BonzaJobOutcome` → `JobFailure` filter | `NightlyJobFailureAlarm` |
 
@@ -53,9 +53,11 @@ CloudWatch metrics via **log metric filters** on the API log group (`/bonza/<env
 | `BonzaServiceDegraded` | `ServiceDegraded` | `services/serviceHealth.js` | `DependencyDegradedAlarm` (degraded ~15 min) |
 | `BonzaSpendExhausted` | `SpendExhausted` | `services/spendLedger.js` | `SpendExhaustedAlarm` (any exhaustion/day) |
 | `BonzaJobOutcome` (value 0/1) | `JobFailure` / `JobSuccess` | `utils/jobRunner.js` | `NightlyJobFailureAlarm` |
+| `BonzaBookingOutcome` (value 0/1) | `BookingFailure` / `BookingSuccess` | `api/bookings.js` `/confirm-cash` | `BookingConfirmSloAlarm` (failure rate > 3%) |
 
 A **dependency-health dashboard** (`bonza-<env>-dependencies`) shows availability (5xx %), p95 latency,
-dependency-degraded state, daily spend exhaustion, and job success/failure counts in one view.
+dependency-degraded state, daily spend exhaustion, job success/failure, and booking confirm success/failure in
+one view.
 
 ## Error-budget policy
 
@@ -66,7 +68,5 @@ dependency-degraded state, daily spend exhaustion, and job success/failure count
 
 ## Follow-ups
 
-- `booking → confirm` SLO needs a `[metric] BonzaBookingOutcome` emit on confirm/fail in `bookingWriter`; the
-  metric filter + alarm then mirror the job-outcome pattern above.
 - A "no nightly-job success in 26h" absence alarm (on `JobSuccess` with `treatMissingData=BREACHING`) can be
   added once run cadence per job is pinned.

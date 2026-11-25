@@ -122,4 +122,21 @@ export class Database extends Construct {
     });
     this.proxyEndpoint = this.proxy.endpoint;
   }
+
+  /**
+   * §27h/§27g/§27j — build the app's Prisma DATABASE_URL (through the RDS Proxy, TLS required, bounded
+   * connection_limit). The connecting role is chosen by the `dbRole` context flag: default `"bonza"` (the master
+   * user, pre-cutover) or `"bonza_app"` (the least-privilege app role, after `scripts/set-db-role-passwords.js`
+   * has set its password and this flag is flipped at deploy — see docs/DB_ROLES.md). The proxy already holds all
+   * role secrets, so only the credential in the URL changes.
+   */
+  public databaseUrlFor(connectionLimit: number): string {
+    const useAppRole = this.node.tryGetContext("dbRole") === "bonza_app";
+    const user = useAppRole ? "bonza_app" : "bonza";
+    const secret = useAppRole ? this.appRoleSecret : this.secret;
+    return (
+      `postgresql://${user}:${secret.secretValueFromJson("password").unsafeUnwrap()}` +
+      `@${this.proxyEndpoint}:5432/bonza?connection_limit=${connectionLimit}&pool_timeout=20&sslmode=require`
+    );
+  }
 }

@@ -7,6 +7,7 @@ const { ownedOr403 } = require("../utils/ownedOr403");
 const { writeBooking } = require("../utils/bookingWriter");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
 const { recordAudit, ACTIONS } = require("../services/auditService");
+const { logger } = require("../utils/logger"); // §27j — booking→confirm SLO metric line
 const { createBookingPaymentIntent, retrievePaymentIntent } = require("../services/paymentService");
 const { bookCashFlight } = require("../services/duffelService");
 const { getPropertyReviews } = require("../services/googlePlacesService");
@@ -256,8 +257,12 @@ router.post("/confirm-cash", async (req, res, next) => {
       }
     }
 
+    // §27j — booking→confirm SLO (> 97% success). One metric line per confirm attempt → MetricFilter in
+    // monitoring.ts. Success here means the cash order(s) completed (Duffel ordered / legs written).
+    logger.info("[metric] BonzaBookingOutcome", { metric: "BonzaBookingOutcome", value: 1 });
     res.status(201).json({ bookings, mock: pi.mock });
   } catch (err) {
+    logger.info("[metric] BonzaBookingOutcome", { metric: "BonzaBookingOutcome", value: 0 });
     if (err && Array.isArray(err.errors) && err.errors.length) {
       const d = err.errors[0];
       return res.status(502).json({

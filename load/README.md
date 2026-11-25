@@ -32,6 +32,13 @@ k6 run load/k6/booking.js
 
 Tune load without editing the scripts: `TARGET_VUS=100 HOLD=5m k6 run load/k6/browse.js`.
 
+### One-click run from CI
+`.github/workflows/loadtest.yml` runs a scenario against a deployed env on demand
+(**Actions → Load test → Run workflow**): pick `scenario`, `base_url` (default staging), and `target_vus`; it
+installs k6, runs it (`AUTH_TOKEN` from the `LOADTEST_AUTH_TOKEN` repo secret for search/booking), and uploads
+the k6 summary as an artifact. **Recording the numbers below from that run — and the beta-gate sign-off — is
+still the operator's call.**
+
 ### Getting an AUTH_TOKEN
 The authed scenarios send `Authorization: Bearer <jwt>`. Mint a short-lived Clerk session JWT for a seeded
 staging test user (Clerk dashboard → the user → "Impersonate"/session token, or the Clerk backend API). Never use

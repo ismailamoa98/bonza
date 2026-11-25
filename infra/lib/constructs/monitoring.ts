@@ -308,6 +308,29 @@ export class Monitoring extends Construct {
       metricValue: "1",
       defaultValue: 0,
     });
+    // §27j — booking→confirm SLO: one BonzaBookingOutcome line per confirm attempt (1 success / 0 failure).
+    new logs.MetricFilter(this, "BookingSuccessFilter", {
+      logGroup: api.logGroup,
+      metricNamespace: DEP_NS,
+      metricName: "BookingSuccess",
+      filterPattern: logs.FilterPattern.all(
+        logs.FilterPattern.stringValue("$.metric", "=", "BonzaBookingOutcome"),
+        logs.FilterPattern.numberValue("$.value", "=", 1),
+      ),
+      metricValue: "1",
+      defaultValue: 0,
+    });
+    new logs.MetricFilter(this, "BookingFailureFilter", {
+      logGroup: api.logGroup,
+      metricNamespace: DEP_NS,
+      metricName: "BookingFailure",
+      filterPattern: logs.FilterPattern.all(
+        logs.FilterPattern.stringValue("$.metric", "=", "BonzaBookingOutcome"),
+        logs.FilterPattern.numberValue("$.value", "=", 0),
+      ),
+      metricValue: "1",
+      defaultValue: 0,
+    });
 
     alarm("DependencyDegradedAlarm", depMetric("ServiceDegraded", "Maximum", Duration.minutes(5)), {
       threshold: 0,
@@ -323,6 +346,24 @@ export class Monitoring extends Construct {
       threshold: 0,
       evaluationPeriods: 1,
       alarmDescription: "A background job finished with an error outcome",
+    });
+
+    // §27j — booking→confirm SLO (> 97% success): alarm when the failure rate over 15 min exceeds 3%. With no
+    // bookings the expression divides by zero → missing data → not-breaching (the alarm helper sets that), so a
+    // quiet window never pages.
+    const bookingFailureRate = new cloudwatch.MathExpression({
+      expression: "100 * fail / (success + fail)",
+      usingMetrics: {
+        success: depMetric("BookingSuccess", "Sum", Duration.minutes(15)),
+        fail: depMetric("BookingFailure", "Sum", Duration.minutes(15)),
+      },
+      label: "Booking confirm failure rate (%)",
+      period: Duration.minutes(15),
+    });
+    alarm("BookingConfirmSloAlarm", bookingFailureRate, {
+      threshold: 3, // > 3% failures breaches the 97% SLO
+      evaluationPeriods: 1,
+      alarmDescription: "Cash booking→confirm success < 97% over 15 min — checkout is failing",
     });
 
     // Dependency-health dashboard — one at-a-glance upstream view beside availability + latency.
@@ -366,6 +407,16 @@ export class Monitoring extends Construct {
               depMetric("JobFailure", "Sum", Duration.hours(24)),
             ],
             width: 8,
+          }),
+        ],
+        [
+          new cloudwatch.GraphWidget({
+            title: "Booking confirm (success / failure, SLO > 97%)",
+            left: [
+              depMetric("BookingSuccess", "Sum", Duration.hours(1)),
+              depMetric("BookingFailure", "Sum", Duration.hours(1)),
+            ],
+            width: 24,
           }),
         ],
       ],

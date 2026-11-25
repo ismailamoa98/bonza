@@ -1,0 +1,45 @@
+# .github/workflows/loadtest.yml — Phase 27 §27m. On-demand load test against a deployed environment (staging).
+# Not part of CI — triggered manually (workflow_dispatch) so the actual run + recording the numbers is a
+# deliberate operator action. Installs k6, runs one scenario from load/k6/, and uploads the summary JSON.
+name: Load test
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Which scenario to run
+        type: choice
+        required: true
+        default: browse
+        options: [browse, search, booking]
+      base_url:
+        description: Target base URL (a DEPLOYED env — never production without sign-off)
+        type: string
+        required: true
+        default: https://staging.bonza.app
+      target_vus:
+        description: Peak virtual users
+        type: string
+        required: false
+        default: "50"
+
+jobs:
+  k6:
+    name: k6 ${{ inputs.scenario }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+      - name: Run scenario
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          TARGET_VUS: ${{ inputs.target_vus }}
+          # search + booking need an auth token; store a short-lived staging Clerk JWT as a repo secret.
+          AUTH_TOKEN: ${{ secrets.LOADTEST_AUTH_TOKEN }}
+        run: k6 run --summary-export k6-summary.json load/k6/${{ inputs.scenario }}.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-summary-${{ inputs.scenario }}
+          path: k6-summary.json

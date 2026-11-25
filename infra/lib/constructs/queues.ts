@@ -52,9 +52,7 @@ export class Queues extends Construct {
     });
     database.proxy.connections.allowFrom(consumerSecurityGroup, ec2.Port.tcp(5432), "Queue consumer → RDS Proxy");
 
-    const databaseUrl =
-      `postgresql://bonza:${database.secret.secretValueFromJson("password").unsafeUnwrap()}` +
-      `@${database.proxyEndpoint}:5432/bonza?connection_limit=2&pool_timeout=20&sslmode=require`;
+    const databaseUrl = database.databaseUrlFor(2);
 
     const consumer = new lambda.DockerImageFunction(this, "ConsumerFunction", {
       code: lambda.DockerImageCode.fromImageAsset("../", {

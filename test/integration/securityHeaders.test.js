@@ -6,11 +6,12 @@ import request from "supertest";
 const app = require("../../src/backend/server");
 
 describe("security headers (§27j)", () => {
-  it("sets a report-only CSP with the third-party allowlist and no script unsafe-inline", async () => {
+  it("sets an ENFORCING CSP with the third-party allowlist and no script unsafe-inline", async () => {
     const res = await request(app).get("/api/v1/status");
-    const csp = res.headers["content-security-policy-report-only"];
-    expect(csp, "report-only CSP header present").toBeTruthy();
-    expect(res.headers["content-security-policy"]).toBeUndefined(); // report-only, not enforcing
+    // Enforced by default (go-live cutover); CSP_REPORT_ONLY=true would move it to the -report-only header.
+    const csp = res.headers["content-security-policy"];
+    expect(csp, "enforcing CSP header present").toBeTruthy();
+    expect(res.headers["content-security-policy-report-only"]).toBeUndefined(); // enforcing, not report-only
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("js.stripe.com");
     expect(csp).toContain("eu.i.posthog.com");

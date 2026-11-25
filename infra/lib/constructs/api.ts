@@ -46,11 +46,8 @@ export class Api extends Construct {
 
     // §27h — connect through the RDS Proxy (not the instance) with a bounded per-task connection_limit, so a
     // scale-out of Fargate tasks multiplexes onto the proxy pool instead of exhausting Postgres max_connections.
-    // requireTLS on the proxy ⇒ sslmode=require. (The app connects as the master user until the go-live cutover
-    // to the bonza_app role credentials — see docs/DB_ROLES.md.)
-    const databaseUrl =
-      `postgresql://bonza:${database.secret.secretValueFromJson("password").unsafeUnwrap()}` +
-      `@${database.proxyEndpoint}:5432/bonza?connection_limit=5&pool_timeout=20&sslmode=require`;
+    // Role is the master user until the go-live cutover to bonza_app (`-c dbRole=bonza_app`) — see docs/DB_ROLES.md.
+    const databaseUrl = database.databaseUrlFor(5);
 
     const service = new ecs_patterns.ApplicationLoadBalancedFargateService(this, "Service", {
       cluster,

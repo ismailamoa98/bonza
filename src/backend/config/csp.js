@@ -4,8 +4,9 @@
 //
 // No inline bootstrap script exists in the built SPA (Vite emits an external hashed module script), so
 // script-src needs neither a nonce nor 'unsafe-inline'. style-src keeps 'unsafe-inline' because React / Tailwind
-// / MapLibre set inline style attributes (styles, not scripts — far lower risk). We ship REPORT-ONLY first so
-// real violations are collected (report-uri → Sentry or the local /security/csp-report sink) before enforcing.
+// / MapLibre set inline style attributes (styles, not scripts — far lower risk). The policy is ENFORCED by
+// default (go-live cutover); CSP_REPORT_ONLY=true drops back to report-only (violations reported to
+// report-uri → Sentry or the local /security/csp-report sink) if a directive needs widening.
 const env = require("./env");
 
 // Third-party origins the app genuinely talks to (discovered from the frontend): Clerk (auth), Stripe
@@ -47,8 +48,7 @@ const directives = {
 // Where the browser POSTs violation reports. Prefer an explicit Sentry CSP endpoint; else the local sink.
 const reportUri = env.CSP_REPORT_URI || "/api/v1/security/csp-report";
 
-// Enforce only when explicitly turned on (CSP_ENFORCE=true); report-only is the safe default while we watch
-// for violations.
-const reportOnly = !env.CSP_ENFORCE;
+// Enforced by default; CSP_REPORT_ONLY=true reverts to report-only (watch violations without blocking).
+const reportOnly = env.CSP_REPORT_ONLY;
 
 module.exports = { directives, reportUri, reportOnly };

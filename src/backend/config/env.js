@@ -68,10 +68,10 @@ const env = {
   SENTRY_DSN: (process.env.SENTRY_DSN || "").trim(),
   hasSentry: Boolean((process.env.SENTRY_DSN || "").trim()),
 
-  // Phase 27 §27j — CSP. Report-only by default (collect violations before blocking); set CSP_ENFORCE=true to
-  // switch to the enforcing header. CSP_REPORT_URI points violation reports at Sentry's security endpoint when
-  // set, else the local /security/csp-report sink.
-  CSP_ENFORCE: String(process.env.CSP_ENFORCE || "").toLowerCase() === "true",
+  // Phase 27 §27j — CSP. ENFORCED by default (go-live cutover); set CSP_REPORT_ONLY=true to drop back to
+  // report-only (collect violations without blocking) if a directive needs widening. CSP_REPORT_URI points
+  // violation reports at Sentry's security endpoint when set, else the local /security/csp-report sink.
+  CSP_REPORT_ONLY: String(process.env.CSP_REPORT_ONLY || "").toLowerCase() === "true",
   CSP_REPORT_URI: (process.env.CSP_REPORT_URI || "").trim(),
 
   // Phase 25 §25d — salt for one-way IP hashing on legal-acceptance records (never store the raw IP).

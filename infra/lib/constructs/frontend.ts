@@ -98,8 +98,10 @@ export class Frontend extends Construct {
       };
     }
 
-    // §27j — security headers for every SPA response (CSP report-only during rollout, HSTS, nosniff, frame
-    // DENY, referrer policy, Permissions-Policy).
+    // §27j — security headers for every SPA response. CSP is ENFORCED by default (go-live cutover); deploy with
+    // `-c cspReportOnly=true` to drop back to the report-only header while widening a directive.
+    const cspReportOnly = this.node.tryGetContext("cspReportOnly") === true || this.node.tryGetContext("cspReportOnly") === "true";
+    const cspHeader = cspReportOnly ? "content-security-policy-report-only" : "content-security-policy";
     const securityHeaders = new cloudfront.ResponseHeadersPolicy(this, "SecurityHeaders", {
       responseHeadersPolicyName: `bonza-${config.envName}-security-headers`,
       securityHeadersBehavior: {
@@ -110,7 +112,7 @@ export class Frontend extends Construct {
       },
       customHeadersBehavior: {
         customHeaders: [
-          { header: "content-security-policy-report-only", value: CSP, override: true },
+          { header: cspHeader, value: CSP, override: true },
           { header: "permissions-policy", value: PERMISSIONS_POLICY, override: true },
         ],
       },

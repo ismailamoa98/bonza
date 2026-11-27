@@ -57,7 +57,7 @@
     "prisma": "^5.22.0",
     "resend": "^6.18.0",
     "stripe": "^22.2.2",
-    "svix": "^1.96.0"
+    "svix": "^2.11.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

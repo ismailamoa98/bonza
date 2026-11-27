@@ -1,0 +1,6 @@
+{
+  "name": "promo number before the real balance (balance-twice)",
+  "programme": "marriott_bonvoy",
+  "body": "Earn 5,000 bonus points when you book 2 nights! Your available balance: 250,000 points.",
+  "expect": { "balance": 250000, "minConfidence": 0.9, "matchedPattern": "context_before" }
+}

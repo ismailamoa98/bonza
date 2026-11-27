@@ -10,13 +10,12 @@ import { useTrip } from "../hooks/useTrip";
 import { useOpenPackage } from "../hooks/useOpenPackage";
 import { useRecommendations } from "../hooks/useRecommendations";
 import { recToPackage } from "../utils/recToPackage";
+import { buildSearchUrl, openSearch, reserveTab, redirectTab, exploreOriginFor } from "../utils/searchUrl";
 import { useAppStore } from "../store/appStore";
 import {
   getLoyaltyPoints,
   getTrips,
   optimizeTrip,
-  syncLoyalty,
-  getLoyaltyAccounts,
   apiErrorMessage,
 } from "../utils/api";
 import { shortDate, formatGbp } from "../utils/format";
@@ -45,10 +44,8 @@ export default function Dashboard() {
 
   const cardRef = useRef(null);
 
-  const { data: recs, status: recStatus, reload: reloadRecs } = useRecommendations();
+  const { data: recs, status: recStatus } = useRecommendations();
   const loyaltyAccounts = useAppStore((s) => s.loyaltyAccounts);
-  const setLoyaltyAccounts = useAppStore((s) => s.setLoyaltyAccounts);
-  const [connecting, setConnecting] = useState(false);
   const [mockDeck] = useState(() => shuffle(PACKAGES));
   const [seed] = useState(() => Math.floor(Math.random() * 100000));
   const personalising = recStatus === "loading" || recStatus === "generating";
@@ -91,13 +88,31 @@ export default function Dashboard() {
       flexibility: form.flexibility,
       preferences: { style: form.style },
     };
-    if (form.flexibility) {
-      setTrip({ ...base, checkIn: "", checkOut: "" });
-      navigate("/flexible");
+    if (form.dateMode === "month") {
+      navigate(`/explore?origin=${exploreOriginFor(form.origin)}`);
       return;
     }
-    const ok = await createAndOptimize({ ...base, checkIn: form.checkIn, checkOut: form.checkOut });
-    if (ok) navigate("/optimize");
+    // Results open in a new tab (reserved in-gesture so it isn't popup-blocked); the dashboard stays put.
+    const tab = reserveTab();
+    const ok = await createAndOptimize({ ...base, checkIn: form.checkIn, checkOut: form.dateMode === "oneway" ? "" : form.checkOut });
+    if (!ok) {
+      tab?.close();
+      return;
+    }
+    redirectTab(
+      tab,
+      buildSearchUrl({
+        origin: form.origin,
+        destination: form.destination,
+        departureDate: form.checkIn,
+        returnDate: form.checkOut,
+        travelers: Number(form.numberOfTravelers) || 2,
+        style: form.style,
+        oneway: form.dateMode === "oneway",
+        flex: form.flexDays,
+      }),
+      navigate
+    );
   };
 
   const resumeTrip = async (t) => {
@@ -117,9 +132,15 @@ export default function Dashboard() {
         preferences: {},
       });
       setTripId(t.id);
-      const optimization = await optimizeTrip(t.id);
-      setOptimization(optimization);
-      navigate("/optimize");
+      openSearch(
+        buildSearchUrl({
+          origin: t.origin,
+          destination: t.destination,
+          departureDate: String(t.checkIn).slice(0, 10),
+          returnDate: String(t.checkOut).slice(0, 10),
+          travelers: t.numberOfTravelers || 2,
+        })
+      );
     } catch (err) {
       setError(apiErrorMessage(err));
       setResumingId(null);
@@ -129,21 +150,6 @@ export default function Dashboard() {
   const focusSearch = () => {
     cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     cardRef.current?.querySelector("input")?.focus();
-  };
-
-  const connectLoyalty = async () => {
-    if (connecting) return;
-    setConnecting(true);
-    setError(null);
-    try {
-      await syncLoyalty();
-      setLoyaltyAccounts(await getLoyaltyAccounts());
-      reloadRecs();
-    } catch (err) {
-      setError(apiErrorMessage(err));
-    } finally {
-      setConnecting(false);
-    }
   };
 
   const firstName = user.name?.trim().split(/\s+/)[0] || "Traveller";
@@ -278,11 +284,10 @@ export default function Dashboard() {
           </p>
           <button
             type="button"
-            onClick={connectLoyalty}
-            disabled={connecting}
-            className="shrink-0 rounded-full bg-bonza px-4 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-bonza-dark disabled:opacity-60"
+            onClick={() => navigate("/settings?tab=loyalty")}
+            className="shrink-0 rounded-full bg-bonza px-4 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-bonza-dark"
           >
-            {connecting ? "Connecting…" : "Connect loyalty"}
+            Connect loyalty
           </button>
         </div>
       )}

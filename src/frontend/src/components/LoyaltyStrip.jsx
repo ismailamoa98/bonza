@@ -73,7 +73,7 @@ export default function LoyaltyStrip({ loyaltyPoints, email = "" }) {
             </div>
 
             {/* Points + value */}
-            <div className="flex shrink-0 flex-col items-end gap-0.5">
+            <div data-private className="flex shrink-0 flex-col items-end gap-0.5">
               <span className="flex items-center gap-1.5 text-[15px] font-extrabold text-ink">
                 {formatPoints(r.points)} pts
                 <Chevron className="h-3 w-3 text-ink-muted" />

@@ -1,4 +1,5 @@
 // utils/format.js — currency / points / date formatting helpers.
+import { money } from "./money";
 
 export const STRATEGY_LABELS = {
   transfer: "Transfer Strategy",
@@ -37,9 +38,27 @@ export const formatPoints = (n) => {
   return num >= 1000 ? `${Math.round(num / 1000)}k` : `${num}`;
 };
 
-export const formatMoney = (n) => `$${(Number(n) || 0).toLocaleString()}`;
+// Locale-aware "last updated" timestamp (uses the viewer's own locale). `withTime` adds hour:minute.
+export const formatUpdatedAt = (iso, { withTime = false } = {}) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
+  });
+};
 
-export const formatGbp = (n) => `£${(Number(n) || 0).toLocaleString()}`;
+// §27b — all money crosses as GBP minor units (pence). Both helpers convert pence to the viewer's display
+// currency via utils/money (which formats through the one shared formatter). `formatGbpExact` keeps the
+// natural minor digits (e.g. a credits balance "£12.34"); the default shows whole units.
+export const formatMoney = (pence) => money(pence);
+
+export const formatGbp = (pence) => money(pence);
+
+export const formatGbpExact = (pence) => money(pence, { precise: true });
 
 export const cppRating = (cpp, benchmark) => {
   const c = Number(cpp) || 0;

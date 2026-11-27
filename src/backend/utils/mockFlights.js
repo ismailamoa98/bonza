@@ -8,13 +8,17 @@
 // UTC; the filter reads UTC hours so departure buckets are timezone-stable.
 const { priceMultiplier } = require("./pricing");
 
+// code = IATA (flight numbers + airline logo lookup); hub = the carrier's connecting airport for layovers.
 const AIRLINES = [
-  { name: "United", program: "united" },
-  { name: "Qatar", program: "qatar" },
-  { name: "Etihad", program: "etihad" },
-  { name: "Emirates", program: "emirates" },
-  { name: "British Airways", program: "british" },
+  { name: "United", program: "united", code: "UA", hub: "ORD" },
+  { name: "Qatar Airways", program: "qatar", code: "QR", hub: "DOH" },
+  { name: "Etihad Airways", program: "etihad", code: "EY", hub: "AUH" },
+  { name: "Emirates", program: "emirates", code: "EK", hub: "DXB" },
+  { name: "British Airways", program: "british", code: "BA", hub: "LHR" },
 ];
+
+// Rotated so a flight reads with a plausible widebody type.
+const AIRCRAFT = ["Airbus A350-900", "Boeing 777-300ER", "Boeing 787-9", "Airbus A380-800"];
 
 // Cabin names match the FilterSidebar radio options exactly.
 const CABINS = [
@@ -24,9 +28,11 @@ const CABINS = [
   { name: "First", base: 9000, miles: 120000, benefits: ["lounge", "meals", "upgrade", "suite"] },
 ];
 
-// A fixed base date keeps departure/arrival deterministic for the mock.
-function isoAt(hour) {
-  const d = new Date("2026-06-01T00:00:00Z");
+// Timestamp at `hour` on the searched date (so mock flights fall on the dates the user actually chose).
+// Hour overflow (>24) rolls into the next day, giving realistic overnight arrivals + the "+1" marker.
+// Falls back to a fixed base date when no date is supplied.
+function isoAt(hour, baseISO) {
+  const d = baseISO ? new Date(`${String(baseISO).slice(0, 10)}T00:00:00Z`) : new Date("2026-06-01T00:00:00Z");
   d.setUTCHours(hour);
   return d.toISOString();
 }
@@ -42,8 +48,8 @@ exports.getFlights = (from = "JFK", to = "CDG", date) => {
 
     const depHour = (5 + i * 3) % 19; // 5..23-ish spread across the day
     const durationH = 6 + (i % 9); // 6..14 hours
-    const departureTime = isoAt(depHour);
-    const arrivalTime = isoAt(depHour + durationH);
+    const departureTime = isoAt(depHour, date);
+    const arrivalTime = isoAt(depHour + durationH, date);
     const stops = i % 3 === 0 ? 0 : i % 3 === 1 ? 1 : 2;
 
     const basePrice = Math.round((cabin.base + (i % 5) * 120) * mult);
@@ -54,7 +60,10 @@ exports.getFlights = (from = "JFK", to = "CDG", date) => {
     flights.push({
       id: `flight_${i + 1}`,
       airline: airline.name,
-      flightNumber: `${airline.name.slice(0, 2).toUpperCase()}${100 + i}`,
+      airlineCode: airline.code,
+      hub: airline.hub,
+      aircraft: AIRCRAFT[i % AIRCRAFT.length],
+      flightNumber: `${airline.code}${100 + i}`,
       from,
       to,
       departureTime,

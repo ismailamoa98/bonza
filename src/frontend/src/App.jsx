@@ -1,5 +1,5 @@
 // App.jsx — routes + Clerk RequireAuth + OnboardingGate.
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import {
   ClerkProvider,
@@ -10,17 +10,46 @@ import {
   RedirectToSignIn,
 } from "@clerk/clerk-react";
 import Navigation from "./components/Navigation";
-import HomePage from "./pages/HomePage";
-import Dashboard from "./pages/Dashboard";
-import Login from "./pages/Login";
-import FlexibleDates from "./pages/FlexibleDates";
-import Step2_Optimization from "./pages/Step2_Optimization";
-import BookingPage from "./pages/BookingPage";
-import UpgradePage from "./pages/UpgradePage";
-import Onboarding from "./pages/Onboarding";
-import Settings from "./pages/Settings";
-import BookingsHistory from "./pages/BookingsHistory";
+import Footer from "./components/Footer";
+import CookieConsent from "./components/CookieConsent";
+import ReAcceptGate from "./components/legal/ReAcceptGate";
+import IncidentBanner from "./components/IncidentBanner";
+import ErrorBoundary from "./components/ErrorBoundary";
+import OfflineBar from "./components/OfflineBar";
+import HomePage from "./pages/HomePage"; // eager — the landing/LCP route
+
+// Route-level code-splitting: secondary/heavy pages load on demand, so maplibre-gl (/explore),
+// react-markdown (/help), react-day-picker and Stripe JS stay out of the initial bundle.
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Destinations = lazy(() => import("./pages/Destinations"));
+const CountryPage = lazy(() => import("./pages/CountryPage"));
+const ExplorePage = lazy(() => import("./pages/ExplorePage"));
+const PointsPage = lazy(() => import("./pages/PointsPage"));
+const PointsReviewPage = lazy(() => import("./pages/PointsReviewPage"));
+const PointsConnectingPage = lazy(() => import("./pages/PointsConnectingPage"));
+const SignInPage = lazy(() => import("./pages/SignInPage"));
+const SignUpPage = lazy(() => import("./pages/SignUpPage"));
+const FlexibleDates = lazy(() => import("./pages/FlexibleDates"));
+const SearchPage = lazy(() => import("./pages/SearchPage"));
+const BookingPage = lazy(() => import("./pages/BookingPage"));
+const UpgradePage = lazy(() => import("./pages/UpgradePage"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
+const Settings = lazy(() => import("./pages/Settings"));
+const BookingsHistory = lazy(() => import("./pages/BookingsHistory"));
+const LegalDoc = lazy(() => import("./pages/LegalDoc"));
+const LegalChanges = lazy(() => import("./pages/LegalDoc").then((m) => ({ default: m.LegalChanges })));
+const HelpHome = lazy(() => import("./pages/HelpHome"));
+const HelpCategory = lazy(() => import("./pages/HelpCategory"));
+const HelpArticlePage = lazy(() => import("./pages/HelpArticlePage"));
+const ContactPage = lazy(() => import("./pages/ContactPage"));
+const Complaints = lazy(() => import("./pages/Complaints"));
+const TicketView = lazy(() => import("./pages/TicketView"));
+const StatusPage = lazy(() => import("./pages/StatusPage"));
+const AdminUserPage = lazy(() => import("./pages/AdminUserPage"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 import { useAppStore } from "./store/appStore";
+import { identify, resetAnalytics, track } from "./lib/analytics";
+import { EV } from "./lib/analytics/events";
 import {
   setAuthTokenGetter,
   getSubscriptionStatus,
@@ -90,12 +119,23 @@ function AuthSync() {
         name: user.fullName,
         email: user.primaryEmailAddress?.emailAddress || null,
       });
-      getSubscriptionStatus().then((s) => setProStatus(s.isPro)).catch(() => {});
-      getCredits().then((c) => setCreditBalance(c.totalCreditsGbp)).catch(() => {});
-      getLoyaltyAccounts().then(setLoyaltyAccounts).catch(() => {});
-      getProfile().then(setProfile).catch(() => {});
+      // Analytics identity — plan tier, counts and booleans only (no PII). identify() merges, so each
+      // fetch enriches the profile; it's a no-op until analytics is consented + keyed.
+      const createdAt = user.createdAt instanceof Date ? user.createdAt.toISOString() : user.createdAt;
+      identify({ id: user.id, createdAt, plan: "free", programmeCount: 0 });
+      getSubscriptionStatus()
+        .then((s) => { setProStatus(s.isPro); identify({ id: user.id, plan: s.isPro ? "pro" : "free" }); })
+        .catch(() => {});
+      getCredits().then((c) => setCreditBalance((c.totalCreditsPence || 0) / 100)).catch(() => {});
+      getLoyaltyAccounts()
+        .then((a) => { setLoyaltyAccounts(a); identify({ id: user.id, programmeCount: a?.length ?? 0 }); })
+        .catch(() => {});
+      getProfile()
+        .then((p) => { setProfile(p); identify({ id: user.id, emailSyncEnabled: !!(p?.gmailConnected || p?.outlookConnected), homeCity: p?.homeAirport ?? null }); })
+        .catch(() => {});
     } else {
       logout(); // clears user + isPro/creditBalance/loyaltyAccounts/profile
+      resetAnalytics();
     }
   }, [isLoaded, isSignedIn, user, setUser, logout, setProStatus, setCreditBalance, setLoyaltyAccounts, setProfile]);
 
@@ -111,7 +151,14 @@ function OnboardingGate() {
   useEffect(() => {
     if (!isSignedIn || !profile) return;
     if (profile.onboardingComplete) return;
-    if (pathname === "/onboarding" || pathname === "/login") return;
+    // Allow the auth pages and the loyalty "Gathering your points" page mid-onboarding.
+    if (
+      pathname === "/onboarding" ||
+      pathname.startsWith("/sign-in") ||
+      pathname.startsWith("/sign-up") ||
+      pathname === "/points/connecting"
+    )
+      return;
     navigate("/onboarding", { replace: true });
   }, [isSignedIn, profile, pathname, navigate]);
 
@@ -129,26 +176,60 @@ function RequireAuth({ children }) {
   );
 }
 
+// App-level boundary fallback — a full-page cream error screen with the wordmark, a reload and a help link.
+function appFallback() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-cream px-6 text-center text-ink">
+      <span className="font-display text-[26px] font-semibold tracking-[-0.01em]">Bonza</span>
+      <p className="mt-6 text-[15px] font-semibold">Something went wrong</p>
+      <p className="mt-1.5 max-w-sm text-sm text-ink-soft">The app hit an unexpected error. Reloading usually fixes it.</p>
+      <div className="mt-7 flex flex-wrap items-center justify-center gap-4">
+        <button type="button" onClick={() => window.location.reload()} className="inline-flex h-10 items-center rounded-xl bg-bonza px-5 text-sm font-medium text-white hover:bg-bonza-dark">Reload</button>
+        <a href="/help" className="text-sm text-ink-soft underline-offset-4 hover:underline">Get help</a>
+      </div>
+    </div>
+  );
+}
+
+// Fires EV.PAGE_VIEWED on every route change (path only — query strings carry origin/dest/dates).
+function PageViews() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    track(EV.PAGE_VIEWED, { path: pathname });
+  }, [pathname]);
+  return null;
+}
+
 export default function App() {
   if (!HAS_CLERK_KEY) return <ClerkSetupNotice />;
 
   return (
     <ClerkProvider
       publishableKey={PUBLISHABLE_KEY}
-      signInUrl="/login"
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
       signInFallbackRedirectUrl="/dashboard"
-      signUpFallbackRedirectUrl="/dashboard"
+      signUpFallbackRedirectUrl="/onboarding"
     >
       <BrowserRouter>
         <AuthSync />
         <OnboardingGate />
-        <div className="min-h-screen bg-cream text-ink">
+        <ReAcceptGate />
+        <PageViews />
+        <ErrorBoundary level="app" surface="app" fallback={appFallback}>
+        <div className="flex min-h-screen flex-col bg-cream text-ink">
+          <IncidentBanner />
           <Navigation />
-          <main>
-            {/* Each page owns its own vertical rhythm. */}
+          <OfflineBar />
+          <main className="flex-1">
+            {/* Each page owns its own vertical rhythm. Route-level boundary keeps nav + footer on a page error. */}
+            <ErrorBoundary level="route" surface="route">
+            <Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center" aria-busy="true"><div className="h-8 w-8 animate-spin rounded-full border-2 border-bonza border-t-transparent" /></div>}>
             <Routes>
               <Route path="/" element={<HomePage />} />
-              <Route path="/login" element={<Login />} />
+              <Route path="/sign-in/*" element={<SignInPage />} />
+              <Route path="/sign-up/*" element={<SignUpPage />} />
+              <Route path="/login" element={<Navigate to="/sign-in" replace />} />
               <Route
                 path="/dashboard"
                 element={
@@ -157,10 +238,79 @@ export default function App() {
                   </RequireAuth>
                 }
               />
+              <Route
+                path="/destinations"
+                element={
+                  <RequireAuth>
+                    <Destinations />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/points"
+                element={
+                  <RequireAuth>
+                    <PointsPage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/points/review"
+                element={
+                  <RequireAuth>
+                    <PointsReviewPage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/points/connecting"
+                element={
+                  <RequireAuth>
+                    <PointsConnectingPage />
+                  </RequireAuth>
+                }
+              />
+              {/* Phase 18 — Explore Everywhere map + country landing pages (public) */}
+              <Route path="/explore" element={<ExplorePage />} />
+              <Route path="/explore/:code" element={<CountryPage />} />
               <Route path="/flexible" element={<FlexibleDates />} />
-              <Route path="/optimize" element={<Step2_Optimization />} />
+              {/* Old optimize route now folds into the search results page. */}
+              <Route path="/optimize" element={<Navigate to="/search" replace />} />
+              <Route
+                path="/search"
+                element={
+                  <RequireAuth>
+                    <SearchPage />
+                  </RequireAuth>
+                }
+              />
               <Route path="/booking" element={<BookingPage />} />
               <Route path="/upgrade" element={<UpgradePage />} />
+              {/* Public legal pages (footer) — Phase 25 §25c versioned /legal/* docs. */}
+              {/* /changes before /:version so "changes" isn't captured as a version. */}
+              <Route path="/legal/:doc/changes" element={<LegalChanges />} />
+              <Route path="/legal/:doc/:version" element={<LegalDoc />} />
+              <Route path="/legal/:doc" element={<LegalDoc />} />
+              {/* Phase 21 paths redirect to their versioned homes. */}
+              <Route path="/privacy" element={<Navigate to="/legal/privacy" replace />} />
+              <Route path="/terms" element={<Navigate to="/legal/terms" replace />} />
+              <Route path="/cookies" element={<Navigate to="/legal/cookies" replace />} />
+              {/* Phase 22 — Support (public). Specific /help/* routes before /help/:category so they don't shadow. */}
+              <Route path="/help" element={<HelpHome />} />
+              <Route path="/help/contact" element={<ContactPage />} />
+              <Route path="/help/complaints" element={<Complaints />} />
+              <Route path="/help/ticket/:ref" element={<TicketView />} />
+              <Route path="/help/:category" element={<HelpCategory />} />
+              <Route path="/help/:category/:slug" element={<HelpArticlePage />} />
+              <Route path="/status" element={<StatusPage />} />
+              <Route
+                path="/admin/user/:userId"
+                element={
+                  <RequireAuth>
+                    <AdminUserPage />
+                  </RequireAuth>
+                }
+              />
               <Route
                 path="/onboarding"
                 element={
@@ -185,10 +335,15 @@ export default function App() {
                   </RequireAuth>
                 }
               />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
+            </ErrorBoundary>
           </main>
+          <Footer />
+          <CookieConsent />
         </div>
+        </ErrorBoundary>
       </BrowserRouter>
     </ClerkProvider>
   );

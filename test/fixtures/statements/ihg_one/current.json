@@ -1,0 +1,6 @@
+{
+  "name": "current statement",
+  "programme": "ihg_one",
+  "body": "IHG One Rewards statement. Current balance 60,000 points. Platinum Elite.",
+  "expect": { "balance": 60000, "minConfidence": 0.9, "matchedPattern": "context_before" }
+}

@@ -2,9 +2,11 @@
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ecs_patterns from "aws-cdk-lib/aws-ecs-patterns";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as logs from "aws-cdk-lib/aws-logs";
 import { Platform } from "aws-cdk-lib/aws-ecr-assets";
-import { Duration, CfnOutput } from "aws-cdk-lib";
+import { Duration, CfnOutput, RemovalPolicy } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { EnvConfig } from "../config";
 import { Network } from "./network";
@@ -20,20 +22,32 @@ export interface ApiProps {
 export class Api extends Construct {
   public readonly loadBalancer: elbv2.IApplicationLoadBalancer;
   public readonly service: ecs_patterns.ApplicationLoadBalancedFargateService;
+  /** §27i — the app's structured (pino JSON) log group, exposed so the Monitoring construct can attach
+   *  metric filters to the `[metric] …` lines the app emits (dependency health, spend, job outcomes). */
+  public readonly logGroup: logs.LogGroup;
 
   constructor(scope: Construct, id: string, props: ApiProps) {
     super(scope, id);
     const { config, network, database, appSecret } = props;
+    const production = config.envName === "production";
+
+    // §27i — an explicit log group (ApplicationLoadBalancedFargateService would otherwise auto-create an
+    // unexposed one), so metric filters can read the app logs. Retained in prod, destroyed in lower envs.
+    const logGroup = new logs.LogGroup(this, "ApiLogGroup", {
+      logGroupName: `/bonza/${config.envName}/api`,
+      retention: production ? logs.RetentionDays.SIX_MONTHS : logs.RetentionDays.ONE_MONTH,
+      removalPolicy: production ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
 
     const cluster = new ecs.Cluster(this, "Cluster", {
       vpc: network.vpc,
       containerInsightsV2: ecs.ContainerInsights.ENABLED,
     });
 
-    // Build DATABASE_URL from the RDS-generated secret (mirrors the jobs Lambda).
-    const databaseUrl =
-      `postgresql://bonza:${database.secret.secretValueFromJson("password").unsafeUnwrap()}` +
-      `@${database.instance.dbInstanceEndpointAddress}:5432/bonza`;
+    // §27h — connect through the RDS Proxy (not the instance) with a bounded per-task connection_limit, so a
+    // scale-out of Fargate tasks multiplexes onto the proxy pool instead of exhausting Postgres max_connections.
+    // Role is the master user until the go-live cutover to bonza_app (`-c dbRole=bonza_app`) — see docs/DB_ROLES.md.
+    const databaseUrl = database.databaseUrlFor(5);
 
     const service = new ecs_patterns.ApplicationLoadBalancedFargateService(this, "Service", {
       cluster,
@@ -64,7 +78,7 @@ export class Api extends Construct {
           APP_SECRETS_ARN: appSecret.secretArn,
           DATABASE_URL: databaseUrl,
         },
-        enableLogging: true,
+        logDriver: ecs.LogDrivers.awsLogs({ logGroup, streamPrefix: "bonza-api" }),
       },
     });
 
@@ -75,8 +89,8 @@ export class Api extends Construct {
       timeout: Duration.seconds(10),
     });
 
-    // Let the Fargate tasks reach RDS, and read the secrets they need at boot.
-    database.instance.connections.allowDefaultPortFrom(service.service, "API Fargate tasks");
+    // Let the Fargate tasks reach the RDS Proxy, and read the secrets they need at boot.
+    database.proxy.connections.allowFrom(service.service, ec2.Port.tcp(5432), "API Fargate tasks → RDS Proxy");
     appSecret.grantRead(service.taskDefinition.taskRole);
     database.secret.grantRead(service.taskDefinition.taskRole);
 
@@ -92,6 +106,7 @@ export class Api extends Construct {
 
     this.service = service;
     this.loadBalancer = service.loadBalancer;
+    this.logGroup = logGroup;
 
     new CfnOutput(this, "ApiLoadBalancerDns", {
       value: service.loadBalancer.loadBalancerDnsName,

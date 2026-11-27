@@ -1,21 +1,9 @@
-// hooks/useOpenPackage.js — Open a marketing package straight into booking.
-// Builds a trip from the package, auto-picks the first flight/hotel/car, creates
-// a booking link, stores it all, and routes to /booking. Shared by the public
-// homepage and the logged-in dashboard so the deep-link behaviour stays identical.
+// hooks/useOpenPackage.js — open a marketing package into the search results page (Phase 12).
+// Parses the package's dates + destination and routes to /search with the trip pre-filled. Shared by
+// the public homepage and the logged-in dashboard so browse behaviour stays identical.
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAppStore } from "../store/appStore";
-import {
-  getFlights,
-  getHotels,
-  getCars,
-  createTrip,
-  createBookingLink,
-  apiErrorMessage,
-} from "../utils/api";
-
-// Loyalty program id -> affiliate vendor name (mirrors useOptimization.js).
-const HOTEL_VENDOR = { marriott: "Marriott", ihg: "IHG", hilton: "Hilton" };
+import { buildSearchUrl, openSearch } from "../utils/searchUrl";
+import { apiErrorMessage } from "../utils/api";
 
 const MONTHS = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
@@ -47,72 +35,30 @@ function parsePackageDates(dates) {
   };
 }
 
-// "£1,240" -> 1240
-const parseBudget = (cash) => Number(String(cash || "").replace(/[^0-9]/g, "")) || 0;
-
-// Build the { flight, hotel, car } vendor objects the booking endpoint expects.
-function selectionVendors(flight, hotel, car) {
-  const vendors = {};
-  if (flight) vendors.flight = { vendor: flight.airline, label: flight.cabin };
-  if (hotel) {
-    const programKey = Object.keys(hotel.loyaltyPrograms || {})[0];
-    vendors.hotel = { vendor: HOTEL_VENDOR[programKey] || "Marriott", label: hotel.name };
-  }
-  if (car) vendors.car = { vendor: car.vendor, label: car.carClass };
-  return vendors;
-}
-
 export function useOpenPackage() {
-  const navigate = useNavigate();
-  const setTrip = useAppStore((s) => s.setTrip);
-  const setTripId = useAppStore((s) => s.setTripId);
-  const setCurrentPackage = useAppStore((s) => s.setCurrentPackage);
-  const setSelections = useAppStore((s) => s.setSelections);
-  const setBooking = useAppStore((s) => s.setBooking);
-
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState(null);
 
-  const openPackage = async (pkg) => {
+  const openPackage = (pkg) => {
     if (opening) return;
     setOpening(true);
     setOpenError(null);
     try {
       const { checkIn, checkOut } = parsePackageDates(pkg.dates);
-      const destLabel = pkg.city;
-      const tripData = {
-        origin: "LHR",
-        originLabel: "LHR — London",
-        destination: destLabel,
-        destinationLabel: destLabel,
-        checkIn,
-        checkOut,
-        budget: parseBudget(pkg.cash),
-        numberOfTravelers: 2,
-        flexibility: false,
-        preferences: { style: "Points Max" },
-      };
-      const { id } = await createTrip(tripData);
-      setTrip(tripData);
-      setTripId(id);
-      setCurrentPackage(pkg);
-
-      const [flights, hotels, cars] = await Promise.all([
-        getFlights({ from: "LHR", to: destLabel, checkIn }),
-        getHotels({ destination: destLabel, checkIn }),
-        getCars({ location: destLabel, checkIn }),
-      ]);
-      const flight = flights[0] || null;
-      const hotel = hotels[0] || null;
-      const car = cars[0] || null;
-      setSelections({ flight, hotel, car });
-
-      const vendors = selectionVendors(flight, hotel, car);
-      const data = await createBookingLink(id, null, vendors);
-      setBooking(data);
-      navigate("/booking");
+      openSearch(
+        buildSearchUrl({
+          origin: pkg.origin || "LHR",
+          destination: pkg.destination || pkg.city,
+          departureDate: checkIn,
+          returnDate: checkOut,
+          travelers: 2,
+          style: "points_max",
+          packageId: pkg.duffelHotelId || pkg.destination || pkg.city,
+        })
+      );
     } catch (err) {
       setOpenError(apiErrorMessage(err));
+    } finally {
       setOpening(false);
     }
   };

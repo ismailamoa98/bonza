@@ -1,9 +1,23 @@
 // pages/BookingPage.jsx — confirm booking: guest/loyalty/payment + loyalty-earnings card; on-site cash flow.
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAppStore, computeCombination, tripNights } from "../store/appStore";
-import { createBookingPaymentIntent, confirmCashBooking, apiErrorMessage } from "../utils/api";
+import {
+  createBookingPaymentIntent,
+  confirmCashBooking,
+  apiErrorMessage,
+  createTrip,
+  getFlights,
+  getHotels,
+  getCars,
+  getSearchHotel,
+  createBookingLink,
+  getProfile,
+} from "../utils/api";
 import { formatMoney, formatPoints, shortDate } from "../utils/format";
+import { track } from "../lib/analytics";
+import { EV } from "../lib/analytics/events";
+import { bundledCheckoutEnabled } from "../config/flags";
 import { imageUrl } from "../data/packages";
 import {
   HAS_STRIPE_KEY,
@@ -19,8 +33,21 @@ const ratingNum = (rate) => (rate ? String(rate).split(/\s+/)[0] : null);
 const VPP = { marriott: 0.7, ihg: 0.5, hilton: 0.5, hyatt: 1.7, amex: 1.4, chaseUr: 1.5 };
 const SHADE = { marriott: "#B0552F", ihg: "#1f7a3f", hilton: "#2563a8", hyatt: "#8a6d3b", default: "#da7756" };
 
+// Map a Phase-12 search hotel (cashOption/pointsOption/location) onto the shape the booking page consumes
+// (pricePerNight, stars, city, loyaltyPrograms) so it reflects the actually-selected property + price.
+const hotelToBookingShape = (h) => ({
+  duffelHotelId: h.duffelHotelId,
+  name: h.name,
+  stars: h.starRating || 4,
+  city: h.location?.city || h.location || "",
+  rating: h.rating != null ? h.rating : null,
+  pricePerNight: h.cashOption?.priceGbp || 0,
+  loyaltyPrograms: {}, // search flow doesn't carry the old per-night award map; omit the hotel earn row
+});
+
 export default function BookingPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const trip = useAppStore((s) => s.trip);
   const pkg = useAppStore((s) => s.currentPackage);
@@ -29,14 +56,119 @@ export default function BookingPage() {
   const selectedCar = useAppStore((s) => s.selectedCar);
   const loyaltyPoints = useAppStore((s) => s.loyaltyPoints);
   const ratio = useAppStore((s) => s.ratio);
+  // Phase 12 search-flow state — the hotel/flight the user actually chose.
+  const selectedResult = useAppStore((s) => s.selectedResult);
+  const searchResults = useAppStore((s) => s.searchResults);
+  const searchMeta = useAppStore((s) => s.searchMeta);
   const bookingLink = useAppStore((s) => s.bookingLink);
   const affiliateLinks = useAppStore((s) => s.affiliateLinks);
   const reset = useAppStore((s) => s.reset);
+  const setTrip = useAppStore((s) => s.setTrip);
+  const setTripId = useAppStore((s) => s.setTripId);
+  const setSelections = useAppStore((s) => s.setSelections);
+  const setBooking = useAppStore((s) => s.setBooking);
+
+  // Search-page entry: arrive at /booking?hotel=…&origin=…&destination=…&checkIn=… — bootstrap a trip +
+  // selections + booking link from the store's chosen hotel/flight (falling back to a browse fetch on a
+  // hard refresh when the store is empty). Runs EXACTLY ONCE (ref-guarded): it calls setTrip mid-flight, so
+  // it must NOT depend on `trip` / self-cancel, or it aborts before creating the booking link.
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const didBootstrap = useRef(false);
+  useEffect(() => {
+    if (didBootstrap.current) return;
+    const hotelId = searchParams.get("hotel");
+    const flightId = searchParams.get("flight");
+    // Skip only when there's no URL selection, or a booking link already exists (store-driven package
+    // entry / already bootstrapped). Must NOT guard on `trip`: the Home/Dashboard search flow sets `trip`
+    // before navigating here, so `|| trip` would self-cancel and never create the booking link.
+    if ((!hotelId && !flightId) || bookingLink) return;
+    didBootstrap.current = true;
+
+    const origin = searchParams.get("origin") || searchMeta?.origin || "LHR";
+    const destination = searchParams.get("destination") || searchMeta?.destination || "";
+    const checkIn = searchParams.get("checkIn") || searchMeta?.departureDate;
+    const checkOut = searchParams.get("checkOut") || searchMeta?.returnDate;
+    const adults = parseInt(searchParams.get("adults") || String(searchMeta?.travelers || 2), 10);
+
+    // The hotel/flight the user actually selected (store), matched by id; else the first browse result.
+    const byId = (list, id, key) => (list || []).find((x) => x?.[key] === id) || null;
+    const chosenHotel =
+      (selectedResult?.duffelHotelId === hotelId && selectedResult) ||
+      byId(searchResults?.hotels, hotelId, "duffelHotelId");
+    const chosenFlight =
+      (selectedResult?.duffelOfferId === flightId && selectedResult) ||
+      byId(searchResults?.flights, flightId, "duffelOfferId") ||
+      byId(searchResults?.flights, flightId, "id");
+
+    setBootstrapping(true);
+    (async () => {
+      try {
+        const tripData = {
+          origin, originLabel: origin, destination, destinationLabel: destination,
+          checkIn, checkOut, budget: 0, numberOfTravelers: adults, flexibility: false,
+          preferences: { style: "Points Max" },
+        };
+        const { id } = await createTrip(tripData);
+        setTrip(tripData);
+        setTripId(id);
+
+        // Prefer the chosen hotel; on a cold refresh (empty store) resolve the EXACT hotel by its search
+        // id, then fall back to browse inventory only if that lookup fails.
+        let hotel = chosenHotel ? hotelToBookingShape(chosenHotel) : null;
+        if (hotelId && !hotel) {
+          const exact = await getSearchHotel(hotelId, { destination, checkIn, checkOut, adults }).catch(() => null);
+          if (exact) {
+            hotel = hotelToBookingShape(exact);
+          } else {
+            const hotels = await getHotels({ destination, checkIn }).catch(() => []);
+            hotel = hotels[0] || null;
+          }
+        }
+        const flight = chosenFlight || (flightId ? (await getFlights({ from: origin, to: destination, checkIn }).catch(() => []))[0] : null) || null;
+
+        setSelections({ flight, hotel, car: null });
+        const vendors = {};
+        if (flight) vendors.flight = { vendor: flight.airline, label: flight.cabin };
+        if (hotel) vendors.hotel = { vendor: "hotel", label: hotel.name };
+        const data = await createBookingLink(id, null, vendors);
+        setBooking(data);
+      } catch {
+        /* leave store empty — the redirect effect handles it */
+      } finally {
+        setBootstrapping(false);
+      }
+    })();
+  }, [searchParams, bookingLink, searchMeta, selectedResult, searchResults, setTrip, setTripId, setSelections, setBooking]);
 
   const [form, setForm] = useState({
     title: "mr", firstName: "", lastName: "", dob: "", email: "", countryCode: "+44", phone: "", passport: "",
     cardName: "", cardNumber: "", expiry: "", cvc: "", billing: "",
   });
+
+  // Pre-fill the guest form from the saved traveller profile (onboarding). Only fills empty fields, so it
+  // never overwrites what the user has already typed. Card fields are never pre-filled.
+  useEffect(() => {
+    let cancelled = false;
+    getProfile()
+      .then((p) => {
+        if (cancelled || !p) return;
+        setForm((f) => ({
+          ...f,
+          title: p.title || f.title,
+          firstName: f.firstName || p.firstName || "",
+          lastName: f.lastName || p.lastName || "",
+          dob: f.dob || p.dateOfBirth || "",
+          email: f.email || p.email || "",
+          countryCode: p.phoneCountryCode || f.countryCode,
+          phone: f.phone || p.phone || "",
+          passport: f.passport || p.passportNumber || "",
+        }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [errors, setErrors] = useState({});
   const [booked, setBooked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -51,20 +183,69 @@ export default function BookingPage() {
     : { items: [], totalCash: 0, totalPoints: 0, savingsAmount: 0 };
   const cashByType = Object.fromEntries(totals.items.map((it) => [it.type, it.cash]));
 
+  // Phase 13 — "Book this trip" carries a per-leg allocation plan (e.g. "flight:points:united_mp,hotel:cash").
+  // Points legs are shown as points and EXCLUDED from the cash charged/booked here (award legs are completed
+  // on the programme's own site); only cash legs are paid through the on-site Stripe/Duffel flow.
+  const tripPlan = useMemo(() => {
+    const raw = searchParams.get("plan");
+    if (!raw) return null;
+    const map = {};
+    raw.split(",").forEach((p) => {
+      const [type, method, programme] = p.split(":");
+      if (type) map[type] = { method: method === "points" ? "points" : "cash", programme: programme || null };
+    });
+    return map;
+  }, [searchParams]);
+  const isPointsLeg = (t) => tripPlan?.[t]?.method === "points";
+  const payableCash = totals.items
+    .filter((it) => !isPointsLeg(it.type))
+    .reduce((s, it) => s + it.cash, 0);
+
+  // §25i — who the consumer contracts with, per cash leg (flight books in-app via Duffel; hotel/car on the
+  // provider's own site). Named above the pay button so the supplier is never buried.
+  const cashFlight = selectedFlight && !isPointsLeg("flight");
+  const cashHotel = selectedHotel && !isPointsLeg("hotel");
+  const cashCar = selectedCar && !isPointsLeg("car");
+  const suppliers = [
+    cashFlight && (selectedFlight.airline ? `your flight with ${selectedFlight.airline}` : "your flight"),
+    cashHotel && (selectedHotel.name ? `your stay with ${selectedHotel.name}` : "your stay"),
+    cashCar && "your car hire with the rental provider",
+  ].filter(Boolean);
+  // §25i/§25h — the bundled flight+hotel single-total CASH checkout is gated until the ATOL position is settled.
+  const bundledCashCheckout = cashFlight && cashHotel;
+  const bundledBlocked = bundledCashCheckout && !bundledCheckoutEnabled;
+
+  const hasUrlSelection = Boolean(searchParams.get("hotel") || searchParams.get("flight"));
+  // The bootstrap now completes almost instantly, so hold the branded loading screen for a perceptible
+  // beat on URL-driven entries (cash flow, OptimizePanel "Book this trip"). Store-driven entries
+  // (currentPackage) start true and render immediately.
+  const [minTimePassed, setMinTimePassed] = useState(!hasUrlSelection);
   useEffect(() => {
-    if (!hasTrip) navigate("/", { replace: true });
-  }, [hasTrip, navigate]);
+    if (!hasUrlSelection) return;
+    const t = setTimeout(() => setMinTimePassed(true), 800);
+    return () => clearTimeout(t);
+  }, [hasUrlSelection]);
+  useEffect(() => {
+    if (!hasTrip && !bootstrapping && !hasUrlSelection) navigate("/", { replace: true });
+  }, [hasTrip, bootstrapping, hasUrlSelection, navigate]);
 
   useEffect(() => {
-    if (!hasTrip || !(totals.totalCash > 0)) return;
+    if (!hasTrip || !(payableCash > 0)) return;
     let cancelled = false;
-    createBookingPaymentIntent(totals.totalCash, trip.id)
+    createBookingPaymentIntent(payableCash, trip.id)
       .then((p) => { if (!cancelled) setPay(p); })
       .catch(() => { if (!cancelled) setPay({ mock: true, paymentIntentId: "mock_pi_local" }); });
     return () => { cancelled = true; };
-  }, [hasTrip, totals.totalCash, trip?.id]);
+  }, [hasTrip, payableCash, trip?.id]);
 
-  if (!hasTrip) return null;
+  useEffect(() => {
+    if (hasTrip) track(EV.BOOKING_STARTED, {});
+  }, [hasTrip]);
+
+  if (!hasTrip || (hasUrlSelection && !minTimePassed)) {
+    if (bootstrapping || hasUrlSelection) return <PreparingScreen />;
+    return null;
+  }
 
   const stripeReady = HAS_STRIPE_KEY && Boolean(pay?.clientSecret) && pay?.mock === false;
 
@@ -102,8 +283,8 @@ export default function BookingPage() {
     });
   }
   const earnValue = earnRows.reduce((s, r) => s + r.value, 0);
-  const cardLow = Math.round(totals.totalCash * 0.01);
-  const cardHigh = Math.round(totals.totalCash * 0.03);
+  const cardLow = Math.round(payableCash * 0.01);
+  const cardHigh = Math.round(payableCash * 0.03);
   const totalEarnLow = earnValue + cardLow;
   const totalEarnHigh = earnValue + cardHigh;
   const connected = Boolean(loyaltyPoints);
@@ -142,28 +323,39 @@ export default function BookingPage() {
         phone_number: `${form.countryCode}${form.phone}`.replace(/\s/g, ""),
       },
     ];
-    const legs = totals.items.map((it) => ({
+    const legs = totals.items.filter((it) => !isPointsLeg(it.type)).map((it) => ({
       type: it.type,
       cashValueGbp: it.cash,
       vendor: affiliateLinks?.[it.type]?.vendor,
       commissionAmount: Math.round(it.cash * (affiliateLinks?.[it.type]?.commissionRate || 0)),
       description: legLabel(it.type),
+      // Hotel name lets the backend resolve a place_id so this stay is later reviewable (verified guest).
+      ...(it.type === "hotel" && selectedHotel?.name ? { propertyName: selectedHotel.name } : {}),
     }));
 
-    await confirmCashBooking({
-      paymentIntentId,
-      bookingToken: bookingLink.token,
-      tripId: trip.id,
-      origin: trip.origin,
-      destination: trip.destination,
-      checkIn: trip.checkIn,
-      checkOut: trip.checkOut,
-      travelers,
-      passengers,
-      legs,
-    });
+    const money = { amount_minor: Math.round((totals.totalCash || 0) * 100), currency: "GBP" };
+    track(EV.BOOKING_PAYMENT_SUBMITTED, money);
+    try {
+      await confirmCashBooking({
+        paymentIntentId,
+        bookingToken: bookingLink.token,
+        tripId: trip.id,
+        origin: trip.origin,
+        destination: trip.destination,
+        checkIn: trip.checkIn,
+        checkOut: trip.checkOut,
+        travelers,
+        passengers,
+        legs,
+      });
+    } catch (err) {
+      track(EV.BOOKING_FAILED, { ...money, code: err?.appError?.code || "INTERNAL", service: err?.appError?.service || null });
+      throw err;
+    }
+    track(EV.BOOKING_CONFIRMED, money);
 
     ["hotel", "car"].forEach((t) => {
+      if (isPointsLeg(t)) return; // points legs are redeemed on the programme site, not via affiliate cash
       const url = affiliateLinks?.[t]?.affiliateUrl;
       if (url && cashByType[t] != null) window.open(url, "_blank", "noopener");
     });
@@ -245,7 +437,7 @@ export default function BookingPage() {
                         <Icon name="check" className="h-3.5 w-3.5" /> Connected
                       </span>
                     ) : (
-                      <button type="button" onClick={() => console.log("connect loyalty")} className="shrink-0 rounded-lg border border-bonza px-3.5 py-1.5 text-[12px] font-semibold text-bonza hover:bg-bonza-50">
+                      <button type="button" onClick={() => navigate("/settings?tab=loyalty")} className="shrink-0 rounded-lg border border-bonza px-3.5 py-1.5 text-[12px] font-semibold text-bonza hover:bg-bonza-50">
                         Connect
                       </button>
                     )}
@@ -359,29 +551,50 @@ export default function BookingPage() {
 
                 {/* Price breakdown */}
                 <div className="mt-4 rounded-xl bg-cream p-3.5 text-[13px] tabular-nums">
-                  {selectedFlight && <PriceRow label="Flight" value={formatMoney(cashByType.flight || 0)} />}
-                  {selectedHotel && <PriceRow label={`Hotel (${nights} nts)`} value={formatMoney(cashByType.hotel || 0)} />}
+                  {selectedFlight && <PriceRow label="Flight" value={isPointsLeg("flight") ? "Points" : formatMoney(cashByType.flight || 0)} accent={isPointsLeg("flight")} />}
+                  {selectedHotel && <PriceRow label={`Hotel (${nights} nts)`} value={isPointsLeg("hotel") ? "Points" : formatMoney(cashByType.hotel || 0)} accent={isPointsLeg("hotel")} />}
                   {selectedCar && <PriceRow label="Car rental" value={formatMoney(cashByType.car || 0)} />}
                   {totals.savingsAmount > 0 && <PriceRow label="Package saving" value={`−${formatMoney(totals.savingsAmount)}`} accent />}
                   <div className="mt-2 flex items-center justify-between border-t border-[#e6ddd2] pt-2">
-                    <span className="text-[13px] font-bold text-ink">Total</span>
-                    <span className="text-xl font-extrabold text-bonza">{formatMoney(totals.totalCash)}</span>
+                    <span className="text-[13px] font-bold text-ink">Total to pay</span>
+                    <span className="text-xl font-extrabold text-bonza">{formatMoney(payableCash)}</span>
                   </div>
+                  {tripPlan && Object.values(tripPlan).some((p) => p.method === "points") && (
+                    <p className="mt-2 text-[11px] leading-snug text-ink-muted">
+                      Points legs are redeemed on the loyalty programme&apos;s own site — only the cash legs
+                      above are charged here.
+                    </p>
+                  )}
                 </div>
 
                 {/* Trust chips 2×2 */}
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <TrustChip icon="lock" title="Books direct" text="Earn all status perks with the hotel." />
                   <TrustChip icon="shield" title="Secure payment" text="Bank-level encryption." />
-                  <TrustChip icon="refresh" title="Free cancellation" text="Up to 48h before check-in." />
+                  <TrustChip icon="star" title="Best points value" text="We find your top cash + points mix." />
                   <TrustChip icon="headset" title="24/7 support" text="Bonza team on call." />
                 </div>
 
-                {!booked && (
+                {/* §25i — name the contracting supplier(s) above the pay button, not buried. */}
+                {suppliers.length > 0 && (
+                  <p className="mt-4 text-[11.5px] leading-snug text-ink-muted">
+                    You&rsquo;re paying Bonza, who will book {suppliers.join(" and ")}. The provider&rsquo;s own fare
+                    and cancellation terms apply — see our{" "}
+                    <a href="/legal/booking-terms#refunds" target="_blank" rel="noopener noreferrer" className="font-semibold text-bonza hover:text-bonza-dark">Booking Terms</a>.
+                  </p>
+                )}
+
+                {bundledBlocked ? (
+                  /* §25h — bundled flight+hotel single-total cash checkout isn't available; book the legs separately. */
+                  <div className="mt-4 rounded-xl border border-bonza/30 bg-bonza-50 px-4 py-3 text-[12.5px] leading-snug text-bonza-dark">
+                    Booking a flight and hotel together in one payment isn&rsquo;t available right now. You can book
+                    each separately — the flight on its own, and the hotel on its own.
+                  </div>
+                ) : !booked ? (
                   <>
                     {stripeReady ? (
                       <RealPayButton
-                        label={`Confirm and book — ${formatMoney(totals.totalCash)}`}
+                        label={`Confirm and book — ${formatMoney(payableCash)}`}
                         validate={validate}
                         onPaid={finalizeBooking}
                         onError={setPayErr}
@@ -390,7 +603,7 @@ export default function BookingPage() {
                       />
                     ) : (
                       <MockPayButton
-                        label={`Confirm and book — ${formatMoney(totals.totalCash)}`}
+                        label={`Confirm and book — ${formatMoney(payableCash)}`}
                         validate={validate}
                         paymentIntentId={pay?.paymentIntentId || "mock_pi_local"}
                         onPaid={finalizeBooking}
@@ -401,7 +614,7 @@ export default function BookingPage() {
                     )}
                     {payErr && <p className="mt-2 text-center text-[12px] font-medium text-bonza-dark">{payErr}</p>}
                   </>
-                )}
+                ) : null}
               </div>
             </div>
           </aside>
@@ -511,6 +724,20 @@ function SummaryRow({ icon, text }) {
     <div className="flex items-center gap-2.5 py-2">
       <Icon name={icon} className="h-4 w-4 shrink-0 text-bonza" />
       <span className="tabular-nums text-ink-soft">{text}</span>
+    </div>
+  );
+}
+
+// Branded transitional screen while the trip + booking link bootstrap (held ~0.8s so it's actually seen).
+function PreparingScreen() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-cream font-jakarta">
+      <span className="font-display text-[24px] font-semibold tracking-[-0.01em] text-ink">Bonza</span>
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-ink-900/10 border-t-bonza" />
+      <div className="text-center">
+        <p className="font-display text-[18px] font-semibold text-ink">Preparing your booking…</p>
+        <p className="mt-1 text-[13px] text-ink-soft">Locking in your rate and points options.</p>
+      </div>
     </div>
   );
 }

@@ -56,8 +56,8 @@ function imageQuery(rec) {
 export function recToPackage(rec) {
   const pts = rec.pointsOption;
   const cash = rec.cashOption || {};
-  const priceGbp = Number(cash.priceGbp) || 0;
-  const saving = Number(rec.cashSavingGbp) || 0;
+  const priceGbp = Number(cash.priceGbp) || 0; // cashOption blob is still £ (display-derived)
+  const saving = (Number(rec.cashSavingPence) || 0) / 100; // §27b — column is pence
 
   const ptsLine = pts
     ? `${Number(pts.pointsCost).toLocaleString()} ${PROGRAMME_SHORT[pts.programme] || pts.programme} · ${rec.centsPerPoint}¢/pt`
@@ -82,7 +82,7 @@ export function recToPackage(rec) {
 
     whyPersonalised: rec.whyPersonalised || null,
     urgencySignal: rec.urgencySignal || null,
-    creditsIfCash: rec.creditsIfCash != null ? Number(rec.creditsIfCash) : null,
+    creditsIfCash: rec.creditsIfCashPence != null ? rec.creditsIfCashPence / 100 : null, // §27b — column is pence
     bookingUrl: pts?.bookingUrl || null,
     offerId: cash.offerId || null,
   };

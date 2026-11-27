@@ -51,6 +51,18 @@ const initialState = {
   selectedFlight: null, // clicked flight object (or null)
   selectedHotel: null, // clicked hotel object (or null)
   selectedCar: null, // clicked car object (or null)
+
+  // Phase 12 — unified /search results page state.
+  searchResults: null, // { hotels, flights, awardFlights, loyaltyAccounts, searchMeta, preSelectedPackageId }
+  searchMeta: null, // { origin, destination, departureDate, returnDate, travelers, travelStyle }
+  selectedResult: null, // the hotel/flight open in the detail panel
+  searchLoading: false,
+  searchError: null,
+
+  // Phase 13 — trip tray: legs the user has chosen to optimise across (distinct from selectedResult).
+  // Cars are out of scope — only flight + hotel legs.
+  tripSelection: { hotel: null, flight: null },
+  optimizeOpen: false, // the OptimizePanel overlay
 };
 
 export const VENDOR_CATEGORIES = [
@@ -109,6 +121,22 @@ export const useAppStore = create((set) => ({
   setTripId: (tripId) => set({ tripId }),
   setLoyaltyPoints: (loyaltyPoints) => set({ loyaltyPoints }),
   setCurrentPackage: (currentPackage) => set({ currentPackage }),
+
+  setSearchResults: (searchResults, searchMeta) =>
+    set({ searchResults, searchMeta, searchLoading: false, searchError: null }),
+  setSelectedResult: (selectedResult) => set({ selectedResult }),
+  setSearchLoading: (searchLoading) => set({ searchLoading }),
+  setSearchError: (searchError) => set({ searchError, searchLoading: false }),
+  clearSearch: () =>
+    set({ searchResults: null, searchMeta: null, selectedResult: null, searchError: null }),
+
+  // Trip tray — add/remove a leg (type: "hotel" | "flight" | "car"); toggling the same item removes it.
+  addToTrip: (type, item) =>
+    set((state) => ({ tripSelection: { ...state.tripSelection, [type]: item } })),
+  removeFromTrip: (type) =>
+    set((state) => ({ tripSelection: { ...state.tripSelection, [type]: null } })),
+  clearTrip: () => set({ tripSelection: { hotel: null, flight: null } }),
+  setOptimizeOpen: (optimizeOpen) => set({ optimizeOpen }),
 
   setOptimization: ({
     allScenarios,

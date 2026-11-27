@@ -9,323 +9,417 @@ generator client {
 }
 
 model User {
-  id                String    @id
-  email             String    @unique
-  name              String?
-  location          String?
-  travelStatus      String?
-  createdAt         DateTime  @default(now())
+  id           String   @id
+  email        String   @unique
+  name         String?
+  location     String?
+  travelStatus String?
+  createdAt    DateTime @default(now())
 
   deviceFingerprint String?
 
-  lastLoginAt       DateTime?
-  homeAirport       String?
+  lastLoginAt DateTime?
+  homeAirport String?
 
-  onboardingComplete Boolean  @default(false)
+  onboardingComplete Boolean @default(false)
   travelStyle        String?
-  gmailConnected     Boolean  @default(false)
-  gmailRefreshToken  String?
-  outlookConnected   Boolean  @default(false)
+
+  // Phase 25 §25b — server mirror of the cookie-consent choice (marketing-consent source of truth for §9).
+  consentAnalytics Boolean   @default(false)
+  consentMarketing Boolean   @default(false)
+  // Phase 25 §25e — DSAR soft-delete window (account locked immediately; hard-deleted after 14 days).
+  lockedAt         DateTime?
+  deletedAt        DateTime? // set when the 14-day soft-delete starts
+
+  // Traveller profile — collected in onboarding to pre-fill the booking guest form (no card data stored).
+  title               String?
+  firstName           String?
+  lastName            String?
+  dateOfBirth         String? // "YYYY-MM-DD"
+  phone               String?
+  phoneCountryCode    String? @default("+44")
+  passportNumber      String?
+  gmailConnected      Boolean @default(false)
+  gmailRefreshToken   String?
+  outlookConnected    Boolean @default(false)
   outlookRefreshToken String?
 
-  trips             Trip[]
-  bookingLinks      BookingLink[]
-  chatSessions      ChatSession[]
+  trips        Trip[]
+  bookingLinks BookingLink[]
+  chatSessions ChatSession[]
 
-  subscription      Subscription?
-  bonzaCredits      BonzaCredit[]
-  loyaltyAccounts   LoyaltyAccount[]
-  affiliateClicks   AffiliateClick[]
-  bookings          Booking[]
-  journeys          UserJourney[]
-  events            UserEvent[]
-  recommendations   PersonalisedRecommendation[]
+  subscription    Subscription?
+  bonzaCredits    BonzaCredit[]
+  loyaltyAccounts LoyaltyAccount[]
+  affiliateClicks AffiliateClick[]
+  bookings        Booking[]
+  journeys        UserJourney[]
+  events          UserEvent[]
+  recommendations PersonalisedRecommendation[]
 
   notifications          Notification[]
   notificationPreference NotificationPreference?
+
+  propertyReviews  PropertyReview[]
+  pointsActivity   PointsActivity[]
+  syncRuns         BalanceSyncRun[]
+  supportTickets   SupportTicket[]
+  legalAcceptances LegalAcceptance[]
+
+  statementQuarantines StatementQuarantine[]
 }
 
 model Trip {
-  id                String    @id @default(cuid())
-  userId            String
-  user              User      @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
   origin            String
   destination       String
   checkIn           DateTime
   checkOut          DateTime
   budget            Int
-  numberOfTravelers Int       @default(1)
-  flexibility       Boolean   @default(false)
+  numberOfTravelers Int      @default(1)
+  flexibility       Boolean  @default(false)
 
-  loyaltyPoints     Json
-  preferences       Json
+  loyaltyPoints Json
+  preferences   Json
 
-  scenarios         Scenario[]
-  bookingLinks      BookingLink[]
-  chatSessions      ChatSession[]
+  scenarios    Scenario[]
+  bookingLinks BookingLink[]
+  chatSessions ChatSession[]
 
-  createdAt         DateTime  @default(now())
+  createdAt DateTime @default(now())
 }
 
 model Scenario {
-  id                String    @id @default(cuid())
-  tripId            String
-  trip              Trip      @relation(fields: [tripId], references: [id])
+  id     String @id @default(cuid())
+  tripId String
+  trip   Trip   @relation(fields: [tripId], references: [id])
 
-  strategy          String    // "transfer", "status", "cash", "hybrid", "direct"
-  totalCashCost     Int
-  pointsUsed        Int
-  pointsProgram     String
+  strategy      String // "transfer", "status", "cash", "hybrid", "direct"
+  totalCashCost Int
+  pointsUsed    Int
+  pointsProgram String
 
-  flightDetails     Json
-  hotelDetails      Json
-  carDetails        Json
+  flightDetails Json
+  hotelDetails  Json
+  carDetails    Json
 
-  benefits          Json
-  reasoning         String
-  valueMultiplier   Float     // 1.41 for "+41% Value"
-  savingsAmount     Int
+  benefits        Json
+  reasoning       String
+  valueMultiplier Decimal @db.Decimal(6, 4) // 1.41 for "+41% Value" — §27b non-money ratio
+  savingsAmount   Int
 
-  isRecommended     Boolean   @default(false)
+  isRecommended Boolean @default(false)
 
-  createdAt         DateTime  @default(now())
+  createdAt DateTime @default(now())
 }
 
 model ChatSession {
-  id                String    @id @default(cuid())
-  userId            String
-  user              User      @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  tripId            String
-  trip              Trip      @relation(fields: [tripId], references: [id])
+  tripId String
+  trip   Trip   @relation(fields: [tripId], references: [id])
 
-  selectedScenarioId String?  // Updates as user changes selection
+  selectedScenarioId String? // Updates as user changes selection
 
-  messages          ChatMessage[]
+  messages ChatMessage[]
 
-  createdAt         DateTime  @default(now())
+  createdAt DateTime @default(now())
 }
 
 model ChatMessage {
-  id                String    @id @default(cuid())
-  sessionId         String
-  session           ChatSession @relation(fields: [sessionId], references: [id])
+  id        String      @id @default(cuid())
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id])
 
-  role              String    // "user" or "bonza"
-  content           String
+  role    String // "user" or "bonza"
+  content String
 
-  createdAt         DateTime  @default(now())
+  createdAt DateTime @default(now())
 }
 
 model BookingLink {
-  id                String    @id @default(cuid())
-  token             String    @unique @default(cuid())
-  userId            String
-  user              User      @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  token  String @unique @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  tripId            String
-  trip              Trip      @relation(fields: [tripId], references: [id])
+  tripId String
+  trip   Trip   @relation(fields: [tripId], references: [id])
 
   selectedScenarioId String?
 
-  expiresAt         DateTime
-  createdAt         DateTime  @default(now())
-  viewedAt          DateTime?
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  viewedAt  DateTime?
 
-  affiliateLinks    AffiliateLink[]
-  conversions       Conversion[]
+  affiliateLinks AffiliateLink[]
+  conversions    Conversion[]
 }
 
 model AffiliateLink {
-  id                String    @id @default(cuid())
-  bookingLinkId     String
-  bookingLink       BookingLink @relation(fields: [bookingLinkId], references: [id])
+  id            String      @id @default(cuid())
+  bookingLinkId String
+  bookingLink   BookingLink @relation(fields: [bookingLinkId], references: [id])
 
-  type              String    // "flight", "hotel", "car"
-  vendor            String    // "United", "Marriott", "Hertz"
-  affiliateUrl      String
-  trackingId        String
-  commissionRate    Float
+  type           String // "flight", "hotel", "car"
+  vendor         String // "United", "Marriott", "Hertz"
+  affiliateUrl   String
+  trackingId     String
+  commissionRate Decimal @db.Decimal(6, 4) // §27b non-money rate (e.g. 0.03)
 
-  createdAt         DateTime  @default(now())
+  createdAt DateTime @default(now())
 }
 
 model Conversion {
-  id                String    @id @default(cuid())
-  bookingLinkId     String
-  bookingLink       BookingLink @relation(fields: [bookingLinkId], references: [id])
+  id            String      @id @default(cuid())
+  bookingLinkId String
+  bookingLink   BookingLink @relation(fields: [bookingLinkId], references: [id])
 
-  type              String    // "flight", "hotel", "car"
-  vendor            String
-  bookingId         String?
-  commissionAmount  Float?
+  type             String // "flight", "hotel", "car"
+  vendor           String
+  bookingId        String?
+  commissionAmountPence Int? // §27b — commission in pence
 
-  createdAt         DateTime  @default(now())
+  createdAt DateTime @default(now())
 }
 
 model Subscription {
-  id                   String    @id @default(cuid())
-  userId               String    @unique
-  user                 User      @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
 
   stripeCustomerId     String    @unique
   stripeSubscriptionId String?   @unique
-  status               String    // 'active' | 'cancelled' | 'past_due' | 'trialing' | 'pending'
+  status               String // 'active' | 'cancelled' | 'past_due' | 'trialing' | 'pending'
   plan                 String    @default("pro_annual") // 'pro_annual' | 'free'
   currentPeriodEnd     DateTime?
 
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model BonzaCredit {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  amount      Float    // in GBP, e.g. 24.00
-  source      String   // 'cashback_hotel' | 'cashback_flight' | 'cashback_car' | 'first_booking_bonus' | 'redeemed'
-  bookingId   String?  // reference to the booking that generated this credit
-  booking     Booking? @relation(fields: [bookingId], references: [id])
+  amountPence Int // §27b — credit amount in pence (GBP minor units), e.g. 2400 = £24.00
+  source    String // 'cashback_hotel' | 'cashback_flight' | 'cashback_car' | 'first_booking_bonus' | 'redeemed'
+  bookingId String? // reference to the booking that generated this credit
+  booking   Booking? @relation(fields: [bookingId], references: [id])
 
-  createdAt   DateTime @default(now())
-  expiresAt   DateTime // credits expire 24 months from earning
+  createdAt DateTime @default(now())
+  expiresAt DateTime // credits expire 24 months from earning
 }
 
 model LoyaltyAccount {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  programme     String   // 'marriott_bonvoy' | 'hilton_honors' | 'world_of_hyatt' | 'ihg_one' | 'amex_mr' | 'chase_ur' | 'united_mp' | 'ba_avios'
-  accountNumber String?  // masked — last 4 only (display)
+  programme     String // 'marriott_bonvoy' | 'hilton_honors' | 'world_of_hyatt' | 'ihg_one' | 'amex_mr' | 'chase_ur' | 'united_mp' | 'ba_avios'
+  accountNumber String? // masked — last 4 only (display)
 
   programmeAccountId  String?
   loyaltyEmailAddress String?
 
-  balance       Int      // points
-  valueGbp      Float    // estimated £ value at current programme rate
-  statusTier    String?  // 'Silver' | 'Gold' | 'Platinum' | 'Globalist' etc.
+  balance    Int // points
+  valuePence Int @default(0) // §27b — estimated value at current programme rate, in pence
+  statusTier String? // 'Silver' | 'Gold' | 'Platinum' | 'Globalist' etc.
 
   pointsExpireAt DateTime?
+  statusRenewsAt DateTime? // Phase 14: when elite status is reviewed (email-parsed; nullable)
+  nightsThisYear Int? // Phase 14: hotel status progress (email-parsed; nullable)
 
-  lastSynced    DateTime
-  syncMethod    String   // 'email_parse' | 'manual' | 'awardwallet'
+  lastSynced DateTime
+  syncMethod String // 'email_parse' | 'manual' | 'awardwallet'
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  // Phase 15: statement-authoritative sync state (presentation — seeded in dev).
+  syncState        String    @default("not_checked") // 'verified' | 'updated' | 'not_checked'
+  previousBalance  Int? // value before the last statement update (only when it changed)
+  statementDate    DateTime? @db.Date // date PRINTED on the statement (date-only; BST never shifts it) — display
+  statementReceivedAt DateTime? // Phase 27 §27e-2 — email delivery timestamp; the override race compares against THIS
+  statementSource  String? // mailbox address the statement was sent to
+  manualOverrideAt DateTime? // user edited by hand; holds until a newer statement arrives
 
-  @@unique([userId, programme])
-  @@unique([programme, programmeAccountId])  // same loyalty account can't link to two Bonza users
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // A user may hold multiple memberships in one programme, distinguished by membership number.
+  @@unique([userId, programme, accountNumber])
+  @@unique([programme, programmeAccountId]) // same loyalty account can't link to two Bonza users
   @@unique([programme, loyaltyEmailAddress]) // same statement email per programme can't link twice
 }
 
+// Phase 15: a record of one statement-sync run so the review page can report on it (presentation —
+// seeded in dev). modalPending gates the one-time discrepancy modal.
+model BalanceSyncRun {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  mailbox     String // 'gmail' | 'outlook'
+
+  programmesChecked Int @default(0)
+  statementsFound   Int @default(0)
+  balancesUpdated   Int @default(0)
+  balancesVerified  Int @default(0)
+  notChecked        Int @default(0)
+
+  modalPending Boolean @default(true) // false once the user has seen the modal for this run
+
+  @@index([userId, startedAt])
+}
+
 model AffiliateClick {
-  id            String   @id @default(cuid())
-  userId        String?
-  user          User?    @relation(fields: [userId], references: [id])
+  id     String  @id @default(cuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
 
-  programme     String   // 'travelpayouts' | 'awin_marriott' | 'awin_hilton' | 'impact_hyatt' | 'cj_seatsaero'
-  destination   String   // URL clicked
-  bookingType   String   // 'cash' | 'points' | 'hybrid'
-  leg           String   // 'flight' | 'hotel' | 'car'
+  programme   String // 'travelpayouts' | 'awin_marriott' | 'awin_hilton' | 'impact_hyatt' | 'cj_seatsaero'
+  destination String // URL clicked
+  bookingType String // 'cash' | 'points' | 'hybrid'
+  leg         String // 'flight' | 'hotel' | 'car'
 
-  clickedAt     DateTime @default(now())
+  clickedAt     DateTime  @default(now())
   convertedAt   DateTime?
-  commissionEst Float?   // estimated £ commission if known
+  commissionEstPence Int? // §27b — estimated commission in pence if known
 }
 
 model Booking {
-  id                 String       @id @default(cuid())
-  userId             String
-  user               User         @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  journeyId          String?
-  journey            UserJourney? @relation(fields: [journeyId], references: [id])
+  journeyId String?
+  journey   UserJourney? @relation(fields: [journeyId], references: [id])
 
-  tripId             String?
-  origin             String?
-  destination        String?
-  checkIn            DateTime?
-  checkOut           DateTime?
-  travelers          Int          @default(1)
+  tripId      String?
+  origin      String?
+  destination String?
+  checkIn     DateTime?
+  checkOut    DateTime?
+  travelers   Int       @default(1)
 
-  leg                String       // 'flight' | 'hotel' | 'car' | 'package'
-  bookingType        String       // 'cash' | 'points' | 'hybrid'
-  supplier           String       // 'duffel' | 'marriott_bonvoy' | … | 'cartrawler' | 'self_reported'
-  supplierReference  String?      // Duffel booking reference / loyalty confirmation number
-  description        String?      // e.g. "LHR → NCE · British Airways · Economy"
+  leg         String // 'flight' | 'hotel' | 'car' | 'package'
+  bookingType String // 'cash' | 'points' | 'hybrid'
+  supplier    String // 'duffel' | 'marriott_bonvoy' | … | 'cartrawler' | 'self_reported'
 
-  cashValueGbp       Float?
-  pointsUsed         Int?
-  pointsProgramme    String?
-  pointsValueGbp     Float?
-  serviceFeeGbp      Float?       // Bonza service fee (cash bookings only)
+  // Property identity for hotel legs — lets a confirmed guest leave a verified review (see PropertyReview).
+  propertyName      String?
+  propertyPlaceId   String? // Google Places place_id (resolved at booking time)
+  supplierReference String? // Duffel booking reference / loyalty confirmation number
+  idempotencyKey    String? @unique // Phase 24 §24g — hash of {userId,offerId,quotedTotal}; set before the order call so a user-triggered retry replays instead of double-booking
+  paymentIntentId   String? // Phase 27 §27e-3 — Stripe PI that paid for this leg; maps a charge.refunded back to the booking
+  description       String? // e.g. "LHR → NCE · British Airways · Economy"
+
+  cashAmount      Int? // §27b — cash paid, in minor units (pence) of cashCurrency
+  cashCurrency    String? @default("GBP")
+  pointsUsed      Int?
+  pointsProgramme String?
+  pointsValuePence Int? // §27b — £ value of the points leg, in pence
+  serviceFeePence  Int? // §27b — Bonza service fee (cash bookings only), in pence
+
+  // §27b forward-use: the FX rate captured at quote time for a non-GBP settlement. Unused today (all GBP→GBP).
+  fxRate   Decimal? @db.Decimal(18, 8)
+  fxRateAt DateTime?
+  fxBase   String?  @default("GBP")
 
   confirmedAt        DateTime
-  confirmationMethod String       // 'duffel' | 'affiliate_postback' | 'self_reported' | 'transfer_proxy'
+  confirmationMethod String // 'duffel' | 'affiliate_postback' | 'self_reported' | 'transfer_proxy'
 
-  status             String       @default("confirmed") // 'confirmed' | 'cancelled' | 'completed' | 'pending'
+  status             String    @default("confirmed") // 'confirmed' | 'cancelled' | 'completed' | 'pending'
   cancelledAt        DateTime?
   cancellationReason String?
 
-  creditsAwarded     Float?       // Bonza Credits issued for this booking
-  credits            BonzaCredit[]
+  creditsAwardedPence Int? // §27b — Bonza Credits issued for this booking, in pence
+  credits        BonzaCredit[]
+  supportTickets SupportTicket[]
 
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model UserJourney {
-  id                   String    @id @default(cuid())
-  userId               String
-  user                 User      @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  tripId               String?
-  origin               String?
-  destination          String?
-  travelDates          String?
+  tripId      String?
+  origin      String?
+  destination String?
+  travelDates String?
 
-  recommendedScenario  String?   // 'points' | 'transfer' | 'hybrid' | 'cash'
+  recommendedScenario  String? // 'points' | 'transfer' | 'hybrid' | 'cash'
   recommendedProgramme String?
   pointsRecommended    Int?
 
-  transferConfirmed    Boolean   @default(false)
-  transferProgramme    String?   // e.g. 'chase_ur'
-  transferToProgramme  String?   // e.g. 'aeroplan'
-  transferAmount       Int?
-  transferConfirmedAt  DateTime?
+  transferConfirmed   Boolean   @default(false)
+  transferProgramme   String? // e.g. 'chase_ur'
+  transferToProgramme String? // e.g. 'aeroplan'
+  transferAmount      Int?
+  transferConfirmedAt DateTime?
 
-  deepLinkClicked      Boolean   @default(false)
-  deepLinkClickedAt    DateTime?
-  deepLinkLeg          String?   // 'flight' | 'hotel' | 'car'
+  deepLinkClicked   Boolean   @default(false)
+  deepLinkClickedAt DateTime?
+  deepLinkLeg       String? // 'flight' | 'hotel' | 'car'
 
-  bookingConfirmed     Boolean   @default(false)
-  bookingMethod        String?   // 'duffel' | 'self_reported' | 'affiliate_postback' | 'transfer_proxy'
-  bookingConfirmedAt   DateTime?
-  bookingValueGbp      Float?
+  bookingConfirmed   Boolean   @default(false)
+  bookingMethod      String? // 'duffel' | 'self_reported' | 'affiliate_postback' | 'transfer_proxy'
+  bookingConfirmedAt DateTime?
+  bookingValuePence  Int? // §27b — booking value in pence
 
-  creditsAwarded       Float?
-  creditsAwardedAt     DateTime?
-  isFirstBooking       Boolean   @default(false)
+  creditsAwardedPence Int? // §27b — credits awarded in pence
+  creditsAwardedAt DateTime?
+  isFirstBooking   Boolean   @default(false)
 
-  bookings             Booking[]
+  bookings Booking[]
 
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model UserEvent {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  type      String   // e.g. 'booking_confirmed' | 'booking_cancelled'
+  type      String // e.g. 'booking_confirmed' | 'booking_cancelled'
   metadata  Json
   sessionId String?
 
   createdAt DateTime @default(now())
+}
+
+// Phase 27 §27k — append-only compliance audit trail: who changed what, when, from where, and from→to, for
+// every trust-sensitive mutation (money, balances, bookings, consent, plan, account lifecycle). Deliberately
+// has NO User relation so the trail survives a user hard-delete (§25f); actorId/subjectUserId are plain
+// strings. DB-level append-only: the §27k migration GRANTs SELECT/INSERT and REVOKEs UPDATE/DELETE from
+// bonza_app (mirrors BonzaCredit). Corrections are new rows, never edits. 7-year retention (§25f).
+model AuditEvent {
+  id            String   @id @default(cuid())
+  at            DateTime @default(now())
+  actorType     String // 'user' | 'admin' | 'system'
+  actorId       String? // the acting user/admin id, or null for system/job actors
+  subjectUserId String? // the user whose data was affected
+  action        String // dotted verb, e.g. 'balance.manual_override' | 'credit.awarded'
+  entity        String? // affected model, e.g. 'LoyaltyAccount' | 'BonzaCredit' | 'Booking'
+  entityId      String?
+  before        Json? // changed fields only (pre-image)
+  after         Json? // changed fields only (post-image)
+  requestId     String? // §27i correlation id
+  ipHash        String? // §25d sha256(ip + APP_SALT) — raw IP never stored
+  source        String? // optional provenance, e.g. a statement source or 'stripe_webhook'
+
+  @@index([subjectUserId, at])
+  @@index([action, at])
 }
 
 model AwardAvailability {
@@ -338,8 +432,8 @@ model AwardAvailability {
   cabin       String
   pointsCost  Int
   seatsAvail  Int?
-  taxesGbp    Float?
-  bookingUrl  String?  // deep-link to the loyalty portal
+  taxesPence  Int? // §27b — taxes/fees in pence
+  bookingUrl  String? // deep-link to the loyalty portal
   fetchedAt   DateTime @default(now())
   expiresAt   DateTime // 24h TTL
 
@@ -348,50 +442,50 @@ model AwardAvailability {
 }
 
 model PersonalisedRecommendation {
-  id                String   @id @default(cuid())
-  userId            String
-  user              User     @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  destination       String   // city name — maps to PackageCard title
-  destinationCity   String   // display name
-  origin            String
-  imageUrl          String?
-  specLine          String   // "5 NTS · 5-STAR · LHR → LIS"
-  rating            Float?
+  destination     String // city name — maps to PackageCard title
+  destinationCity String // display name
+  origin          String
+  imageUrl        String?
+  specLine        String // "5 NTS · 5-STAR · LHR → LIS"
+  rating          Decimal? @db.Decimal(4, 2) // §27b non-money rating
 
-  pointsOption      Json?    // { programme, pointsCost, cabin, availableDates[], valueGbp, centsPerPoint, aboveBenchmark, bookingUrl, seatsAvailable, source }
-  cashOption        Json?    // { priceGbp, supplier, creditsEarned, offerId }
-  hotelOption       Json?    // { name, programme, pointsCost, cashPrice, creditsEarned, nights, source }
+  pointsOption Json? // { programme, pointsCost, cabin, availableDates[], valueGbp, centsPerPoint, aboveBenchmark, bookingUrl, seatsAvailable, source }
+  cashOption   Json? // { priceGbp, supplier, creditsEarned, offerId }
+  hotelOption  Json? // { name, programme, pointsCost, cashPrice, creditsEarned, nights, source }
 
-  aiInsight         String   // one line, surfaced as the card's rec
-  whyPersonalised   String   // eyebrow — "You searched Lisbon 3 times"
-  urgencySignal     String?  // "3 seats left" | "Avios expire in 87 days" | null
+  aiInsight       String // one line, surfaced as the card's rec
+  whyPersonalised String // eyebrow — "You searched Lisbon 3 times"
+  urgencySignal   String? // "3 seats left" | "Avios expire in 87 days" | null
 
-  bestOptionType    String   // 'points' | 'cash' | 'hybrid'
-  pointsValueRating String   // 'excellent' | 'good' | 'typical' | 'below_average'
-  centsPerPoint     Float?
-  cashSavingGbp     Float?
-  creditsIfCash     Float?   // 3% of the cash package — always populated
+  bestOptionType    String // 'points' | 'cash' | 'hybrid'
+  pointsValueRating String // 'excellent' | 'good' | 'typical' | 'below_average'
+  centsPerPoint     Decimal? @db.Decimal(8, 4) // §27b non-money rate
+  cashSavingPence   Int? // §27b — cash saving in pence
+  creditsIfCashPence Int? // §27b — 3% of the cash package in pence — always populated
 
-  isActive          Boolean  @default(true)
-  viewedAt          DateTime?
-  clickedAt         DateTime?
-  generatedAt       DateTime @default(now())
-  expiresAt         DateTime // 48h TTL
+  isActive    Boolean   @default(true)
+  viewedAt    DateTime?
+  clickedAt   DateTime?
+  generatedAt DateTime  @default(now())
+  expiresAt   DateTime // 48h TTL
 
   @@index([userId, isActive, expiresAt])
 }
 
 model Notification {
-  id        String @id @default(cuid())
-  userId    String
-  user      User   @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  type      String  // award_availability | expiry_warning | price_drop | monthly_summary |
-  title     String  // short headline — shown in the bell panel
-  body      String  // full message — shown expanded
-  ctaLabel  String?
-  ctaUrl    String?
+  type     String // award_availability | expiry_warning | price_drop | monthly_summary |
+  title    String // short headline — shown in the bell panel
+  body     String // full message — shown expanded
+  ctaLabel String?
+  ctaUrl   String?
 
   bookingId String?
   journeyId String?
@@ -420,4 +514,584 @@ model NotificationPreference {
   proUpdates      Boolean @default(true) // transactional — kept true
 
   updatedAt DateTime @updatedAt
+}
+
+// Recorded, derived aspect scores per property (analysed from review text). Stores OUR analysis only —
+// never the raw Google review text (ToS). Refreshed when stale; keyed by Google place_id.
+model PropertyInsight {
+  id      String  @id @default(cuid())
+  placeId String  @unique
+  name    String?
+  city    String?
+
+  location   Decimal @db.Decimal(4, 2) // 0–10 — §27b non-money score
+  comfort    Decimal @db.Decimal(4, 2) // 0–10
+  facilities Decimal @db.Decimal(4, 2) // 0–10
+  summary    String? // one-line Bonza summary of the property's status
+  sampleSize Int     @default(0)
+  rating     Decimal? @db.Decimal(4, 2) // overall rating at time of analysis
+  source     String  @default("claude") // 'claude' | 'keyword'
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Bonza verified reviews — only users with a confirmed booking for the property can post.
+model PropertyReview {
+  id           String  @id @default(cuid())
+  userId       String
+  user         User    @relation(fields: [userId], references: [id])
+  bookingId    String?
+  placeId      String
+  propertyName String?
+
+  rating     Int // overall 1–5
+  location   Int? // 1–5
+  comfort    Int? // 1–5
+  facilities Int? // 1–5
+  text       String
+
+  status    String   @default("published") // 'published' | 'hidden'
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, placeId])
+  @@index([placeId, status, createdAt])
+}
+
+// ── Phase 14: Points Portfolio ──────────────────────────────────────────────
+// Bonza-maintained programme valuations (cents-per-point) + transfer graph. Reference data seeded once
+// (seedProgrammes.js) and refreshed nightly (valuationRefreshJob.js). The /points page renders from these
+// cached rows rather than any live third-party API.
+model ProgrammeValuation {
+  id        String @id @default(cuid())
+  programme String @unique // 'marriott_bonvoy' | 'amex_mr' | 'ba_avios' | ...
+
+  displayName String
+  category    String // 'hotel' | 'airline' | 'card' | 'car'
+  brandColor  String // hex for the row dot / logo-tile initials
+
+  logoUrl  String? // Phase 14: CloudFront path, e.g. "/logos/ba.svg"; null → initials fallback
+  initials String  @default("?") // Phase 14: fallback mark — "BA", "AX", "M", "IHG"
+
+  centsPerPoint Decimal @db.Decimal(8, 4) // current valuation, e.g. 0.8 — §27b non-money rate
+  benchmarkCpp  Decimal @db.Decimal(8, 4) // programme's typical rate for comparison
+  currency      String @default("pts") // 'pts' | 'miles' | 'Avios'
+
+  isTransferable     Boolean @default(false) // Amex MR, Chase UR, Marriott
+  hasPointsProgramme Boolean @default(true) // false for car-rental status programmes
+
+  updatedAt       DateTime @updatedAt
+  lastRefreshedAt DateTime @default(now())
+
+  transfersFrom TransferPartner[] @relation("FromProgramme")
+  transfersTo   TransferPartner[] @relation("ToProgramme")
+}
+
+// Phase 14: points activity feed. Read-only surface for now — rows are seeded (dev) or would be written by
+// a future derivation/booking pipeline. See FULL_CLAUDE.md §14e/§14h.
+model PointsActivity {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  programme String
+  accountId String? // links to LoyaltyAccount when known
+
+  kind        String // 'earn' | 'spend' | 'transfer_in' | 'transfer_out' | 'expiry' | 'adjustment'
+  description String // "Marriott Lisbon · 4 nights" | "Points earned"
+  detail      String? // secondary line: "stay credit" | "1:1 ratio" | "statement Feb"
+
+  amount     Int // signed — positive for earn/transfer_in, negative for spend/transfer_out
+  occurredAt DateTime
+
+  source     String // 'confirmation_email' | 'balance_delta' | 'bonza_booking' | 'user_entered'
+  confidence String // 'confirmed' | 'inferred'
+
+  relatedProgramme  String?
+  relatedActivityId String?
+  bookingId         String?
+  createdAt         DateTime @default(now())
+
+  @@index([userId, occurredAt])
+  @@index([userId, programme, occurredAt])
+}
+
+model TransferPartner {
+  id String @id @default(cuid())
+
+  fromProgramme String
+  from          ProgrammeValuation @relation("FromProgramme", fields: [fromProgramme], references: [programme])
+
+  toProgramme String
+  to          ProgrammeValuation @relation("ToProgramme", fields: [toProgramme], references: [programme])
+
+  ratioFrom       Int // e.g. 3 for Marriott 3:1
+  ratioTo         Int // e.g. 1
+  transferTimeHrs Int? // typical transfer time in hours; null if instant/unknown
+  minimumTransfer Int? // minimum points that can be transferred
+  isActive        Boolean @default(true) // false when a partnership ends
+  bonusActive     Boolean @default(false) // true during a transfer bonus promotion
+  bonusPercent    Int? // e.g. 30 for a 30% transfer bonus
+
+  ratioFetchedAt  DateTime? // Phase 27 §27e-7 — when this ratio was last verified; >24h → excluded from recs
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([fromProgramme, toProgramme])
+  @@index([fromProgramme, isActive])
+}
+
+// ── Phase 17: Hero Destination Board ────────────────────────────────────────
+// Factual award-price board shown on the marketing hero, tied to the destination slideshow. Seeded
+// reference data (seedHeroDestinations.js), refreshed monthly (jobs/heroDestinationJob.js).
+model HeroDestination {
+  id        String  @id @default(cuid())
+  slug      String  @unique // 'capetown'
+  name      String // 'Cape Town, South Africa'
+  tagline   String  @default("") // editorial title — theme · season · place, e.g. 'Bali Summer Getaway'
+  imageUrl  String // '/auth/capetown.jpg'
+  gradient  String // fallback backdrop
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  // Board context — what the quoted prices assume
+  nights      Int     @default(5)
+  adults      Int     @default(2)
+  travelMonth String? // 'March 2026' — display only
+
+  // The whole trip flown in cash (points are the hotel's job here). Seeded now; a Duffel pull later.
+  // Defaults keep `db push` safe on the existing rows; the seed upsert overwrites with real values.
+  originCode String  @default("LHR")
+  destCode   String  @default("") // 'DPS'
+  routeLabel String  @default("") // 'London → Denpasar'
+  carrier    String? // 'Qatar Airways'
+  flightCash Int     @default(0) // £, return, total for `adults` — whole pounds
+
+  awards      DestinationAward[]
+  refreshedAt DateTime           @default(now())
+}
+
+model DestinationAward {
+  id String @id @default(cuid())
+
+  destinationSlug String
+  destination     HeroDestination @relation(fields: [destinationSlug], references: [slug], onDelete: Cascade)
+
+  programme    String // 'world_of_hyatt' | 'marriott_bonvoy' | 'hilton_honors' | 'ihg_one'
+  propertyName String // 'The Silo Hotel'
+  propertyCode String? // programme's own hotel code, for the deep-link
+  pointsTotal  Int // total for the destination's `nights` (whole stay, never per-night)
+  hotelCash    Int     @default(0) // £, whole-stay cash rate for the same property — whole pounds
+  starRating   Int?
+
+  sortOrder   Int      @default(0) // ascending points — cheapest first
+  refreshedAt DateTime @default(now())
+
+  @@unique([destinationSlug, programme])
+  @@index([destinationSlug, sortOrder])
+}
+
+// Phase 18 — homepage discovery rails. Standalone reference data (no relations), seeded and refreshed
+// monthly alongside the hero destinations. All cash figures are whole-pound totals; the frontend only adds.
+model ExploreCountry {
+  id           String  @id @default(cuid())
+  code         String  @unique // ISO 3166-1 alpha-2, e.g. 'es'
+  name         String // 'Spain'
+  continent    String  @default("") // grouping label (reuses the 6 discovery regions) — for the map + grid
+  latitude     Decimal? @db.Decimal(9, 6) // pin anchor — country centroid (§27b)
+  longitude    Decimal? @db.Decimal(9, 6)
+  imageUrl     String? // '/explore/es.jpg' — null for directory-only countries
+  heroImageUrl String? // Phase 19 — wide 1400×500 country hero; null → falls back to imageUrl then gradient
+  blurb        String? // Phase 19 — one-line country blurb for the meta description (optional)
+  gradient     String // fallback backdrop
+  sortOrder    Int     @default(0)
+  isActive     Boolean @default(true)
+
+  // Cheapest award entry point into the country (discovery-rail "from X pts"). Refreshed monthly.
+  fromPoints    Int? // 26000
+  fromCurrency  String? // 'Avios' | 'pts'
+  fromProgramme String? // 'ba_avios'
+
+  cities ExploreCity[]
+  routes ExploreRoute[]
+
+  refreshedAt DateTime @default(now())
+}
+
+// Phase 18 (Explore Everywhere) — bookable cities per country, and cached origin→country/city prices.
+model ExploreCity {
+  id          String         @id @default(cuid())
+  countryCode String
+  country     ExploreCountry @relation(fields: [countryCode], references: [code], onDelete: Cascade)
+
+  name           String // 'Lisbon'
+  iataCode       String // 'LIS'
+  imageUrl       String?
+  hotelsOnPoints Int     @default(0) // count of award properties (mock now; Rooms.aero later)
+
+  // City drawer — holiday type (drawer tagline) + typical hotel cost + flight metadata (mock).
+  holidayType     String? // 'Beach' | 'City break' | 'Culture' | 'Adventure'
+  hotelCashFrom   Int? // £, whole-stay cheapest award property
+  hotelPointsFrom Int? // cheapest award for the stay
+  hotelProgramme  String? // 'world_of_hyatt'
+  carrier         String? // 'British Airways'
+  flightMinutes   Int? // one-way duration
+  isDirect        Boolean @default(true)
+
+  routes       ExploreRoute[]
+  hotels       ExploreHotel[]
+  availability ExploreAvailability[]
+
+  @@unique([countryCode, iataCode])
+}
+
+// Phase 18 §18i — named award properties per city (drawer "Hotels on points"), + a rolling six-month
+// award-availability window per origin.
+model ExploreHotel {
+  id     String      @id @default(cuid())
+  cityId String
+  city   ExploreCity @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  programme    String // 'world_of_hyatt'
+  propertyName String // 'Andaz Munich Schwabinger Tor'
+  propertyCode String?
+  starRating   Int?
+  pointsTotal  Int // whole stay
+  sortOrder    Int      @default(0) // ascending points
+  refreshedAt  DateTime @default(now())
+
+  @@unique([cityId, programme])
+  @@index([cityId, sortOrder])
+}
+
+model ExploreAvailability {
+  id     String      @id @default(cuid())
+  cityId String
+  city   ExploreCity @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  originCode     String // 'LON'
+  month          String // '2026-06'
+  seatsFound     Int      @default(0)
+  cheapestPoints Int?
+  programme      String?
+  refreshedAt    DateTime @default(now())
+
+  @@unique([cityId, originCode, month])
+  @@index([cityId, originCode, month])
+}
+
+model ExploreRoute {
+  id String @id @default(cuid())
+
+  originCode  String // 'LON' — city code, not airport
+  countryCode String
+  country     ExploreCountry @relation(fields: [countryCode], references: [code], onDelete: Cascade)
+
+  cityId String? // null = country-level aggregate row (cheapest across its cities)
+  city   ExploreCity? @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  cashFrom        Int // £, cheapest return, whole pounds
+  pointsFrom      Int // cheapest award, in the programme below
+  pointsProgramme String // 'ba_avios'
+  awardSeatsOpen  Boolean @default(false)
+
+  refreshedAt DateTime @default(now())
+
+  @@unique([originCode, countryCode, cityId])
+  @@index([originCode, cashFrom])
+}
+
+model PopularTrip {
+  id String @id @default(cuid())
+
+  originCode String // 'LHR' — the city this trip is offered from
+  originCity String // 'London'
+  destCode   String // 'LIS'
+  destCity   String // 'Lisbon'
+  routeLabel String // 'London to Lisbon'
+
+  imageUrl String
+  gradient String
+
+  departDate DateTime
+  returnDate DateTime
+  nights     Int      @default(5)
+  adults     Int      @default(2)
+
+  // Cash route — flight + hotel (whole-pound total)
+  cashTotal Int
+
+  // Points route — flight award + hotel award, or a mix
+  flightPoints   Int?
+  flightCurrency String? // 'Avios'
+  hotelPoints    Int?
+  hotelProgramme String? // 'world_of_hyatt'
+  residualCash   Int     @default(0) // £ still payable on the points route
+
+  awardAvailable Boolean  @default(false) // drives the green tag
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  refreshedAt    DateTime @default(now())
+
+  @@unique([originCode, destCode])
+  @@index([originCode, isActive, sortOrder])
+}
+
+// ── Phase 22 — Support ───────────────────────────────────────────────────────
+model HelpArticle {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  category  String // see HELP_CATEGORIES (db/seedHelp.js)
+  topic     String   @default("") // §22l — same six slugs as category (rename for clarity)
+  isTopPick Boolean  @default(false) // §22l — surfaces as a quick-link pill on /help/contact
+  title     String
+  summary   String // one line — search results + meta description
+  body      String // markdown
+  keywords  String[] // extra search terms
+
+  relatedSlugs String[]
+  order        Int      @default(0)
+  isPublished  Boolean  @default(true)
+
+  viewCount  Int @default(0)
+  helpfulYes Int @default(0)
+  helpfulNo  Int @default(0)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([category, order])
+}
+
+model SupportTicket {
+  id        String  @id @default(cuid())
+  reference String  @unique // 'BZ-4K2M9'
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id])
+
+  email String
+  name  String?
+
+  urgency  String // 'travelling_now' | 'booking_issue' | 'general'
+  category String
+  subject  String
+  message  String
+
+  bookingId   String?
+  booking     Booking? @relation(fields: [bookingId], references: [id])
+  contextJson Json? // snapshot at creation — never edited
+
+  status     String  @default("open") // 'open' | 'awaiting_user' | 'resolved' | 'closed'
+  assignedTo String?
+
+  firstReplyAt DateTime?
+  resolvedAt   DateTime?
+  slaTarget    DateTime // set from urgency at creation
+
+  messages  SupportMessage[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([status, slaTarget])
+  @@index([userId, createdAt])
+}
+
+model SupportMessage {
+  id       String        @id @default(cuid())
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  author     String // 'user' | 'agent' | 'assistant'
+  authorName String?
+  body       String
+  isInternal Boolean @default(false) // agent notes — never shown to the user
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+model ProgrammeContact {
+  programme   String  @id // 'marriott_bonvoy'
+  displayName String
+  phoneUk     String?
+  phoneIntl   String?
+  contactUrl  String
+  manageUrl   String // deep link to "my bookings" on their site
+  hoursNote   String? // '24/7' | 'Mon–Fri 09:00–17:00 GMT'
+}
+
+model ServiceStatus {
+  id          String   @id @default(cuid())
+  service     String   @unique // 'flight_search' | 'hotel_search' | 'award_search' | 'booking' | 'balance_sync'
+  displayName String
+  state       String   @default("operational") // 'operational' | 'degraded' | 'outage' | 'maintenance'
+  message     String?
+  updatedAt   DateTime @updatedAt
+}
+
+// Phase 25 §25d — proof of which legal-document version a user accepted, and when/how.
+model LegalAcceptance {
+  id         String   @id @default(cuid())
+  userId     String
+  document   String // 'terms' | 'privacy' | 'booking-terms' | ...
+  version    String
+  acceptedAt DateTime @default(now())
+  ipHash     String // sha256(ip + APP_SALT) — never the raw IP
+  userAgent  String
+  context    String // 'signup' | 'reaccept' | 'checkout'
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, document])
+}
+
+// Phase 27 §27a — inbound-webhook idempotency. The handler inserts this row FIRST inside the effect's
+// transaction; a P2002 on the unique pair is the duplicate signal → return 200 without reprocessing.
+model ProcessedWebhook {
+  id          String   @id @default(cuid())
+  provider    String // 'stripe' | 'clerk' | 'duffel' | 'resend' | 'affiliate'
+  eventId     String
+  processedAt DateTime @default(now())
+  outcome     String // 'applied' | 'ignored' | 'failed'
+
+  @@unique([provider, eventId])
+}
+
+// Phase 27 §27g — queue-consumer idempotency. A message carries a stable dedupe `key` that travels with it, so
+// a redelivered SQS message (or a double enqueue) is processed at-most-once: the consumer inserts (queue,key)
+// first and skips on a conflict, and deletes the row if the handler throws so SQS can legitimately retry.
+model ProcessedMessage {
+  id          String   @id @default(cuid())
+  queue       String // logical queue name, e.g. 'email' | 'data_export' | 'person_delete'
+  key         String // stable dedupe id for this message
+  processedAt DateTime @default(now())
+
+  @@unique([queue, key])
+  @@index([processedAt])
+}
+
+// Phase 27 §27e-9 — traceability for a Stripe customer after the user row is hard-deleted (§25e). The Pro
+// subscription is cancelled immediately on delete; this keeps the customer id so a stray invoice is traceable.
+model DeletedCustomer {
+  id               String   @id @default(cuid())
+  userHash         String   @unique // sha256(userId + APP_SALT) — never the raw id
+  stripeCustomerId String?
+  deletedAt        DateTime @default(now())
+  note             String?
+}
+
+// Phase 27 §27b — persisted daily FX rates (GBP-base). The display-FX layer (fxService / frontend money.js)
+// converts GBP amounts to the viewer's currency; this table persists what was previously an in-memory cache
+// so there's a durable history and an offline source. A daily job (jobs/fxRefreshJob.js) upserts one row per
+// quote currency per date. FX is NEVER called in a request path — the rate is read from here / the 6h cache.
+model FxRate {
+  id        String   @id @default(cuid())
+  base      String   @default("GBP") // ISO-4217 base currency
+  quote     String // ISO-4217 quote currency
+  rate      Decimal  @db.Decimal(18, 8) // units of `quote` per 1 `base`
+  date      DateTime @db.Date // the rate's calendar date (UTC)
+  source    String   @default("live") // 'live' (ECB/Frankfurter) | 'fallback' (bundled)
+  fetchedAt DateTime @default(now())
+
+  @@unique([base, quote, date])
+  @@index([base, quote, date])
+}
+
+// Phase 27 §27c — a parsed loyalty statement that statementGuard flagged as suspicious (low parse confidence
+// or an implausible jump). The user's current balance is KEPT; this row records the figure we weren't sure
+// about so the §15 discrepancy modal can ask them to confirm. The raw email body is NEVER stored — only the
+// matched pattern name and a non-reversible fingerprint.
+model StatementQuarantine {
+  id   String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  programme      String
+  parsedBalance  Int? // the figure we read (null when the read produced nothing usable)
+  confidence     Decimal @db.Decimal(4, 3) // 0..1 — extractBalance pattern confidence
+  matchedPattern String? // which extractBalance pattern won — NEVER the raw body
+  verdict        String // 'quarantine' (surfaced) — 'reject' decisions are logged, not stored here
+  reason         String // the statementGuard rule that tripped
+  statementDate  DateTime? @db.Date
+  bodyFingerprint String? // sha256(body) prefix — lets us dedupe "same email twice" without keeping PII
+
+  resolved   Boolean   @default(false) // true once the user confirmed/overrode or acknowledged
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, resolved])
+  @@index([programme, createdAt])
+}
+
+// Phase 27 §27c — one row per statement-parse decision, per programme. Powers the per-programme success-rate
+// aggregate behind the nightly alarm (< 80% over 24h, ≥5 attempts) and the read-only /admin/parsers table.
+// Append-only telemetry; carries no PII (no userId is required and no body is ever stored).
+model ParseAttempt {
+  id             String   @id @default(cuid())
+  userId         String? // nullable — the aggregate is per-programme, not per-user
+  programme      String
+  outcome        String // 'applied' | 'quarantined' | 'rejected' | 'not_found' | 'error'
+  confidence     Decimal? @db.Decimal(4, 3)
+  matchedPattern String?
+  createdAt      DateTime @default(now())
+
+  @@index([programme, createdAt])
+  @@index([outcome, createdAt])
+}
+
+// Phase 27 §27f — a mutual-exclusion lease so a scheduled job runs on exactly one worker at a time (two
+// EventBridge deliveries, or a manual re-trigger racing the schedule, must not both run). Acquired by a
+// conditional upsert that only wins when no live lease exists (expiresAt < now); renewed mid-run; released
+// in a finally. TTL is set to ~2× the job's expected runtime so a crashed holder's lease self-expires.
+model JobLease {
+  name       String   @id // the lease key (usually the jobType; per-entity jobs append an id)
+  holder     String // opaque id of the worker that holds it
+  acquiredAt DateTime @default(now())
+  expiresAt  DateTime
+}
+
+// Phase 27 §27f — one row per job execution (including lease-held skips), for the /admin/jobs view and the
+// liveness / external-call-count alarms. `name` is the jobType (so runs aggregate across per-entity lease keys).
+model JobRun {
+  id            String    @id @default(cuid())
+  name          String // jobType
+  holder        String?
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  outcome       String    @default("running") // 'running' | 'success' | 'error' | 'lease_held'
+  items         Int       @default(0) // units processed (best-effort; jobs opt in)
+  externalCalls Int       @default(0) // outbound third-party calls (best-effort)
+  errors        Int       @default(0)
+  error         String? // last error message (truncated)
+  requestId     String? // §27i correlation id (forward-use)
+
+  @@index([name, startedAt])
+  @@index([outcome, startedAt])
+}
+
+// Phase 27 §27d — the shared (cross-instance) fixed-window counter behind every express-rate-limit instance.
+// In-memory limits are per-process, so they're fiction on >1 worker; this makes them real. One row per
+// limiter-prefixed key for the active window; the custom store (utils/rateLimitStore.js) upserts it. Expired
+// rows are swept nightly (rate_limit_cleanup job). The store is fail-open — a DB hiccup never blocks requests.
+model RateLimitHit {
+  key     String   @id // "<limiter prefix>:<keyGenerator value>" (userId or IP)
+  count   Int      @default(0)
+  resetAt DateTime // when the current window ends; a hit past this resets count to 1
+
+  @@index([resetAt])
+}
+
+// Phase 27 §27d — global per-service daily external-call budget (UTC date key). The real outbound branches
+// (seats.aero / Duffel search / Claude) consume one unit per call via services/spendLedger.tryConsume; the
+// interactive share is capped below the full budget so a scraper can't starve the reserved nightly-job slice.
+// Global exhaustion → serve cached/mock + an incident metric; never settles money, so it's inert offline.
+model SpendLedger {
+  id      String   @id @default(cuid())
+  service String // 'seats_aero' | 'duffel' | 'claude'
+  date    DateTime @db.Date // UTC calendar date
+  count   Int      @default(0)
+
+  @@unique([service, date])
+  @@index([date])
 }

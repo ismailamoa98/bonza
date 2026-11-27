@@ -13,6 +13,7 @@ import {
   comboFitsBudget,
 } from "../store/appStore";
 import { getFlights, getHotels, getCars, createTrip } from "../utils/api";
+import { buildSearchUrl, reserveTab, redirectTab } from "../utils/searchUrl";
 import { formatMoney, formatPoints, shortDate } from "../utils/format";
 
 const MONTHS = 12;
@@ -94,6 +95,8 @@ export default function FlexibleDates() {
   const choose = async (mo) => {
     if (busy) return;
     setBusy(true);
+    // Reserve the results tab in-gesture (before the await) so it isn't popup-blocked.
+    const tab = reserveTab();
     setTrip({ ...trip, checkIn: mo.checkIn, checkOut: mo.checkOut });
     try {
       const { id } = await createTrip({
@@ -112,7 +115,18 @@ export default function FlexibleDates() {
       /* offline / API hiccup — still load the selection so the user can browse */
     }
     setSelections({ flight: mo.flight, hotel: mo.hotel, car: mo.car });
-    navigate("/optimize");
+    redirectTab(
+      tab,
+      buildSearchUrl({
+        origin: trip.origin,
+        destination: trip.destination,
+        departureDate: mo.checkIn,
+        returnDate: mo.checkOut,
+        travelers: trip.numberOfTravelers || 2,
+        style: trip.preferences?.style,
+      }),
+      navigate
+    );
   };
 
   if (!trip?.origin) return null;

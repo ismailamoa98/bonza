@@ -162,12 +162,12 @@ function generateHybridScenario(accounts, trip) {
 async function generateRedemptionOptions(userId, trip) {
   const accounts = await prisma.loyaltyAccount.findMany({
     where: { userId },
-    orderBy: { valueGbp: "desc" },
+    orderBy: { valuePence: "desc" },
   });
 
   if (!accounts.length) return { mode: "cash_only", reason: "No loyalty accounts found" };
 
-  const totalPointsValueGbp = accounts.reduce((sum, a) => sum + a.valueGbp, 0);
+  const totalPointsValuePence = accounts.reduce((sum, a) => sum + a.valuePence, 0);
 
   const scenarios = [];
 
@@ -195,14 +195,14 @@ async function generateRedemptionOptions(userId, trip) {
   return {
     best: scenarios[0],
     all: scenarios,
-    totalPointsValueGbp: Math.round(totalPointsValueGbp * 100) / 100,
+    totalPointsValuePence,
     accounts: accounts.map((a) => {
       const cpp = PROGRAMME_VALUATIONS[a.programme] || 0;
       const benchmark = BENCHMARK_CPP[a.programme] || 0.01;
       return {
         programme: a.programme,
         balance: a.balance,
-        valueGbp: a.valueGbp,
+        valuePence: a.valuePence,
         statusTier: a.statusTier,
         centsPerPoint: cpp * 100,
         benchmark: benchmark * 100,
@@ -212,4 +212,4 @@ async function generateRedemptionOptions(userId, trip) {
   };
 }
 
-module.exports = { generateRedemptionOptions, TRANSFER_PARTNERS, BENCHMARK_CPP };
+module.exports = { generateRedemptionOptions, TRANSFER_PARTNERS, BENCHMARK_CPP, formatProgramme };

@@ -2,11 +2,13 @@
 const prisma = require("../config/database");
 const env = require("../config/env");
 const { searchAwardFlights } = require("../services/seatsAeroService");
+const spend = require("../services/spendLedger");
 const { logger } = require("../utils/logger");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
 const { isProActive } = require("../middleware/requirePro");
 const { PROGRAMME_VALUATIONS } = require("../services/emailLoyaltySync");
 const { CASHBACK_RATE, CLAUDE_MODEL } = require("../config/constants");
+const { toMinor } = require("../../shared/format");
 const {
   triggerAwardAlert,
   triggerExpiryWarning,
@@ -214,7 +216,7 @@ async function claudeRecommendations({ awardRows, loyaltyAccounts, homeAirport }
   const loyaltySummary = loyaltyAccounts.map((a) => ({
     programme: a.programme,
     balance: a.balance,
-    valueGbp: a.valueGbp,
+    valueGbp: Math.round((a.valuePence || 0) / 100), // §27b — column is pence; prompt reads whole £
     statusTier: a.statusTier,
   }));
 
@@ -306,7 +308,7 @@ async function runJobForUser(userId, { force = false } = {}) {
       continue;
     }
     try {
-      const results = await searchAwardFlights({ origin: homeAirport, destination, programmes });
+      const results = await searchAwardFlights({ origin: homeAirport, destination, programmes }, { reserved: true });
       for (const r of results.slice(0, 5)) {
         const row = await prisma.awardAvailability.create({
           data: {
@@ -318,7 +320,7 @@ async function runJobForUser(userId, { force = false } = {}) {
             cabin: r.cabin,
             pointsCost: r.pointsCost,
             seatsAvail: r.seatsAvailable ?? null,
-            taxesGbp: r.taxesGbp ?? null,
+            taxesPence: r.taxesGbp != null ? toMinor(r.taxesGbp, "GBP") : null,
             bookingUrl: r.affiliateUrl || r.bookingUrl || null,
             expiresAt: new Date(Date.now() + DAY_MS),
           },
@@ -332,7 +334,10 @@ async function runJobForUser(userId, { force = false } = {}) {
 
   let recommendations;
   try {
-    recommendations = env.hasRealAnthropicKey
+    // §27d — the nightly card generation draws on the reserved Claude budget slice; if even that's exhausted
+    // (or no key), fall back to the deterministic mock recommendations.
+    const claudeOk = env.hasRealAnthropicKey && (await spend.tryConsume("claude", { reserved: true })).allowed;
+    recommendations = claudeOk
       ? await claudeRecommendations({ awardRows, loyaltyAccounts: user.loyaltyAccounts, homeAirport })
       : mockRecommendations({ awardRows, loyaltyAccounts: user.loyaltyAccounts, homeAirport, targets });
   } catch (err) {
@@ -376,8 +381,8 @@ async function runJobForUser(userId, { force = false } = {}) {
         bestOptionType: rec.bestOptionType,
         pointsValueRating: rec.pointsValueRating,
         centsPerPoint: rec.centsPerPoint ?? null,
-        cashSavingGbp: rec.cashSavingGbp ?? null,
-        creditsIfCash: rec.creditsIfCash ?? null,
+        cashSavingPence: rec.cashSavingGbp != null ? toMinor(rec.cashSavingGbp, "GBP") : null,
+        creditsIfCashPence: rec.creditsIfCash != null ? toMinor(rec.creditsIfCash, "GBP") : null,
         expiresAt: new Date(Date.now() + 2 * DAY_MS),
       },
     });

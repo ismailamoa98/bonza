@@ -2,6 +2,9 @@
 const env = require("../config/env");
 const prisma = require("../config/database");
 const { logger } = require("../utils/logger");
+const { withRetry, withTimeout, TIMEOUTS } = require("../utils/withRetry");
+const health = require("./serviceHealth");
+const { enqueue, QUEUES } = require("./queue"); // §27g — email send runs behind a queue (inline offline)
 
 let _resend = null;
 function getResend() {
@@ -17,6 +20,10 @@ const TRANSACTIONAL = new Set([
   "credits_awarded",
   "pro_activated",
   "pro_expiring",
+  // Phase 25 §25e — DSAR confirmations are transactional (legal obligation; can't be opted out of).
+  "data_export_ready",
+  "account_deletion_scheduled",
+  "account_deletion_cancelled",
 ]);
 
 const PREF_FOR_TYPE = {
@@ -35,7 +42,10 @@ async function sendEmail({ to, subject, html, notificationId }) {
   }
 
   try {
-    const { data, error } = await getResend().emails.send({ from: env.EMAIL_FROM, to, subject, html });
+    // §24g/f — retry + timeout + health. User-facing flows never block on this (callers fire-and-forget).
+    const { data, error } = await health.tracked("resend", () =>
+      withRetry(() => withTimeout(() => getResend().emails.send({ from: env.EMAIL_FROM, to, subject, html }), TIMEOUTS.resend, "resend"), { label: "resend" })
+    );
     if (error) {
       logger.error("[emailService] Resend error", error);
       return { sent: false, error };
@@ -93,7 +103,9 @@ async function createAndSend({
     });
 
     if (userEmail && emailSubject && emailHtml && (await userWantsEmail(userId, type))) {
-      await sendEmail({ to: userEmail, subject: emailSubject, html: emailHtml, notificationId: notification.id });
+      // §27g — hand the send to the email queue (the slow, retriable external call); offline this runs inline,
+      // so dev/tests behave exactly as before. Deduped on the notification id (a redelivery can't double-send).
+      await enqueue(QUEUES.EMAIL, { to: userEmail, subject: emailSubject, html: emailHtml, notificationId: notification.id }, { key: notification.id });
     }
 
     return notification;

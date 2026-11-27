@@ -19,6 +19,9 @@ export interface JobsProps {
 }
 
 export class Jobs extends Construct {
+  /** §27g — exposed so the stack can grant it SQS send + inject the queue URLs (jobs also enqueue email). */
+  public readonly fn: lambda.DockerImageFunction;
+
   constructor(scope: Construct, id: string, props: JobsProps) {
     super(scope, id);
 
@@ -29,15 +32,11 @@ export class Jobs extends Construct {
       description: "Bonza background-jobs Lambda",
       allowAllOutbound: true,
     });
-    network.dbSecurityGroup.addIngressRule(
-      jobsSecurityGroup,
-      ec2.Port.tcp(5432),
-      "Allow jobs Lambda access to RDS",
-    );
+    // §27h — jobs connect through the RDS Proxy, not the instance directly.
+    database.proxy.connections.allowFrom(jobsSecurityGroup, ec2.Port.tcp(5432), "Jobs Lambda → RDS Proxy");
 
-    const databaseUrl =
-      `postgresql://bonza:${database.secret.secretValueFromJson("password").unsafeUnwrap()}` +
-      `@${database.instance.dbInstanceEndpointAddress}:5432/bonza`;
+    // §27h — a single Lambda invocation does modest DB work; one connection per invocation, via the proxy.
+    const databaseUrl = database.databaseUrlFor(2);
 
     const jobsFunction = new lambda.DockerImageFunction(this, "JobsFunction", {
       code: lambda.DockerImageCode.fromImageAsset("../", {
@@ -59,6 +58,7 @@ export class Jobs extends Construct {
 
     appSecret.grantRead(jobsFunction);
     database.secret.grantRead(jobsFunction);
+    this.fn = jobsFunction;
 
     new events.Rule(this, "NightlyPersonalisationRule", {
       schedule: events.Schedule.cron({ minute: "0", hour: "2" }),
@@ -77,6 +77,18 @@ export class Jobs extends Construct {
       targets: [
         new targets.LambdaFunction(jobsFunction, {
           event: events.RuleTargetInput.fromObject({ jobType: "monthly_summary" }),
+          retryAttempts: 2,
+        }),
+      ],
+    });
+
+    // Phase 25 §25f — nightly data-retention sweep (also processes soft-deletes past the 14-day grace).
+    new events.Rule(this, "RetentionRule", {
+      schedule: events.Schedule.cron({ minute: "30", hour: "3" }),
+      description: "Trigger the nightly data-retention + hard-delete sweep",
+      targets: [
+        new targets.LambdaFunction(jobsFunction, {
+          event: events.RuleTargetInput.fromObject({ jobType: "retention" }),
           retryAttempts: 2,
         }),
       ],

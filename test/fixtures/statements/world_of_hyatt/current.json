@@ -1,0 +1,6 @@
+{
+  "name": "current statement (total context)",
+  "programme": "world_of_hyatt",
+  "body": "World of Hyatt. Account total: 41,000 points. Explorist member.",
+  "expect": { "balance": 41000, "minConfidence": 0.9, "matchedPattern": "context_before" }
+}

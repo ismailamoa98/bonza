@@ -1,10 +1,15 @@
 // utils/bookingWriter.js — single writeBooking path: awards cashback, flips journey, records event.
+// §27b: callers still pass money as major-unit GBP (cashValueGbp, …) — the GBP amounts search/booking quote.
+// This single chokepoint converts major → integer pence (toMinor) for storage; money stays pence downstream.
 const prisma = require("../config/database");
 const { awardCashback } = require("../services/creditsService");
 const { recordEvent, EVENT_TYPES } = require("./eventTracker");
+const { recordAudit, ACTIONS } = require("../services/auditService");
 const { triggerBookingConfirmation } = require("../services/notificationTriggers");
+const { toMinor } = require("../../shared/format");
 
 const toDate = (v) => (v ? new Date(v) : null);
+const pence = (gbp) => (gbp != null ? toMinor(Number(gbp), "GBP") : null);
 
 async function writeBooking(userId, data) {
   const {
@@ -20,12 +25,16 @@ async function writeBooking(userId, data) {
     supplier,
     supplierReference,
     description,
+    propertyName,
+    propertyPlaceId,
     cashValueGbp,
     pointsUsed,
     pointsProgramme,
     pointsValueGbp,
     serviceFeeGbp,
     confirmationMethod,
+    idempotencyKey,
+    paymentIntentId,
   } = data;
 
   const booking = await prisma.booking.create({
@@ -43,15 +52,26 @@ async function writeBooking(userId, data) {
       supplier,
       supplierReference: supplierReference || null,
       description: description || null,
-      cashValueGbp: cashValueGbp != null ? Number(cashValueGbp) : null,
+      propertyName: propertyName || null,
+      propertyPlaceId: propertyPlaceId || null,
+      cashAmount: pence(cashValueGbp),
+      cashCurrency: "GBP",
       pointsUsed: pointsUsed != null ? Number(pointsUsed) : null,
       pointsProgramme: pointsProgramme || null,
-      pointsValueGbp: pointsValueGbp != null ? Number(pointsValueGbp) : null,
-      serviceFeeGbp: serviceFeeGbp != null ? Number(serviceFeeGbp) : null,
+      pointsValuePence: pence(pointsValueGbp),
+      serviceFeePence: pence(serviceFeeGbp),
       confirmedAt: new Date(),
       confirmationMethod,
+      idempotencyKey: idempotencyKey || null,
+      paymentIntentId: paymentIntentId || null,
       status: "confirmed",
     },
+  });
+
+  // §27k — audit the booking state transition (actor resolved from the request context; system for webhooks).
+  await recordAudit({
+    action: ACTIONS.BOOKING_CREATED, subjectUserId: userId, entity: "Booking", entityId: booking.id,
+    after: { leg, bookingType, confirmationMethod, status: "confirmed", cashAmountPence: pence(cashValueGbp), pointsUsed: pointsUsed != null ? Number(pointsUsed) : null },
   });
 
   if (journeyId) {
@@ -62,18 +82,18 @@ async function writeBooking(userId, data) {
           bookingConfirmed: true,
           bookingMethod: confirmationMethod,
           bookingConfirmedAt: new Date(),
-          bookingValueGbp: cashValueGbp != null ? Number(cashValueGbp) : pointsValueGbp != null ? Number(pointsValueGbp) : null,
+          bookingValuePence: cashValueGbp != null ? pence(cashValueGbp) : pence(pointsValueGbp),
         },
       })
       .catch(() => {}); // a stale/missing journey must not fail the booking
   }
 
-  let creditsAwarded = null;
+  let creditsAwardedPence = null;
   if (bookingType === "cash" && cashValueGbp) {
-    const credit = await awardCashback({ userId, bookingId: booking.id, cashValueGbp: Number(cashValueGbp), leg });
+    const credit = await awardCashback({ userId, bookingId: booking.id, cashAmountPence: pence(cashValueGbp), leg });
     if (credit) {
-      creditsAwarded = credit.amount;
-      await prisma.booking.update({ where: { id: booking.id }, data: { creditsAwarded } });
+      creditsAwardedPence = credit.amountPence;
+      await prisma.booking.update({ where: { id: booking.id }, data: { creditsAwardedPence } });
     }
   }
 
@@ -83,11 +103,11 @@ async function writeBooking(userId, data) {
     bookingType,
     supplier,
     confirmationMethod,
-    cashValueGbp: cashValueGbp != null ? Number(cashValueGbp) : null,
+    cashAmountPence: pence(cashValueGbp),
     pointsUsed: pointsUsed != null ? Number(pointsUsed) : null,
   });
 
-  const result = creditsAwarded != null ? { ...booking, creditsAwarded } : booking;
+  const result = creditsAwardedPence != null ? { ...booking, creditsAwardedPence } : booking;
 
   triggerBookingConfirmation(userId, result).catch(() => {});
 

@@ -3,6 +3,10 @@ const env = require("../config/env");
 const { CLAUDE_MODEL, STRATEGIES } = require("../config/constants");
 const { generateMockScenarios } = require("./mockDataGenerator");
 const { logger } = require("./logger");
+const { withTimeout, TIMEOUTS } = require("./withRetry");
+const health = require("../services/serviceHealth");
+const spend = require("../services/spendLedger");
+const requestContext = require("./requestContext"); // §27i — propagate the correlation id to Anthropic
 
 const BONZA_SYSTEM_PROMPT = `You are Bonza, an expert AI travel optimizer. You help users get the most value
 from their loyalty points (AMEX, Chase, United, Marriott, etc.) when booking flights, hotels, and cars.
@@ -35,16 +39,15 @@ async function callClaude(userContent, maxTokens) {
     messages: [{ role: "user", content: userContent }],
   };
 
-  let response;
-  if (env.hasGondola) {
-    response = await client.beta.messages.create({
-      ...params,
-      mcp_servers: [{ name: "gondola", type: "url", url: env.GONDOLA_MCP_URL }],
-      betas: ["mcp-client-2025-04-04"],
-    });
-  } else {
-    response = await client.messages.create(params);
-  }
+  // §24g/f — timeout + health tracking on the live Anthropic call (no retry: non-streaming + idempotent is
+  // fine, but keep it single to avoid doubling token spend on a slow response).
+  const reqId = requestContext.getRequestId();
+  const opts = reqId ? { headers: { "X-Request-Id": reqId } } : undefined;
+  const call = () =>
+    env.hasGondola
+      ? client.beta.messages.create({ ...params, mcp_servers: [{ name: "gondola", type: "url", url: env.GONDOLA_MCP_URL }], betas: ["mcp-client-2025-04-04"] }, opts)
+      : client.messages.create(params, opts);
+  const response = await health.tracked("claude", () => withTimeout(call, TIMEOUTS.claude, "claude"));
 
   return response.content
     .filter((block) => block.type === "text")
@@ -62,7 +65,8 @@ function parseJsonResponse(text) {
 }
 
 async function generateScenarios(trip, loyaltyPoints) {
-  if (env.hasRealAnthropicKey) {
+  // §27d — consume the interactive Claude budget; if exhausted (or no key), use the deterministic mock.
+  if (env.hasRealAnthropicKey && (await spend.tryConsume("claude")).allowed) {
     try {
       const userContent =
         `Generate exactly 5 travel optimization scenarios for this trip and respond with ONLY JSON ` +
@@ -125,7 +129,7 @@ function mockChatReply({ scenarios, selectedScenarioId, message }) {
 }
 
 async function chatReply({ trip, scenarios, selectedScenarioId, message, history }) {
-  if (env.hasRealAnthropicKey) {
+  if (env.hasRealAnthropicKey && (await spend.tryConsume("claude")).allowed) {
     try {
       const userContent =
         `Continue advising the traveler. Respond with ONLY JSON of shape ` +

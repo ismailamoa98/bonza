@@ -1,14 +1,115 @@
 // api/bookings.js — cash booking flow (payment-intent, confirm-cash via Duffel) + history/cancel.
 const express = require("express");
+const crypto = require("crypto");
+const { sendError } = require("../utils/AppError");
 const prisma = require("../config/database");
 const { ownedOr403 } = require("../utils/ownedOr403");
 const { writeBooking } = require("../utils/bookingWriter");
 const { recordEvent, EVENT_TYPES } = require("../utils/eventTracker");
+const { recordAudit, ACTIONS } = require("../services/auditService");
+const { logger } = require("../utils/logger"); // §27j — booking→confirm SLO metric line
 const { createBookingPaymentIntent, retrievePaymentIntent } = require("../services/paymentService");
 const { bookCashFlight } = require("../services/duffelService");
+const { getPropertyReviews } = require("../services/googlePlacesService");
 const { COMMISSION_RATES } = require("../config/constants");
+const { toMinor } = require("../../shared/format");
+const env = require("../config/env");
+const { buildAffiliateUrl, hotelAffiliateProgramme, recordClick } = require("../services/affiliateService");
+const { hotelAwardLink, buyPointsLink, issuerTransferLink } = require("../services/awardLinks");
+const { TRANSFER } = require("../services/tripOptimizer");
 
 const router = express.Router();
+
+// Detect whether the user must transfer points into `programme` to redeem: none if they hold it directly,
+// otherwise the cheapest transferable currency they hold that maps to it (Amex MR / Chase UR).
+function detectTransfer(heldProgrammes, programme, pointsUsed) {
+  if (heldProgrammes.includes(programme)) return null;
+  for (const from of heldProgrammes) {
+    const route = TRANSFER[from] && TRANSFER[from][programme];
+    if (route) {
+      const ratio = route.ratio || 1;
+      return {
+        fromProgramme: from,
+        toProgramme: programme,
+        ratio,
+        pointsToTransfer: Math.ceil((Number(pointsUsed) || 0) / ratio),
+        issuerUrl: issuerTransferLink(from),
+      };
+    }
+  }
+  return null;
+}
+
+// POST /bookings/points-handoff — start an honest award-redemption handoff: create a journey, record the
+// outbound click, and return the affiliate-wrapped deep link to the programme's award site (+ any transfer
+// the user needs first). No points move and nothing is booked here — the user completes it on the site and
+// self-reports via PostClickPrompt (→ /journeys/confirm-booking).
+router.post("/points-handoff", async (req, res, next) => {
+  try {
+    const { hotelId, name, city, programme, checkIn, checkOut, adults, method, pointsUsed, pointsBought, buyCostGbp, cashGbp } = req.body || {};
+    if (!programme) {
+      const err = new Error("programme is required");
+      err.status = 400;
+      throw err;
+    }
+
+    const destination = city || name || null;
+    const totalPoints = (Number(pointsUsed) || 0) + (Number(pointsBought) || 0);
+    const journey = await prisma.userJourney.create({
+      data: {
+        userId: req.userId,
+        destination,
+        recommendedScenario: "points",
+        recommendedProgramme: programme,
+        pointsRecommended: totalPoints ? Math.round(totalPoints) : null,
+        bookingValuePence: cashGbp != null ? toMinor(Number(cashGbp), "GBP") : null,
+        deepLinkLeg: "hotel",
+      },
+    });
+
+    const rawUrl = hotelAwardLink(programme, { name, city, checkIn, checkOut, adults });
+    const affiliateProgramme = hotelAffiliateProgramme(programme);
+    const awardUrl = rawUrl ? buildAffiliateUrl(affiliateProgramme, rawUrl, "hotel") : null;
+    // A blend that buys the shortfall needs a first hop to the programme's buy-points page.
+    const buyPointsUrl = Number(pointsBought) > 0 ? buyPointsLink(programme) : null;
+
+    if (awardUrl) {
+      await recordClick({
+        userId: req.userId,
+        programme: affiliateProgramme,
+        destinationUrl: rawUrl,
+        bookingType: "points",
+        leg: "hotel",
+      }).catch(() => {});
+      await prisma.userJourney
+        .update({ where: { id: journey.id }, data: { deepLinkClicked: true, deepLinkClickedAt: new Date() } })
+        .catch(() => {});
+    }
+
+    const accounts = await prisma.loyaltyAccount.findMany({ where: { userId: req.userId } });
+    const transfer = detectTransfer(accounts.map((a) => a.programme), programme, pointsUsed);
+
+    recordEvent(req.userId, EVENT_TYPES.DEEP_LINK_CLICKED, {
+      journeyId: journey.id,
+      leg: "hotel",
+      programme,
+      method: method || "points",
+      needsTransfer: Boolean(transfer),
+    }).catch(() => {});
+
+    res.status(201).json({
+      journeyId: journey.id,
+      awardUrl,
+      buyPointsUrl,
+      hotelId: hotelId || null,
+      needsTransfer: Boolean(transfer),
+      transfer,
+      mock: !env.hasAffiliate,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 const NEVER_EXPIRES = new Date("9999-12-31T00:00:00.000Z");
 
@@ -56,14 +157,22 @@ router.post("/confirm-cash", async (req, res, next) => {
       tripId, origin, destination, checkIn, checkOut, travelers, passengers, legs,
     } = req.body || {};
 
-    if (!paymentIntentId) return res.status(400).json({ error: { message: "paymentIntentId is required" } });
+    if (!paymentIntentId) return sendError(res, "VALIDATION_FAILED", { message: "paymentIntentId is required" });
     if (!Array.isArray(legs) || !legs.length) {
-      return res.status(400).json({ error: { message: "legs must be a non-empty array" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "legs must be a non-empty array" });
+    }
+
+    // §25h/§25i — a single-payment flight+hotel cash order is a flight-inclusive package under the PTR 2018.
+    // Gated on env.bundledCheckoutEnabled (defaults ON for the build; set BUNDLED_CHECKOUT_ENABLED=false at
+    // go-live until the ATOL position is confirmed). Flight-only and hotel-only cash orders are unaffected.
+    const legTypes = new Set(legs.map((l) => l.type));
+    if (!env.bundledCheckoutEnabled && legTypes.has("flight") && legTypes.has("hotel")) {
+      return sendError(res, "FORBIDDEN", { message: "Flight-and-hotel bundled checkout is unavailable. Please book the flight and hotel separately." });
     }
 
     const pi = await retrievePaymentIntent(paymentIntentId);
     if (pi.status !== "succeeded") {
-      return res.status(402).json({ error: { message: `Payment not completed (status: ${pi.status})`, code: "PAYMENT_NOT_SUCCEEDED" } });
+      return sendError(res, "PAYMENT_FAILED", { message: `Payment not completed (status: ${pi.status})` });
     }
 
     let bookingLink = null;
@@ -81,6 +190,19 @@ router.post("/confirm-cash", async (req, res, next) => {
       const cash = leg.cashValueGbp != null ? Number(leg.cashValueGbp) : null;
       let supplierReference = null;
 
+      // §24g idempotency — key this leg on {userId, paymentIntent, type, quotedTotal}. A replayed confirm
+      // (user-triggered retry on the same PaymentIntent) returns the existing booking instead of re-ordering
+      // / double-charging / double-crediting. The key is persisted on the Booking before the order.
+      const idempotencyKey = crypto
+        .createHash("sha256")
+        .update(`${req.userId}:${paymentIntentId}:${type}:${cash}`)
+        .digest("hex");
+      const existing = await prisma.booking.findUnique({ where: { idempotencyKey } });
+      if (existing) {
+        bookings.push(existing);
+        continue;
+      }
+
       if (type === "flight") {
         const { order } = await bookCashFlight({
           origin, destination,
@@ -91,6 +213,20 @@ router.post("/confirm-cash", async (req, res, next) => {
         supplierReference = order.bookingReference;
       }
 
+      // Stamp property identity on hotel legs so this stay is later reviewable (verified guest).
+      // Best-effort — a lookup failure must never block the booking.
+      let propertyName = null;
+      let propertyPlaceId = null;
+      if (type === "hotel" && leg.propertyName) {
+        propertyName = leg.propertyName;
+        try {
+          const g = await getPropertyReviews({ name: propertyName, city: destination });
+          if (g?.matched) propertyPlaceId = g.placeId;
+        } catch {
+          /* ignore — booking proceeds without a place_id */
+        }
+      }
+
       const booking = await writeBooking(req.userId, {
         ...ctx,
         leg: type,
@@ -98,9 +234,13 @@ router.post("/confirm-cash", async (req, res, next) => {
         supplier: LEG_SUPPLIER[type],
         supplierReference,
         description: leg.description || null,
+        propertyName,
+        propertyPlaceId,
         cashValueGbp: cash,
         serviceFeeGbp: cash != null ? round2(cash * (COMMISSION_RATES[type] || 0)) : null,
         confirmationMethod: LEG_METHOD[type],
+        idempotencyKey,
+        paymentIntentId, // §27e-3 — so a later charge.refunded maps back to this booking
       });
       bookings.push(booking);
 
@@ -111,14 +251,18 @@ router.post("/confirm-cash", async (req, res, next) => {
             type,
             vendor: leg.vendor || LEG_SUPPLIER[type],
             bookingId: booking.id,
-            commissionAmount: leg.commissionAmount != null ? Number(leg.commissionAmount) : null,
+            commissionAmountPence: leg.commissionAmount != null ? toMinor(Number(leg.commissionAmount), "GBP") : null,
           },
         }).catch(() => {});
       }
     }
 
+    // §27j — booking→confirm SLO (> 97% success). One metric line per confirm attempt → MetricFilter in
+    // monitoring.ts. Success here means the cash order(s) completed (Duffel ordered / legs written).
+    logger.info("[metric] BonzaBookingOutcome", { metric: "BonzaBookingOutcome", value: 1 });
     res.status(201).json({ bookings, mock: pi.mock });
   } catch (err) {
+    logger.info("[metric] BonzaBookingOutcome", { metric: "BonzaBookingOutcome", value: 0 });
     if (err && Array.isArray(err.errors) && err.errors.length) {
       const d = err.errors[0];
       return res.status(502).json({
@@ -168,7 +312,7 @@ router.get("/:id", async (req, res, next) => {
         journey: true,
         credits: {
           where: { expiresAt: { gt: new Date() } },
-          select: { amount: true, source: true, createdAt: true },
+          select: { amountPence: true, source: true, createdAt: true },
         },
       },
     });
@@ -185,7 +329,7 @@ router.post("/:id/cancel", async (req, res, next) => {
     if (!ownedOr403(booking, req.userId, res)) return;
 
     if (booking.status === "cancelled") {
-      return res.status(400).json({ error: { message: "Booking already cancelled" } });
+      return sendError(res, "VALIDATION_FAILED", { message: "Booking already cancelled" });
     }
 
     const updated = await prisma.booking.update({
@@ -197,11 +341,11 @@ router.post("/:id/cancel", async (req, res, next) => {
       },
     });
 
-    if (booking.creditsAwarded) {
+    if (booking.creditsAwardedPence) {
       await prisma.bonzaCredit.create({
         data: {
           userId: req.userId,
-          amount: -booking.creditsAwarded,
+          amountPence: -booking.creditsAwardedPence,
           source: "redeemed",
           bookingId: booking.id,
           expiresAt: NEVER_EXPIRES,
@@ -212,7 +356,11 @@ router.post("/:id/cancel", async (req, res, next) => {
     await recordEvent(req.userId, EVENT_TYPES.BOOKING_CANCELLED, {
       bookingId: booking.id,
       reason: req.body?.reason || null,
-      reversedCredits: booking.creditsAwarded || 0,
+      reversedCreditsPence: booking.creditsAwardedPence || 0,
+    });
+    await recordAudit({
+      action: ACTIONS.BOOKING_CANCELLED, subjectUserId: req.userId, entity: "Booking", entityId: booking.id,
+      before: { status: booking.status }, after: { status: "cancelled", reason: req.body?.reason || null, reversedCreditsPence: booking.creditsAwardedPence || 0 },
     });
 
     res.json({ booking: updated });

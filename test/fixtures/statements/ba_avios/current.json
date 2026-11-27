@@ -1,0 +1,6 @@
+{
+  "name": "current statement (Avios unit)",
+  "programme": "ba_avios",
+  "body": "British Airways Executive Club. Your current Avios balance is 35,000 Avios. Bronze member.",
+  "expect": { "balance": 35000, "minConfidence": 0.9, "matchedPattern": "context_before" }
+}

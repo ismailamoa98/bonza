@@ -9,7 +9,10 @@ import { Api } from "./constructs/api";
 import { Frontend } from "./constructs/frontend";
 import { Jobs } from "./constructs/jobs";
 import { Monitoring } from "./constructs/monitoring";
+import { Queues } from "./constructs/queues";
 import { DeployRole } from "./constructs/deploy-role";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as sns_subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 
 export interface BonzaStackProps extends StackProps {
   config: EnvConfig;
@@ -52,7 +55,7 @@ export class BonzaStack extends Stack {
 
     const api = new Api(this, "Api", { config, network, database, appSecret: appSecrets });
 
-    new Jobs(this, "Jobs", { config, network, database, appSecret: appSecrets });
+    const jobs = new Jobs(this, "Jobs", { config, network, database, appSecret: appSecrets });
 
     new Frontend(this, "Frontend", {
       config,
@@ -60,8 +63,25 @@ export class BonzaStack extends Stack {
       apiLoadBalancer: api.loadBalancer,
     });
 
+    // §27g — a shared alert topic so the Monitoring + Queues alarms all notify the same place.
     const alertEmail = this.node.tryGetContext("alertEmail") ?? "ismail@bonza.app";
-    new Monitoring(this, "Monitoring", { config, database, alertEmail });
+    const alertTopic = new sns.Topic(this, "AlertTopic", {
+      topicName: `bonza-${config.envName}-alerts`,
+      displayName: `Bonza ${config.envName} Alerts`,
+    });
+    alertTopic.addSubscription(new sns_subscriptions.EmailSubscription(alertEmail));
+
+    new Monitoring(this, "Monitoring", { config, database, api, alertEmail, alertTopic });
+
+    // §27g — the queue layer, and wiring the producers (API + jobs) to send + know the queue URLs.
+    const queues = new Queues(this, "Queues", { config, network, database, appSecret: appSecrets, alertTopic });
+    const apiContainer = api.service.taskDefinition.defaultContainer!;
+    for (const [key, url] of Object.entries(queues.queueUrlEnv)) {
+      apiContainer.addEnvironment(key, url);
+      jobs.fn.addEnvironment(key, url);
+    }
+    queues.grantSend(api.service.taskDefinition.taskRole);
+    queues.grantSend(jobs.fn);
 
     if (config.envName !== "development") {
       new DeployRole(this, "DeployRole", {

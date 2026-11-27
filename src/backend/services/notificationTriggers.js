@@ -43,7 +43,7 @@ async function triggerAwardAlert(userId, rec) {
         availableDates: points.availableDates || [],
         centsPerPoint: points.centsPerPoint,
         cashPrice: cash.priceGbp || 0,
-        creditsIfCash: cash.creditsEarned || rec.creditsIfCash || 0,
+        creditsIfCash: cash.creditsEarned || Math.round((rec.creditsIfCashPence || 0) / 100), // §27b column is pence
         bookingUrl: points.bookingUrl,
         unsubscribeUrl: unsubscribeUrl(userId, "award_availability"),
       }),
@@ -78,7 +78,7 @@ async function triggerExpiryWarning(userId, account, bestRedemption) {
       userId,
       type: "expiry_warning",
       title: `${account.programme} points expire in ${daysUntilExpiry} days`,
-      body: `${Number(account.balance).toLocaleString("en-GB")} pts worth ~£${Math.round(account.valueGbp)}`,
+      body: `${Number(account.balance).toLocaleString("en-GB")} pts worth ~£${Math.round((account.valuePence || 0) / 100)}`,
       ctaLabel: "Use points now →",
       ctaUrl: `${FRONTEND}/dashboard`,
       programme: account.programme,
@@ -87,7 +87,7 @@ async function triggerExpiryWarning(userId, account, bestRedemption) {
         userName: firstName(user.name),
         programme: account.programme,
         balance: account.balance,
-        valueGbp: account.valueGbp,
+        valueGbp: Math.round((account.valuePence || 0) / 100), // §27b — column is pence; email renders £
         daysUntilExpiry,
         bestRedemption: bestRedemption
           ? {
@@ -146,8 +146,8 @@ async function triggerMonthlySummary(userId) {
   try {
     const [user, accounts, creditAgg, bestRec] = await Promise.all([
       loadUser(userId),
-      prisma.loyaltyAccount.findMany({ where: { userId }, orderBy: { valueGbp: "desc" } }),
-      prisma.bonzaCredit.aggregate({ where: { userId, expiresAt: { gt: new Date() } }, _sum: { amount: true } }),
+      prisma.loyaltyAccount.findMany({ where: { userId }, orderBy: { valuePence: "desc" } }),
+      prisma.bonzaCredit.aggregate({ where: { userId, expiresAt: { gt: new Date() } }, _sum: { amountPence: true } }),
       prisma.personalisedRecommendation.findFirst({
         where: { userId, isActive: true, pointsValueRating: "excellent" },
         orderBy: { generatedAt: "desc" },
@@ -155,8 +155,8 @@ async function triggerMonthlySummary(userId) {
     ]);
     if (!user?.email || !accounts.length) return;
 
-    const totalValueGbp = Math.round(accounts.reduce((s, a) => s + a.valueGbp, 0));
-    const creditBalance = Math.max(0, creditAgg._sum.amount || 0);
+    const totalValueGbp = Math.round(accounts.reduce((s, a) => s + a.valuePence, 0) / 100); // §27b pence → £
+    const creditBalance = Math.max(0, creditAgg._sum.amountPence || 0) / 100; // §27b pence → £ for the email
 
     await createAndSend({
       userId,
@@ -174,7 +174,7 @@ async function triggerMonthlySummary(userId) {
         accounts: accounts.map((a) => ({
           programme: a.programme,
           balance: a.balance,
-          valueGbp: a.valueGbp,
+          valueGbp: Math.round((a.valuePence || 0) / 100), // §27b — email renders £
           statusTier: a.statusTier,
         })),
         bestRecommendation: bestRec
@@ -207,7 +207,7 @@ async function triggerBookingConfirmation(userId, booking) {
       title: `Booking confirmed — ${booking.description || booking.leg}`,
       body:
         booking.bookingType === "cash"
-          ? `£${booking.cashValueGbp} · ${booking.description || booking.leg}`
+          ? `£${Math.round((booking.cashAmount || 0) / 100)} · ${booking.description || booking.leg}`
           : `${Number(booking.pointsUsed || 0).toLocaleString("en-GB")} pts · ${booking.description || booking.leg}`,
       ctaLabel: "View booking →",
       ctaUrl: `${FRONTEND}/dashboard`,
@@ -221,10 +221,10 @@ async function triggerBookingConfirmation(userId, booking) {
         description: booking.description || booking.leg,
         checkIn: fmtDate(booking.checkIn),
         checkOut: fmtDate(booking.checkOut),
-        cashValueGbp: booking.cashValueGbp,
+        cashValueGbp: Math.round((booking.cashAmount || 0) / 100), // §27b — email renders £
         pointsUsed: booking.pointsUsed,
         pointsProgramme: booking.pointsProgramme,
-        creditsAwarded: booking.creditsAwarded || 0,
+        creditsAwarded: Math.round((booking.creditsAwardedPence || 0) / 100), // §27b — email renders £
         ctaUrl: `${FRONTEND}/dashboard`,
         unsubscribeUrl: unsubscribeUrl(userId, "booking_confirmed"),
       }),

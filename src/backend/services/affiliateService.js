@@ -69,7 +69,7 @@ function recordClick({ userId = null, programme, destinationUrl, bookingType, le
       destination: destinationUrl,
       bookingType,
       leg,
-      commissionEst: null,
+      commissionEstPence: null,
     },
   });
 }

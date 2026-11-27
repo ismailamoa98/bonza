@@ -22,9 +22,9 @@ affiliate tracking so conversions can be measured.
 # 1. Start local PostgreSQL
 docker compose up -d
 
-# 2. Configure environment
+# 2. Configure environment (see ENVIRONMENT.md for the full reference)
 cp .env.example .env
-# then edit .env and set ANTHROPIC_API_KEY and JWT_SECRET
+# then edit .env — Clerk keys are required to boot; other keys are optional (offline mocks)
 
 # 3. Install dependencies
 npm install
@@ -38,6 +38,9 @@ npm run db:seed
 # 6. Run the backend (dev mode with reload)
 npm run dev
 ```
+
+**Deployment & DNS:** see [DEPLOYMENT.md](DEPLOYMENT.md) (AWS/CDK deploy order, Cloudflare records,
+Phase 11 acceptance checklist).
 
 See [SETUP.md](./SETUP.md) for detailed, step-by-step instructions.
 

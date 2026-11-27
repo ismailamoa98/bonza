@@ -23,6 +23,9 @@ const HOTEL_NAMES = [
 // the amenities filter actually hits.
 const AMENITIES = ["WiFi", "Pool", "Breakfast", "Parking", "Lounge", "Spa", "Gym"];
 
+// Property types a traveller would expect to filter on.
+const PROPERTY_TYPES = ["Hotel", "Resort", "Apartment", "Boutique"];
+
 // Loyalty programs a hotel may participate in (keys are lowercased program ids).
 const LOYALTY = [
   { key: "marriott", program: "Marriott Bonvoy", base: 22000 },
@@ -31,13 +34,17 @@ const LOYALTY = [
 ];
 
 const { priceMultiplier } = require("./pricing");
+const { resolveAirport } = require("./airportSearch");
 
 const round1 = (n) => Math.round(n * 10) / 10;
 
-// Strip an airport-code prefix ("CDG — Paris" -> "Paris"); fall back to the raw
-// value so any string is usable as a city label.
+// Turn a destination into a human city label. Resolves a bare airport code ("LHR" -> "London") so mock
+// fallback hotels read as the city; strips an airport-code prefix ("CDG — Paris" -> "Paris"); otherwise
+// falls back to the raw value so any string is usable.
 function cityLabel(destination) {
   if (!destination) return "Paris";
+  const airport = resolveAirport(destination);
+  if (airport) return airport.city;
   const parts = String(destination).split("—");
   return parts[parts.length - 1].trim() || String(destination).trim();
 }
@@ -81,6 +88,12 @@ exports.getHotels = (destination = "Paris", date) => {
       loyaltyPrograms,
       acceptedPayments: ["cash", "amex", "chase"],
       benefits,
+      // Typical filterable attributes.
+      propertyType: PROPERTY_TYPES[i % PROPERTY_TYPES.length],
+      // Never fabricated: cancellation policy is a real supplier feature (Duffel rate detail). Mock
+      // inventory has no supplier, so we don't claim it — the badge only appears from genuine data.
+      freeCancellation: false,
+      breakfastIncluded: benefits.includes("Breakfast") || i % 3 === 0,
       imageUrl: null,
     });
   }

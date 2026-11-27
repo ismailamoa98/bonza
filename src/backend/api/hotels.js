@@ -4,8 +4,36 @@
 const express = require("express");
 const { getHotels } = require("../utils/mockHotels");
 const { filterHotels } = require("../utils/filterLogic");
+const { getPropertyReviews } = require("../services/googlePlacesService");
 
 const router = express.Router();
+
+// GET /api/v1/hotels/details?name=&city=&lat=&lng= — genuine place core for the detail panel
+// (rating, review count, editorial summary, formatted address, map coords). Google Places when
+// connected; offline → { source: "mock" } and the panel falls back to plumbed inventory fields.
+// No reviews/aspects here, so opening the panel never triggers Claude. Reuses the service's 30-min cache.
+router.get("/details", async (req, res, next) => {
+  try {
+    const { name, city } = req.query;
+    const latitude = req.query.lat != null ? Number(req.query.lat) : undefined;
+    const longitude = req.query.lng != null ? Number(req.query.lng) : undefined;
+    const g = await getPropertyReviews({ name, city, latitude, longitude });
+    res.json({
+      source: g.source,
+      matched: !!g.matched,
+      placeId: g.placeId || null,
+      rating: g.rating ?? null,
+      total: g.total ?? 0,
+      address: g.address || null,
+      summary: g.summary || null,
+      mapsUri: g.mapsUri || null,
+      latitude: g.latitude ?? null,
+      longitude: g.longitude ?? null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get("/", (req, res, next) => {
   try {
@@ -17,6 +45,9 @@ router.get("/", (req, res, next) => {
       amenities: q.amenities ? q.amenities.split(",") : null,
       loyalty: q.loyalty ? q.loyalty.split(",") : null,
       minRating: q.minRating ? Number(q.minRating) : null,
+      propertyType: q.propertyType ? q.propertyType.split(",") : null,
+      freeCancellation: q.freeCancellation === "true",
+      breakfast: q.breakfast === "true",
       sort: q.sort || "recommended",
     };
 

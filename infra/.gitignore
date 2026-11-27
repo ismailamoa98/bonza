@@ -1,0 +1,15 @@
+# CDK
+cdk.out/
+.cdk.staging/
+
+# Node
+node_modules/
+
+# Compiled TypeScript output (source of truth is the .ts files)
+*.js
+*.d.ts
+!jest.config.js
+
+# Local env
+.env
+*.log

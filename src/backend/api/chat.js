@@ -1,10 +1,8 @@
-// api/chat.js — Conversational advisor endpoint.
-// POST /api/v1/chat { tripId, selectedScenarioId, message } — persists the
-// exchange on a ChatSession and returns Bonza's reply plus which scenario card
-// to highlight (the selection may change as the user chats).
+// api/chat.js — chat advisor turn; adds a loyalty nudge when no accounts are connected.
 const express = require("express");
 const prisma = require("../config/database");
 const { chatReply } = require("../utils/claudeOptimizer");
+const { buildLoyaltyNudge, NO_LOYALTY_MESSAGE } = require("../utils/loyaltyNudge");
 
 const router = express.Router();
 
@@ -26,7 +24,6 @@ router.post("/", async (req, res, next) => {
 
     const scenarios = await prisma.scenario.findMany({ where: { tripId } });
 
-    // Find or create the chat session for this user + trip.
     let session = await prisma.chatSession.findFirst({ where: { userId: req.userId, tripId } });
     if (!session) {
       session = await prisma.chatSession.create({
@@ -51,8 +48,18 @@ router.post("/", async (req, res, next) => {
       history: history.map((m) => ({ role: m.role, content: m.content })),
     });
 
+    const loyaltyCount = await prisma.loyaltyAccount.count({ where: { userId: req.userId } });
+    let loyaltyNudge = null;
+    let responseText = reply.response;
+    if (loyaltyCount === 0) {
+      loyaltyNudge = buildLoyaltyNudge();
+      if (!responseText.includes(NO_LOYALTY_MESSAGE)) {
+        responseText = `${responseText}\n\n${NO_LOYALTY_MESSAGE}`;
+      }
+    }
+
     await prisma.chatMessage.create({
-      data: { sessionId: session.id, role: "bonza", content: reply.response },
+      data: { sessionId: session.id, role: "bonza", content: responseText },
     });
 
     await prisma.chatSession.update({
@@ -61,9 +68,10 @@ router.post("/", async (req, res, next) => {
     });
 
     res.json({
-      response: reply.response,
+      response: responseText,
       updatedSelectedScenarioId: reply.updatedSelectedScenarioId,
       shouldHighlightCard: reply.shouldHighlightCard,
+      loyaltyNudge,
     });
   } catch (err) {
     next(err);

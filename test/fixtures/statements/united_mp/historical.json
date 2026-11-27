@@ -1,0 +1,6 @@
+{
+  "name": "older-format statement (no balance context word — loose match)",
+  "programme": "united_mp",
+  "body": "MileagePlus account summary. 15000 miles. See your account online for details.",
+  "expect": { "balance": 15000, "minConfidence": 0.5, "matchedPattern": "loose_unit" }
+}

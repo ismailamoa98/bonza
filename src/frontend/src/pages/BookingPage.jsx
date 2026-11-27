@@ -1,0 +1,834 @@
+// pages/BookingPage.jsx — confirm booking: guest/loyalty/payment + loyalty-earnings card; on-site cash flow.
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useAppStore, computeCombination, tripNights } from "../store/appStore";
+import {
+  createBookingPaymentIntent,
+  confirmCashBooking,
+  apiErrorMessage,
+  createTrip,
+  getFlights,
+  getHotels,
+  getCars,
+  getSearchHotel,
+  createBookingLink,
+  getProfile,
+} from "../utils/api";
+import { formatMoney, formatPoints, shortDate } from "../utils/format";
+import { track } from "../lib/analytics";
+import { EV } from "../lib/analytics/events";
+import { bundledCheckoutEnabled } from "../config/flags";
+import { imageUrl } from "../data/packages";
+import {
+  HAS_STRIPE_KEY,
+  BookingElements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from "../components/StripePaymentField";
+
+const cityOf = (label, fallback) => (label ? String(label).split(" — ").pop() : fallback || "");
+const ratingNum = (rate) => (rate ? String(rate).split(/\s+/)[0] : null);
+
+const VPP = { marriott: 0.7, ihg: 0.5, hilton: 0.5, hyatt: 1.7, amex: 1.4, chaseUr: 1.5 };
+const SHADE = { marriott: "#B0552F", ihg: "#1f7a3f", hilton: "#2563a8", hyatt: "#8a6d3b", default: "#da7756" };
+
+// Map a Phase-12 search hotel (cashOption/pointsOption/location) onto the shape the booking page consumes
+// (pricePerNight, stars, city, loyaltyPrograms) so it reflects the actually-selected property + price.
+const hotelToBookingShape = (h) => ({
+  duffelHotelId: h.duffelHotelId,
+  name: h.name,
+  stars: h.starRating || 4,
+  city: h.location?.city || h.location || "",
+  rating: h.rating != null ? h.rating : null,
+  pricePerNight: h.cashOption?.priceGbp || 0,
+  loyaltyPrograms: {}, // search flow doesn't carry the old per-night award map; omit the hotel earn row
+});
+
+export default function BookingPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const trip = useAppStore((s) => s.trip);
+  const pkg = useAppStore((s) => s.currentPackage);
+  const selectedFlight = useAppStore((s) => s.selectedFlight);
+  const selectedHotel = useAppStore((s) => s.selectedHotel);
+  const selectedCar = useAppStore((s) => s.selectedCar);
+  const loyaltyPoints = useAppStore((s) => s.loyaltyPoints);
+  const ratio = useAppStore((s) => s.ratio);
+  // Phase 12 search-flow state — the hotel/flight the user actually chose.
+  const selectedResult = useAppStore((s) => s.selectedResult);
+  const searchResults = useAppStore((s) => s.searchResults);
+  const searchMeta = useAppStore((s) => s.searchMeta);
+  const bookingLink = useAppStore((s) => s.bookingLink);
+  const affiliateLinks = useAppStore((s) => s.affiliateLinks);
+  const reset = useAppStore((s) => s.reset);
+  const setTrip = useAppStore((s) => s.setTrip);
+  const setTripId = useAppStore((s) => s.setTripId);
+  const setSelections = useAppStore((s) => s.setSelections);
+  const setBooking = useAppStore((s) => s.setBooking);
+
+  // Search-page entry: arrive at /booking?hotel=…&origin=…&destination=…&checkIn=… — bootstrap a trip +
+  // selections + booking link from the store's chosen hotel/flight (falling back to a browse fetch on a
+  // hard refresh when the store is empty). Runs EXACTLY ONCE (ref-guarded): it calls setTrip mid-flight, so
+  // it must NOT depend on `trip` / self-cancel, or it aborts before creating the booking link.
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const didBootstrap = useRef(false);
+  useEffect(() => {
+    if (didBootstrap.current) return;
+    const hotelId = searchParams.get("hotel");
+    const flightId = searchParams.get("flight");
+    // Skip only when there's no URL selection, or a booking link already exists (store-driven package
+    // entry / already bootstrapped). Must NOT guard on `trip`: the Home/Dashboard search flow sets `trip`
+    // before navigating here, so `|| trip` would self-cancel and never create the booking link.
+    if ((!hotelId && !flightId) || bookingLink) return;
+    didBootstrap.current = true;
+
+    const origin = searchParams.get("origin") || searchMeta?.origin || "LHR";
+    const destination = searchParams.get("destination") || searchMeta?.destination || "";
+    const checkIn = searchParams.get("checkIn") || searchMeta?.departureDate;
+    const checkOut = searchParams.get("checkOut") || searchMeta?.returnDate;
+    const adults = parseInt(searchParams.get("adults") || String(searchMeta?.travelers || 2), 10);
+
+    // The hotel/flight the user actually selected (store), matched by id; else the first browse result.
+    const byId = (list, id, key) => (list || []).find((x) => x?.[key] === id) || null;
+    const chosenHotel =
+      (selectedResult?.duffelHotelId === hotelId && selectedResult) ||
+      byId(searchResults?.hotels, hotelId, "duffelHotelId");
+    const chosenFlight =
+      (selectedResult?.duffelOfferId === flightId && selectedResult) ||
+      byId(searchResults?.flights, flightId, "duffelOfferId") ||
+      byId(searchResults?.flights, flightId, "id");
+
+    setBootstrapping(true);
+    (async () => {
+      try {
+        const tripData = {
+          origin, originLabel: origin, destination, destinationLabel: destination,
+          checkIn, checkOut, budget: 0, numberOfTravelers: adults, flexibility: false,
+          preferences: { style: "Points Max" },
+        };
+        const { id } = await createTrip(tripData);
+        setTrip(tripData);
+        setTripId(id);
+
+        // Prefer the chosen hotel; on a cold refresh (empty store) resolve the EXACT hotel by its search
+        // id, then fall back to browse inventory only if that lookup fails.
+        let hotel = chosenHotel ? hotelToBookingShape(chosenHotel) : null;
+        if (hotelId && !hotel) {
+          const exact = await getSearchHotel(hotelId, { destination, checkIn, checkOut, adults }).catch(() => null);
+          if (exact) {
+            hotel = hotelToBookingShape(exact);
+          } else {
+            const hotels = await getHotels({ destination, checkIn }).catch(() => []);
+            hotel = hotels[0] || null;
+          }
+        }
+        const flight = chosenFlight || (flightId ? (await getFlights({ from: origin, to: destination, checkIn }).catch(() => []))[0] : null) || null;
+
+        setSelections({ flight, hotel, car: null });
+        const vendors = {};
+        if (flight) vendors.flight = { vendor: flight.airline, label: flight.cabin };
+        if (hotel) vendors.hotel = { vendor: "hotel", label: hotel.name };
+        const data = await createBookingLink(id, null, vendors);
+        setBooking(data);
+      } catch {
+        /* leave store empty — the redirect effect handles it */
+      } finally {
+        setBootstrapping(false);
+      }
+    })();
+  }, [searchParams, bookingLink, searchMeta, selectedResult, searchResults, setTrip, setTripId, setSelections, setBooking]);
+
+  const [form, setForm] = useState({
+    title: "mr", firstName: "", lastName: "", dob: "", email: "", countryCode: "+44", phone: "", passport: "",
+    cardName: "", cardNumber: "", expiry: "", cvc: "", billing: "",
+  });
+
+  // Pre-fill the guest form from the saved traveller profile (onboarding). Only fills empty fields, so it
+  // never overwrites what the user has already typed. Card fields are never pre-filled.
+  useEffect(() => {
+    let cancelled = false;
+    getProfile()
+      .then((p) => {
+        if (cancelled || !p) return;
+        setForm((f) => ({
+          ...f,
+          title: p.title || f.title,
+          firstName: f.firstName || p.firstName || "",
+          lastName: f.lastName || p.lastName || "",
+          dob: f.dob || p.dateOfBirth || "",
+          email: f.email || p.email || "",
+          countryCode: p.phoneCountryCode || f.countryCode,
+          phone: f.phone || p.phone || "",
+          passport: f.passport || p.passportNumber || "",
+        }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const [errors, setErrors] = useState({});
+  const [booked, setBooked] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [payErr, setPayErr] = useState(null);
+  const [pay, setPay] = useState(null); // { clientSecret, paymentIntentId, mock }
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const hasTrip = Boolean(trip && bookingLink);
+  const nights = hasTrip ? tripNights(trip) : 0;
+  const totals = hasTrip
+    ? computeCombination(selectedFlight, selectedHotel, selectedCar, loyaltyPoints, nights, ratio)
+    : { items: [], totalCash: 0, totalPoints: 0, savingsAmount: 0 };
+  const cashByType = Object.fromEntries(totals.items.map((it) => [it.type, it.cash]));
+
+  // Phase 13 — "Book this trip" carries a per-leg allocation plan (e.g. "flight:points:united_mp,hotel:cash").
+  // Points legs are shown as points and EXCLUDED from the cash charged/booked here (award legs are completed
+  // on the programme's own site); only cash legs are paid through the on-site Stripe/Duffel flow.
+  const tripPlan = useMemo(() => {
+    const raw = searchParams.get("plan");
+    if (!raw) return null;
+    const map = {};
+    raw.split(",").forEach((p) => {
+      const [type, method, programme] = p.split(":");
+      if (type) map[type] = { method: method === "points" ? "points" : "cash", programme: programme || null };
+    });
+    return map;
+  }, [searchParams]);
+  const isPointsLeg = (t) => tripPlan?.[t]?.method === "points";
+  const payableCash = totals.items
+    .filter((it) => !isPointsLeg(it.type))
+    .reduce((s, it) => s + it.cash, 0);
+
+  // §25i — who the consumer contracts with, per cash leg (flight books in-app via Duffel; hotel/car on the
+  // provider's own site). Named above the pay button so the supplier is never buried.
+  const cashFlight = selectedFlight && !isPointsLeg("flight");
+  const cashHotel = selectedHotel && !isPointsLeg("hotel");
+  const cashCar = selectedCar && !isPointsLeg("car");
+  const suppliers = [
+    cashFlight && (selectedFlight.airline ? `your flight with ${selectedFlight.airline}` : "your flight"),
+    cashHotel && (selectedHotel.name ? `your stay with ${selectedHotel.name}` : "your stay"),
+    cashCar && "your car hire with the rental provider",
+  ].filter(Boolean);
+  // §25i/§25h — the bundled flight+hotel single-total CASH checkout is gated until the ATOL position is settled.
+  const bundledCashCheckout = cashFlight && cashHotel;
+  const bundledBlocked = bundledCashCheckout && !bundledCheckoutEnabled;
+
+  const hasUrlSelection = Boolean(searchParams.get("hotel") || searchParams.get("flight"));
+  // The bootstrap now completes almost instantly, so hold the branded loading screen for a perceptible
+  // beat on URL-driven entries (cash flow, OptimizePanel "Book this trip"). Store-driven entries
+  // (currentPackage) start true and render immediately.
+  const [minTimePassed, setMinTimePassed] = useState(!hasUrlSelection);
+  useEffect(() => {
+    if (!hasUrlSelection) return;
+    const t = setTimeout(() => setMinTimePassed(true), 800);
+    return () => clearTimeout(t);
+  }, [hasUrlSelection]);
+  useEffect(() => {
+    if (!hasTrip && !bootstrapping && !hasUrlSelection) navigate("/", { replace: true });
+  }, [hasTrip, bootstrapping, hasUrlSelection, navigate]);
+
+  useEffect(() => {
+    if (!hasTrip || !(payableCash > 0)) return;
+    let cancelled = false;
+    createBookingPaymentIntent(payableCash, trip.id)
+      .then((p) => { if (!cancelled) setPay(p); })
+      .catch(() => { if (!cancelled) setPay({ mock: true, paymentIntentId: "mock_pi_local" }); });
+    return () => { cancelled = true; };
+  }, [hasTrip, payableCash, trip?.id]);
+
+  useEffect(() => {
+    if (hasTrip) track(EV.BOOKING_STARTED, {});
+  }, [hasTrip]);
+
+  if (!hasTrip || (hasUrlSelection && !minTimePassed)) {
+    if (bootstrapping || hasUrlSelection) return <PreparingScreen />;
+    return null;
+  }
+
+  const stripeReady = HAS_STRIPE_KEY && Boolean(pay?.clientSecret) && pay?.mock === false;
+
+  const destCity = pkg?.city || cityOf(trip.destinationLabel, trip.destination);
+  const dateRange = `${shortDate(trip.checkIn)} – ${shortDate(trip.checkOut)}`;
+  const rating = ratingNum(pkg?.rate) || (selectedHotel ? selectedHotel.rating : null);
+  const travelers = Number(trip.numberOfTravelers) || 1;
+
+  const earnRows = [];
+  if (selectedHotel) {
+    const key = Object.keys(selectedHotel.loyaltyPrograms || {})[0];
+    const prog = selectedHotel.loyaltyPrograms?.[key];
+    if (prog) {
+      const pts = prog.pointsPerNight * nights;
+      const vpp = VPP[key] || 0.7;
+      earnRows.push({
+        key,
+        name: prog.program,
+        desc: `Hotel stay · ${formatPoints(pts)} pts`,
+        value: Math.round((pts * vpp) / 100),
+        rate: `${vpp.toFixed(1)}p/pt`,
+        shade: SHADE[key] || SHADE.default,
+      });
+    }
+  }
+  if (selectedFlight) {
+    const miles = Math.round((selectedFlight.basePrice || 0) * 5); // ~5 miles per £ flown
+    earnRows.push({
+      key: "flight",
+      name: `${selectedFlight.airline} miles`,
+      desc: `Flights · ${formatPoints(miles)} pts`,
+      value: Math.round((miles * 1.2) / 100),
+      rate: "1.2p/pt",
+      shade: "#5b6770",
+    });
+  }
+  const earnValue = earnRows.reduce((s, r) => s + r.value, 0);
+  const cardLow = Math.round(payableCash * 0.01);
+  const cardHigh = Math.round(payableCash * 0.03);
+  const totalEarnLow = earnValue + cardLow;
+  const totalEarnHigh = earnValue + cardHigh;
+  const connected = Boolean(loyaltyPoints);
+
+  const validate = () => {
+    const e = {};
+    if (!form.firstName.trim()) e.firstName = "Required";
+    if (!form.lastName.trim()) e.lastName = "Required";
+    if (!/\S+@\S+\.\S+/.test(form.email)) e.email = "Enter a valid email";
+    if (!form.dob) e.dob = "Required";
+    if (!stripeReady) {
+      if (!form.cardName.trim()) e.cardName = "Required";
+      if (form.cardNumber.replace(/\s/g, "").length < 12) e.cardNumber = "Enter your card number";
+      if (!/^\d\d\s*\/\s*\d\d$/.test(form.expiry.trim())) e.expiry = "MM / YY";
+      if (form.cvc.trim().length < 3) e.cvc = "CVC";
+    }
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const legLabel = (type) => {
+    if (type === "flight") return `${trip.origin} → ${trip.destination} · return`;
+    if (type === "hotel") return selectedHotel ? `${selectedHotel.stars}-star · ${selectedHotel.city}` : "Hotel";
+    if (type === "car") return selectedCar ? `${selectedCar.carClass} · ${nights} days` : "Car rental";
+    return type;
+  };
+
+  const finalizeBooking = async (paymentIntentId) => {
+    const passengers = [
+      {
+        title: form.title || "mr",
+        given_name: form.firstName.trim(),
+        family_name: form.lastName.trim(),
+        born_on: form.dob || undefined,
+        email: form.email.trim(),
+        phone_number: `${form.countryCode}${form.phone}`.replace(/\s/g, ""),
+      },
+    ];
+    const legs = totals.items.filter((it) => !isPointsLeg(it.type)).map((it) => ({
+      type: it.type,
+      cashValueGbp: it.cash,
+      vendor: affiliateLinks?.[it.type]?.vendor,
+      commissionAmount: Math.round(it.cash * (affiliateLinks?.[it.type]?.commissionRate || 0)),
+      description: legLabel(it.type),
+      // Hotel name lets the backend resolve a place_id so this stay is later reviewable (verified guest).
+      ...(it.type === "hotel" && selectedHotel?.name ? { propertyName: selectedHotel.name } : {}),
+    }));
+
+    const money = { amount_minor: Math.round((totals.totalCash || 0) * 100), currency: "GBP" };
+    track(EV.BOOKING_PAYMENT_SUBMITTED, money);
+    try {
+      await confirmCashBooking({
+        paymentIntentId,
+        bookingToken: bookingLink.token,
+        tripId: trip.id,
+        origin: trip.origin,
+        destination: trip.destination,
+        checkIn: trip.checkIn,
+        checkOut: trip.checkOut,
+        travelers,
+        passengers,
+        legs,
+      });
+    } catch (err) {
+      track(EV.BOOKING_FAILED, { ...money, code: err?.appError?.code || "INTERNAL", service: err?.appError?.service || null });
+      throw err;
+    }
+    track(EV.BOOKING_CONFIRMED, money);
+
+    ["hotel", "car"].forEach((t) => {
+      if (isPointsLeg(t)) return; // points legs are redeemed on the programme site, not via affiliate cash
+      const url = affiliateLinks?.[t]?.affiliateUrl;
+      if (url && cashByType[t] != null) window.open(url, "_blank", "noopener");
+    });
+    setBooked(true);
+  };
+
+  const goHome = () => {
+    reset();
+    navigate("/");
+  };
+
+  const body = (
+    <div className="min-h-screen bg-cream font-jakarta text-ink">
+      <div className="mx-auto max-w-5xl px-4 py-6">
+        {/* Page header: wordmark + step indicator */}
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <span className="font-display text-[22px] font-semibold tracking-[-0.01em] text-ink">Bonza</span>
+          <Steps />
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_340px]">
+          {/* ── Left column ─────────────────────────────────────────── */}
+          <div className="space-y-5">
+            {booked ? (
+              <SuccessCard onHome={goHome} />
+            ) : (
+              <>
+                {/* Card 1 — Guest information */}
+                <Card icon="user" title="Guest information">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="First name" error={errors.firstName}>
+                      <input className={inputCls(errors.firstName)} value={form.firstName} onChange={set("firstName")} placeholder="Jordan" />
+                    </Field>
+                    <Field label="Last name" error={errors.lastName}>
+                      <input className={inputCls(errors.lastName)} value={form.lastName} onChange={set("lastName")} placeholder="Rivera" />
+                    </Field>
+                  </div>
+                  <div className="grid grid-cols-[110px_1fr] gap-3">
+                    <Field label="Title">
+                      <select className={inputCls()} value={form.title} onChange={set("title")}>
+                        {[["mr", "Mr"], ["ms", "Ms"], ["mrs", "Mrs"], ["miss", "Miss"], ["dr", "Dr"]].map(([v, l]) => (
+                          <option key={v} value={v}>{l}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Date of birth" error={errors.dob}>
+                      <input type="date" className={inputCls(errors.dob)} value={form.dob} onChange={set("dob")} />
+                    </Field>
+                  </div>
+                  <Field label="Email address" error={errors.email}>
+                    <input type="email" className={inputCls(errors.email)} value={form.email} onChange={set("email")} placeholder="jordan@email.com" />
+                  </Field>
+                  <div className="grid grid-cols-[110px_1fr] gap-3">
+                    <Field label="Code">
+                      <select className={inputCls()} value={form.countryCode} onChange={set("countryCode")}>
+                        {["+44", "+1", "+33", "+34", "+49", "+971"].map((c) => <option key={c}>{c}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Phone number">
+                      <input className={inputCls()} value={form.phone} onChange={set("phone")} placeholder="7700 900123" />
+                    </Field>
+                  </div>
+                  <Field label="Passport number" hint="optional — speeds up check-in">
+                    <input className={inputCls()} value={form.passport} onChange={set("passport")} placeholder="123456789" />
+                  </Field>
+                </Card>
+
+                {/* Card 2 — Loyalty account */}
+                <Card icon="star" title="Loyalty account">
+                  <div className="flex items-center justify-between gap-3 rounded-xl bg-cream p-4">
+                    <div>
+                      <p className="text-[13px] font-bold text-ink">Earn {pkg?.loyalty || earnRows[0]?.name || "loyalty"} points</p>
+                      <p className="mt-0.5 text-[12px] text-ink-soft">
+                        Bonza books direct — connect your account to earn all status perks and points.
+                      </p>
+                    </div>
+                    {connected ? (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#EAF6EE] px-3 py-1.5 text-[12px] font-bold text-[#1E7E40]">
+                        <Icon name="check" className="h-3.5 w-3.5" /> Connected
+                      </span>
+                    ) : (
+                      <button type="button" onClick={() => navigate("/settings?tab=loyalty")} className="shrink-0 rounded-lg border border-bonza px-3.5 py-1.5 text-[12px] font-semibold text-bonza hover:bg-bonza-50">
+                        Connect
+                      </button>
+                    )}
+                  </div>
+                </Card>
+
+                {/* Card 3 — Payment */}
+                <Card icon="card" title="Payment">
+                  {stripeReady ? (
+                    <PaymentElement options={{ layout: "tabs" }} />
+                  ) : HAS_STRIPE_KEY && !pay ? (
+                    <p className="rounded-lg bg-cream px-3 py-4 text-[13px] text-ink-soft">Loading secure payment…</p>
+                  ) : (
+                    <>
+                      {/* Offline mock card fields (no Stripe key) — cosmetic; the booking still
+                          completes against a mock PaymentIntent so the flow is testable offline. */}
+                      <Field label="Name on card" error={errors.cardName}>
+                        <input className={inputCls(errors.cardName)} value={form.cardName} onChange={set("cardName")} placeholder="Jordan Rivera" />
+                      </Field>
+                      <Field label="Card number" error={errors.cardNumber}>
+                        <div className="relative">
+                          <input className={`${inputCls(errors.cardNumber)} pr-10`} value={form.cardNumber} onChange={set("cardNumber")} placeholder="4242 4242 4242 4242" inputMode="numeric" />
+                          <Icon name="card" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
+                        </div>
+                      </Field>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Expiry" error={errors.expiry}>
+                          <input className={inputCls(errors.expiry)} value={form.expiry} onChange={set("expiry")} placeholder="MM / YY" />
+                        </Field>
+                        <Field label="CVC" error={errors.cvc}>
+                          <input className={inputCls(errors.cvc)} value={form.cvc} onChange={set("cvc")} placeholder="123" inputMode="numeric" />
+                        </Field>
+                      </div>
+                      <Field label="Billing address">
+                        <input className={inputCls()} value={form.billing} onChange={set("billing")} placeholder="221B Baker Street, London" autoComplete="street-address" />
+                      </Field>
+                    </>
+                  )}
+                </Card>
+
+                {/* Card 4 — Loyalty earnings on this booking */}
+                <Card icon="trophy" title="Loyalty earnings on this booking">
+                  <div className="space-y-2.5">
+                    {earnRows.map((r) => (
+                      <div key={r.key} className="flex items-center gap-3">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white" style={{ background: r.shade }}>
+                          <Icon name="trophy" className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[13px] font-semibold text-ink">{r.name}</p>
+                          <p className="text-[12px] tabular-nums text-ink-muted">{r.desc}</p>
+                        </div>
+                        <div className="text-right tabular-nums">
+                          <p className="text-[13px] font-bold text-ink">~{formatMoney(r.value)}</p>
+                          <p className="text-[11px] text-ink-muted">{r.rate}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {connected && (
+                      <div className="flex items-center gap-3 border-t border-[#f0ece5] pt-2.5">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink/80 text-white">
+                          <Icon name="card" className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[13px] font-semibold text-ink">Card spend</p>
+                          <p className="text-[12px] tabular-nums text-ink-muted">1%–3% on card spend</p>
+                        </div>
+                        <p className="text-right text-[13px] font-bold tabular-nums text-ink">
+                          {formatMoney(cardLow)}–{formatMoney(cardHigh)} est.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between border-t border-[#f0ece5] pt-3">
+                    <span className="text-[13px] font-medium text-ink-soft">Total estimated earnings</span>
+                    <span className="text-[15px] font-extrabold tabular-nums text-bonza">
+                      {formatMoney(totalEarnLow)}–{formatMoney(totalEarnHigh)}
+                    </span>
+                  </div>
+                </Card>
+              </>
+            )}
+          </div>
+
+          {/* ── Right column: sticky summary ───────────────────────── */}
+          <aside className="lg:sticky lg:top-6 lg:self-start">
+            <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(40,30,20,0.04),0_16px_40px_rgba(120,80,50,0.07)] ring-1 ring-black/5">
+              {/* Hero strip */}
+              <div className="relative h-28 w-full overflow-hidden" style={{ background: pkg?.grad || "linear-gradient(135deg,#E8956B,#C25E36)" }}>
+                <img src={imageUrl(pkg?.query || destCity, 7)} alt={destCity} className="absolute inset-0 h-full w-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                {rating && (
+                  <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-bold tabular-nums text-[#1f7a3f]">
+                    <Icon name="star" solid className="h-2.5 w-2.5" /> {rating}
+                  </span>
+                )}
+                <div className="absolute bottom-2 left-3 right-3 text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">
+                  <p className="text-[15px] font-extrabold leading-tight">{destCity}</p>
+                  <p className="text-[11px] tabular-nums text-white/90">{dateRange}</p>
+                </div>
+              </div>
+
+              <div className="p-5">
+                <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">Your package</p>
+                <dl className="mt-2 divide-y divide-[#f0ece5] text-[13px]">
+                  {selectedFlight && <SummaryRow icon="plane" text={`${trip.origin} → ${trip.destination} · return`} />}
+                  {selectedHotel && <SummaryRow icon="building" text={`${selectedHotel.stars}-star · ${selectedHotel.city}`} />}
+                  {selectedCar && <SummaryRow icon="car" text={`${selectedCar.carClass} · ${nights} days`} />}
+                  <SummaryRow icon="users" text={`${travelers} adult${travelers === 1 ? "" : "s"}`} />
+                </dl>
+
+                {/* Price breakdown */}
+                <div className="mt-4 rounded-xl bg-cream p-3.5 text-[13px] tabular-nums">
+                  {selectedFlight && <PriceRow label="Flight" value={isPointsLeg("flight") ? "Points" : formatMoney(cashByType.flight || 0)} accent={isPointsLeg("flight")} />}
+                  {selectedHotel && <PriceRow label={`Hotel (${nights} nts)`} value={isPointsLeg("hotel") ? "Points" : formatMoney(cashByType.hotel || 0)} accent={isPointsLeg("hotel")} />}
+                  {selectedCar && <PriceRow label="Car rental" value={formatMoney(cashByType.car || 0)} />}
+                  {totals.savingsAmount > 0 && <PriceRow label="Package saving" value={`−${formatMoney(totals.savingsAmount)}`} accent />}
+                  <div className="mt-2 flex items-center justify-between border-t border-[#e6ddd2] pt-2">
+                    <span className="text-[13px] font-bold text-ink">Total to pay</span>
+                    <span className="text-xl font-extrabold text-bonza">{formatMoney(payableCash)}</span>
+                  </div>
+                  {tripPlan && Object.values(tripPlan).some((p) => p.method === "points") && (
+                    <p className="mt-2 text-[11px] leading-snug text-ink-muted">
+                      Points legs are redeemed on the loyalty programme&apos;s own site — only the cash legs
+                      above are charged here.
+                    </p>
+                  )}
+                </div>
+
+                {/* Trust chips 2×2 */}
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <TrustChip icon="lock" title="Books direct" text="Earn all status perks with the hotel." />
+                  <TrustChip icon="shield" title="Secure payment" text="Bank-level encryption." />
+                  <TrustChip icon="star" title="Best points value" text="We find your top cash + points mix." />
+                  <TrustChip icon="headset" title="24/7 support" text="Bonza team on call." />
+                </div>
+
+                {/* §25i — name the contracting supplier(s) above the pay button, not buried. */}
+                {suppliers.length > 0 && (
+                  <p className="mt-4 text-[11.5px] leading-snug text-ink-muted">
+                    You&rsquo;re paying Bonza, who will book {suppliers.join(" and ")}. The provider&rsquo;s own fare
+                    and cancellation terms apply — see our{" "}
+                    <a href="/legal/booking-terms#refunds" target="_blank" rel="noopener noreferrer" className="font-semibold text-bonza hover:text-bonza-dark">Booking Terms</a>.
+                  </p>
+                )}
+
+                {bundledBlocked ? (
+                  /* §25h — bundled flight+hotel single-total cash checkout isn't available; book the legs separately. */
+                  <div className="mt-4 rounded-xl border border-bonza/30 bg-bonza-50 px-4 py-3 text-[12.5px] leading-snug text-bonza-dark">
+                    Booking a flight and hotel together in one payment isn&rsquo;t available right now. You can book
+                    each separately — the flight on its own, and the hotel on its own.
+                  </div>
+                ) : !booked ? (
+                  <>
+                    {stripeReady ? (
+                      <RealPayButton
+                        label={`Confirm and book — ${formatMoney(payableCash)}`}
+                        validate={validate}
+                        onPaid={finalizeBooking}
+                        onError={setPayErr}
+                        submitting={submitting}
+                        setSubmitting={setSubmitting}
+                      />
+                    ) : (
+                      <MockPayButton
+                        label={`Confirm and book — ${formatMoney(payableCash)}`}
+                        validate={validate}
+                        paymentIntentId={pay?.paymentIntentId || "mock_pi_local"}
+                        onPaid={finalizeBooking}
+                        onError={setPayErr}
+                        submitting={submitting}
+                        setSubmitting={setSubmitting}
+                      />
+                    )}
+                    {payErr && <p className="mt-2 text-center text-[12px] font-medium text-bonza-dark">{payErr}</p>}
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  );
+
+  return stripeReady ? (
+    <BookingElements clientSecret={pay.clientSecret}>{body}</BookingElements>
+  ) : (
+    body
+  );
+}
+
+function RealPayButton({ label, validate, onPaid, onError, submitting, setSubmitting }) {
+  const stripe = useStripe();
+  const elements = useElements();
+
+  const click = async () => {
+    if (!validate()) return;
+    if (!stripe || !elements) return;
+    setSubmitting(true);
+    onError(null);
+    try {
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: window.location.href },
+        redirect: "if_required",
+      });
+      if (error) {
+        onError(error.message || "Payment could not be completed.");
+        setSubmitting(false);
+        return;
+      }
+      await onPaid(paymentIntent.id);
+    } catch (err) {
+      onError(apiErrorMessage(err));
+      setSubmitting(false);
+    }
+  };
+
+  return <PayCTA label={label} onClick={click} disabled={!stripe || submitting} submitting={submitting} />;
+}
+
+function MockPayButton({ label, validate, paymentIntentId, onPaid, onError, submitting, setSubmitting }) {
+  const click = async () => {
+    if (!validate()) return;
+    setSubmitting(true);
+    onError(null);
+    try {
+      await onPaid(paymentIntentId);
+    } catch (err) {
+      onError(apiErrorMessage(err));
+      setSubmitting(false);
+    }
+  };
+
+  return <PayCTA label={label} onClick={click} disabled={submitting} submitting={submitting} />;
+}
+
+function PayCTA({ label, onClick, disabled, submitting }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="mt-4 w-full rounded-lg bg-bonza px-4 py-3 text-[14px] font-semibold text-white transition-colors hover:bg-bonza-dark disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {submitting ? "Processing…" : label}
+    </button>
+  );
+}
+
+function Card({ icon, title, children }) {
+  return (
+    <section className="rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(40,30,20,0.04),0_16px_40px_rgba(120,80,50,0.07)] ring-1 ring-black/5">
+      <h2 className="mb-4 flex items-center gap-2 text-[15px] font-extrabold text-ink">
+        <Icon name={icon} className="h-4 w-4 text-bonza" />
+        {title}
+      </h2>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function Field({ label, hint, error, children }) {
+  return (
+    <label className="block">
+      <span className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+        {label}
+        {hint && <span className="font-medium normal-case tracking-normal text-ink-muted/80">· {hint}</span>}
+      </span>
+      {children}
+      {error && <span className="mt-1 block text-[11px] font-medium text-bonza-dark">{error}</span>}
+    </label>
+  );
+}
+
+const inputCls = (error) =>
+  `w-full rounded-lg border bg-white px-3 py-2 text-[13px] text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-bonza/30 ${
+    error ? "border-bonza-dark" : "border-[#e0d9cf] focus:border-bonza"
+  }`;
+
+function SummaryRow({ icon, text }) {
+  return (
+    <div className="flex items-center gap-2.5 py-2">
+      <Icon name={icon} className="h-4 w-4 shrink-0 text-bonza" />
+      <span className="tabular-nums text-ink-soft">{text}</span>
+    </div>
+  );
+}
+
+// Branded transitional screen while the trip + booking link bootstrap (held ~0.8s so it's actually seen).
+function PreparingScreen() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-cream font-jakarta">
+      <span className="font-display text-[24px] font-semibold tracking-[-0.01em] text-ink">Bonza</span>
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-ink-900/10 border-t-bonza" />
+      <div className="text-center">
+        <p className="font-display text-[18px] font-semibold text-ink">Preparing your booking…</p>
+        <p className="mt-1 text-[13px] text-ink-soft">Locking in your rate and points options.</p>
+      </div>
+    </div>
+  );
+}
+
+function PriceRow({ label, value, accent }) {
+  return (
+    <div className="flex items-center justify-between py-0.5">
+      <span className="text-ink-soft">{label}</span>
+      <span className={accent ? "font-bold text-[#1E7E40]" : "font-semibold text-ink"}>{value}</span>
+    </div>
+  );
+}
+
+function TrustChip({ icon, title, text }) {
+  return (
+    <div className="rounded-xl bg-cream p-2.5">
+      <p className="flex items-center gap-1.5 text-[12px] font-bold text-ink">
+        <Icon name={icon} className="h-3.5 w-3.5 text-bonza" />
+        {title}
+      </p>
+      <p className="mt-0.5 text-[11px] leading-snug text-ink-muted">{text}</p>
+    </div>
+  );
+}
+
+function SuccessCard({ onHome }) {
+  return (
+    <section className="animate-dropin rounded-2xl bg-white p-8 text-center shadow-[0_1px_2px_rgba(40,30,20,0.04),0_16px_40px_rgba(120,80,50,0.07)] ring-1 ring-black/5 motion-reduce:animate-none">
+      <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#EAF6EE] text-[#1E7E40]">
+        <Icon name="check" className="h-7 w-7" />
+      </span>
+      <h2 className="mt-4 font-display text-[26px] font-bold text-ink">Your trip is booked.</h2>
+      <p className="mt-1 text-[14px] text-ink-soft">Saved to your account — you can view it any time under your bookings.</p>
+      <button type="button" onClick={onHome} className="mt-5 inline-flex items-center gap-1.5 text-[13px] font-semibold text-bonza hover:text-bonza-dark">
+        Return home
+        <Icon name="arrow" className="h-3.5 w-3.5" />
+      </button>
+    </section>
+  );
+}
+
+function Steps() {
+  const STEPS = [["Search", true], ["Optimise", true], ["Book", false]];
+  return (
+    <nav className="flex items-center gap-2 text-[12px]">
+      {STEPS.map(([label, done], i) => (
+        <div key={label} className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5">
+            <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${i < 2 || !done ? "" : ""} ${done || i === 2 ? "bg-bonza text-white" : "bg-[#e7e1d8] text-ink-muted"}`}>
+              {done ? <Icon name="check" className="h-2.5 w-2.5" /> : i + 1}
+            </span>
+            <span className={`font-medium ${i === 2 ? "text-bonza" : "text-ink-soft"}`}>{label}</span>
+          </span>
+          {i < 2 && <span className="h-px w-4 bg-[#e0d9cf]" />}
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+const ICONS = {
+  user: <><circle cx="12" cy="8" r="4" /><path d="M4 21v-1a6 6 0 0 1 12 0v1" /></>,
+  card: <><rect x="2" y="5" width="20" height="14" rx="2" /><line x1="2" y1="10" x2="22" y2="10" /></>,
+  trophy: <><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z" /><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3" /></>,
+  plane: <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 4.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />,
+  building: <><path d="M3 21h18" /><path d="M5 21V7l8-4v18" /><path d="M19 21V11l-6-4" /><path d="M9 9v.01M9 12v.01M9 15v.01" /></>,
+  car: <><path d="M5 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM19 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" /><path d="M5 17H3v-6l2-5h9l4 5h3a2 2 0 0 1 2 2v4h-2M7 17h8" /></>,
+  users: <><circle cx="9" cy="8" r="4" /><path d="M2 21v-1a6 6 0 0 1 11-3M16 4a4 4 0 0 1 0 8M22 21v-1a6 6 0 0 0-4-5.6" /></>,
+  lock: <><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></>,
+  shield: <><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" /><polyline points="9 12 11 14 15 10" /></>,
+  refresh: <><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><polyline points="21 3 21 8 16 8" /></>,
+  headset: <><path d="M4 14v-2a8 8 0 0 1 16 0v2" /><path d="M4 14a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2zM20 14a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2 2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2zM18 20a4 4 0 0 1-4 3h-2" /></>,
+  star: <path d="M12 2.5l2.9 5.88 6.49.94-4.69 4.57 1.1 6.46L12 17.3l-5.8 3.05 1.1-6.46-4.69-4.57 6.49-.94L12 2.5z" />,
+  check: <polyline points="20 6 9 17 4 12" />,
+  arrow: <><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></>,
+};
+
+function Icon({ name, className, solid = false }) {
+  const fillIcon = solid || name === "star";
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill={fillIcon ? "currentColor" : "none"}
+      stroke={fillIcon ? "none" : "currentColor"}
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      {ICONS[name]}
+    </svg>
+  );
+}

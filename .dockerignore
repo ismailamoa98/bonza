@@ -1,0 +1,16 @@
+# Keep build context small + secrets out of images.
+# NOTE: src/backend and src/frontend are intentionally NOT ignored — the API build stage
+# does `COPY . .` and the frontend image builds from src/frontend.
+node_modules
+**/node_modules
+infra
+.git
+.github
+dist
+**/dist
+cdk.out
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store

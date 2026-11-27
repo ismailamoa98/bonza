@@ -1,0 +1,6 @@
+{
+  "name": "current statement",
+  "programme": "marriott_bonvoy",
+  "body": "Marriott Bonvoy monthly statement. Your current points balance is 124,000 points. Status: Gold Elite. Thanks for being a member.",
+  "expect": { "balance": 124000, "minConfidence": 0.9, "matchedPattern": "context_before" }
+}

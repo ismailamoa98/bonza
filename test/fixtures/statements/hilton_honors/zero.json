@@ -1,0 +1,6 @@
+{
+  "name": "genuine zero balance (only the legacy pattern can read a single-digit balance)",
+  "programme": "hilton_honors",
+  "body": "Hilton Honors. Your current balance is 0 points. Start earning on your next stay.",
+  "expect": { "balance": 0, "minConfidence": 0.3, "matchedPattern": "legacy" }
+}

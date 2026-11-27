@@ -25,8 +25,10 @@ router.post("/create-booking-link", async (req, res, next) => {
       throw err;
     }
 
+    // Scope the scenario to this (already-owned) trip so a caller can't attach
+    // another user's scenario to their booking link (IDOR guard).
     const scenario = selectedScenarioId
-      ? await prisma.scenario.findUnique({ where: { id: selectedScenarioId } })
+      ? await prisma.scenario.findFirst({ where: { id: selectedScenarioId, tripId } })
       : null;
 
     const expiresAt = new Date(Date.now() + BOOKING_LINK_TTL_DAYS * 24 * 60 * 60 * 1000);

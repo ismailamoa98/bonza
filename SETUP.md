@@ -45,7 +45,8 @@ Then edit `.env`:
 - `JWT_SECRET` — set to any long random string.
 - `FRONTEND_URL` / `BACKEND_URL` — defaults are fine locally.
 
-`.env` is gitignored and must never be committed.
+`.env` is gitignored and must never be committed. See **[ENVIRONMENT.md](ENVIRONMENT.md)** for the full
+environment-variable reference (local `.env`, Secrets Manager, and CI secrets).
 
 ## 3. Install Dependencies
 

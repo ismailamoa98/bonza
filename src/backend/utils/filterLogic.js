@@ -26,6 +26,15 @@ exports.filterHotels = (hotels, filters = {}) => {
   if (filters.minRating != null) {
     result = result.filter((h) => h.rating >= filters.minRating);
   }
+  if (filters.propertyType && filters.propertyType.length) {
+    result = result.filter((h) => filters.propertyType.includes(h.propertyType));
+  }
+  if (filters.freeCancellation) {
+    result = result.filter((h) => h.freeCancellation);
+  }
+  if (filters.breakfast) {
+    result = result.filter((h) => h.breakfastIncluded);
+  }
 
   if (filters.sort === "price") {
     result.sort((a, b) => a.pricePerNight - b.pricePerNight);
@@ -44,6 +53,16 @@ exports.filterHotels = (hotels, filters = {}) => {
 const durationHours = (f) =>
   (new Date(f.arrivalTime) - new Date(f.departureTime)) / 3600000;
 
+// True if a UTC hour falls in any of the requested time-of-day buckets.
+const inTimeBuckets = (hour, buckets) =>
+  buckets.some((t) => {
+    if (t === "early") return hour >= 5 && hour < 9;
+    if (t === "morning") return hour >= 9 && hour < 12;
+    if (t === "afternoon") return hour >= 12 && hour < 17;
+    if (t === "evening") return hour >= 17;
+    return false;
+  });
+
 exports.filterFlights = (flights, filters = {}) => {
   let result = [...flights];
 
@@ -60,19 +79,23 @@ exports.filterFlights = (flights, filters = {}) => {
     result = result.filter((f) => f.cabin === filters.cabin);
   }
   if (filters.departureTime && filters.departureTime.length) {
-    result = result.filter((f) => {
-      const hour = new Date(f.departureTime).getUTCHours();
-      return filters.departureTime.some((t) => {
-        if (t === "early") return hour >= 5 && hour < 9;
-        if (t === "morning") return hour >= 9 && hour < 12;
-        if (t === "afternoon") return hour >= 12 && hour < 17;
-        if (t === "evening") return hour >= 17;
-        return false;
-      });
-    });
+    result = result.filter((f) =>
+      inTimeBuckets(new Date(f.departureTime).getUTCHours(), filters.departureTime)
+    );
   }
-  if (filters.stops != null) {
-    result = result.filter((f) => f.stops === filters.stops);
+  if (filters.arrivalTime && filters.arrivalTime.length) {
+    result = result.filter((f) =>
+      inTimeBuckets(new Date(f.arrivalTime).getUTCHours(), filters.arrivalTime)
+    );
+  }
+  if (filters.maxStops != null) {
+    result = result.filter((f) => f.stops <= filters.maxStops);
+  }
+  if (filters.refundable) {
+    result = result.filter((f) => f.refundable);
+  }
+  if (filters.baggage) {
+    result = result.filter((f) => f.baggageIncluded);
   }
   if (filters.minDuration != null) {
     result = result.filter((f) => durationHours(f) >= filters.minDuration);

@@ -9,4 +9,7 @@ exports.getMockPlaidData = (userId) => ({
   unitedMiles: 15000,
   marriottPoints: 0,
   other: {},
+  // Masked account tails (last 4) for the dashboard loyalty strip. Additive —
+  // balance consumers read amex/chaseUr/… and ignore this.
+  accounts: { amex: "4521", chaseUr: "7821", unitedMiles: "3391", marriottPoints: "9007" },
 });

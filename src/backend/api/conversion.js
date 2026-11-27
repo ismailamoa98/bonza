@@ -4,6 +4,8 @@
 // booking type (flight/hotel/car) is tracked separately.
 const express = require("express");
 const prisma = require("../config/database");
+const { ownedOr403 } = require("../utils/ownedOr403");
+const { toMinor } = require("../../shared/format");
 
 const router = express.Router();
 
@@ -17,11 +19,8 @@ router.post("/conversion", async (req, res, next) => {
     }
 
     const bookingLink = await prisma.bookingLink.findUnique({ where: { token: bookingToken } });
-    if (!bookingLink) {
-      const err = new Error("Booking link not found");
-      err.status = 404;
-      throw err;
-    }
+    // Only the booking link's owner may record conversions against it (IDOR guard).
+    if (!ownedOr403(bookingLink, req.userId, res)) return;
 
     const conversion = await prisma.conversion.create({
       data: {
@@ -29,7 +28,7 @@ router.post("/conversion", async (req, res, next) => {
         type,
         vendor,
         bookingId: bookingId || null,
-        commissionAmount: commissionAmount != null ? Number(commissionAmount) : null,
+        commissionAmountPence: commissionAmount != null ? toMinor(Number(commissionAmount), "GBP") : null,
       },
     });
 
